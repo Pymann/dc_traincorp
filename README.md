@@ -12,7 +12,7 @@ Konten, Inventare sind nicht enthalten und nicht nötig.
 
 | Pfad | Inhalt |
 |---|---|
-| `itemgen/data/items_augmented.txt` | Rezepte + Eingabezeilen (259 Rezepte, 5.696 Samples) |
+| `itemgen/data/items_augmented.txt` | Rezepte + Eingabezeilen (259 Rezepte, 8.288 Samples, 32 je Rezept) |
 | `discovergen/data/discoveries_augmented.txt` | Fund- und Entdeckungsbeispiele (25.000) |
 | `data/skill_corpus.txt` | 253 Fertigkeiten × 60 Beispiele |
 | `data/combat_skill_corpus.txt` | 166 Kampffertigkeiten × 60 Beispiele |
@@ -20,6 +20,7 @@ Konten, Inventare sind nicht enthalten und nicht nötig.
 | `prophecy/data/` | Namen, Marken, Cluster, Domänen, Regellisten |
 | `prophecy/sources/` | Modell, Trainer, Köpfe, Inferenz |
 | `korpusgen/` | der Korpus-Erzeuger (aiml, JIT) |
+| `tools/korpus_grundlinie.py` | was ein Korpus hergibt: Grundlinie je Kopf, gleiche Kampf-Metadaten |
 | `sources/shared/` | die Modelldefinitionen, die der Abschluss braucht (nur Datenformen) |
 | `exodus-*.json` | je ein Build-Ziel; keine absoluten Pfade |
 
@@ -394,6 +395,79 @@ nicht jünger ist als die Objekte. Das Ergebnis sind Objekte des alten
 Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
 
 ## Bekannte Befunde
+
+* **Korpuslücken, gemessen 25.11.2026** (`tools/korpus_grundlinie.py`). Je
+  Kopf eine logistische Regression auf dem Wortbeutel, mit derselben
+  Aufteilung wie die Trainer (crc32 der Zeile). Das zeigt, was der Korpus
+  hergibt, unabhängig vom Modell:
+
+  | Kopf | Klassen | Testzeilen | Grundlinie | Kopf zuletzt |
+  |---|---|---|---|---|
+  | item_head | 259 | 829 (vorher 526) | **80,7 %** | 20,3 % (Lauf #7) |
+  | skill_head | 253 | 1.411 | **88,2 %** | 1 / 1411 (Lauf #12) |
+  | combat_skill_head | 166 | 973 | **49,0 %** | 11,1 % (Lauf #12) |
+
+  *Skill-Kopf:* der Korpus ist gut lernbar. Alle 253 Fertigkeiten haben 60
+  Beispiele, keine zwei haben gleiche Metadaten. Dass der Kopf unter Zufall
+  liegt, liegt am Training (tote Schicht, siehe unten), nicht an den Daten.
+  Mit einem Viertel der Lernzeilen kommt die Grundlinie schon auf 83 %.
+
+  *Kampfskill-Kopf:* hier begrenzt der Korpus. **18 Gruppen mit 47
+  Kampffertigkeiten haben dieselben Metadaten** (Fundament, Marken,
+  Gegenstände, Element, Kategorie), z. B. `hook_strike` = `finishing_blow`,
+  `crushing_blow` = `iron_pulse` = `bone_rattle` = `forge_impact`,
+  `thunderbolt` = `skyfall` = `stormcall` = `sandstorm`. Ihre Beispiele
+  kommen aus denselben Wörtern, kein Modell kann sie trennen. Zählt man
+  einen Treffer in der eigenen Gruppe als richtig, steigt die Grundlinie
+  nur auf 61,7 %, denn dazu kommen 146 Paare, die sich zu drei Vierteln
+  gleichen. Mehr Beispiele helfen wenig (halber Lernteil 45,9 %, ganzer
+  49,0 %). Abhilfe ist eine Unterscheidung in den Metadaten, und die
+  gehören dem Spiel (`combat_skill_metadata.yml` ist dort die Quelle,
+  der Server liest sie). Hier ist nichts geändert. Die Liste aller Gruppen
+  gibt das Skript aus.
+
+  *Item-Kopf:* zwei Lücken, beide behoben:
+
+  1. **Die 108 Rezepte der Blöcke KOCHEN (48) und TRAGBARES (60) hatten nur
+     acht Eingaben**, die 151 übrigen 32. Etwa sechs Lernzeilen je Rezept,
+     59 Rezepte ohne eine einzige Testzeile; Grundlinie 69,7 % (Kochen) und
+     57,1 % (Tragbares) gegen 83,4 % im Hauptteil. Jetzt liest `korpusgen
+     rezepte` auch die Rezepte dieser Blöcke und füllt bis 32 auf. Die
+     zusätzlichen Zeilen stehen im Eingabeteil, die Blöcke selbst bleiben
+     Zeile für Zeile, die Rezeptzeilen auch. Danach: 77,8 % und 75,9 %,
+     Hauptteil unverändert 83,5 %, 11 Rezepte ohne Testzeile. 8.288 statt
+     5.696 Eingaben; der Item-Kopf braucht entsprechend etwa 45 % länger.
+  2. **`stil_von` fand nie ein Cluster.** Es trennte die Kennung an `-`, die
+     Kennungen haben aber `_`. Damit trugen alle 4.832 Eingaben das Fundament
+     `resource_lore`, und die Prozessmarken des Clusters kamen nie in den
+     Beutel. Behoben. Das Fundament ist jetzt die echte Starter-Fertigkeit
+     des Handwerks (`rune_sense`, `magic_aptitude`, `animal_sense` …).
+     Die Kernstoffe des Clusters, die an derselben Stelle hätten dazukommen
+     sollen, sind dagegen gestrichen. Gemessen senkten sie die Grundlinie
+     im Hauptteil von 83 % auf 72 %: Eisen und Kupfer, die gar nicht im
+     Rezept stehen, machen alle Schmiederezepte gleich.
+
+  Was bleibt und an den Rezeptzeilen hängt (die stehen in der lebenden
+  Datenbank, darum hier nicht geändert): vier Paare mit gleichen Zutaten
+  und Werkbänken (`trowel`/`morningstar`, `memory_cell`/`elder_ring`,
+  `bottle`/`jar`, `transmitter`/`timer`) und 50 Paare, bei denen die Zutaten
+  eines Rezepts eine echte Teilmenge eines anderen sind. 21 Ausgaben haben
+  mehrere Rezepte (z. B. `choker` aus Rune, Faser oder Edelstein); die
+  Grundlinie trennt sie, weil sich die Zutaten unterscheiden. Mehr
+  Zutaten machen ein Rezept nicht schwerer: Rezepte mit 7 und 8 Zutaten
+  trafen vor der Auffüllung 19 von 20 Testzeilen.
+
+* **`korpusgen alles` schrieb Rezeptzeilen um** (behoben 25.11.2026).
+  `alles` rief auch `stoffe` auf, die einmalige Umstellung von Warengruppen
+  auf Stoffe. Auf eine Datei angewandt, die schon Stoffe nennt, liest sie
+  Stoffnamen wie `fungus`, `herb` oder `food` als Warengruppe: ein Lauf
+  änderte 48 Rezeptzeilen (z. B. `console`: fungus, moss, fern, sap → moss).
+  Das hätte jeder Workflow-Lauf mit `korpus_neu` getan. `stoffe` läuft
+  jetzt nur noch, wenn man es ausdrücklich nennt.
+
+  Dabei gesehen: `alles` mit aiml v1.0.2.5 erzeugt auch den Kampf- und den
+  Fertigkeitskorpus nicht byte-gleich zum eingecheckten Stand (andere
+  Ziehungen trotz Saat 42). Darum sind die beiden hier nicht neu erzeugt.
 
 * **Behoben 25.11.2026: der Hammer mit zwei Arten.** Das Gate lehnte 1 von
   300 Rezeptfolgen ab (`'hammer' ist im Korpus tool, nicht weapon`): zwei

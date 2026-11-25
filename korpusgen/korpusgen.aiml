@@ -175,7 +175,14 @@
       - decl: [getan, i32, 0]
       - if: { condition: { "||": [{ eq: [code, 1] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.kampf] }] }] }] }
       - if: { condition: { "||": [{ eq: [code, 2] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.fertigkeiten] }] }] }] }
-      - if: { condition: { "||": [{ eq: [code, 6] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.stoffe] }] }] }] }
+      # `stoffe` NICHT in `alles` (25.11.2026): es ist eine einmalige Umstellung
+      # (Warengruppen -> Stoffe) und nicht wiederholbar.  Auf eine Datei, die
+      # schon Stoffe nennt, angewandt, liest es Stoffnamen wie `fungus`, `herb`
+      # oder `food` als Warengruppe und schrieb 48 Rezeptzeilen um (z. B.
+      # console: fungus, moss, fern, sap -> moss).  Rezeptzeilen bleiben aber
+      # unveraendert (Entscheidung 1 vom 20.11.2026).  Nur ausdruecklich:
+      # `korpusgen ... -- stoffe`.
+      - if: { condition: { eq: [code, 6] }, then: [{ set: [getan, { "+": [getan, { call: [erz.stoffe] }] }] }] }
       - if: { condition: { "||": [{ eq: [code, 3] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.rezepte] }] }] }] }
       - if: { condition: { "||": [{ eq: [code, 4] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.chance] }] }] }] }
       - if: { condition: { "||": [{ eq: [code, 5] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.funde] }] }] }] }

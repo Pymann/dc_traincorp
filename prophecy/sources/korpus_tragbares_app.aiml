@@ -4,8 +4,9 @@
 # ACHTUNG (24.11.2026): dieser Erzeuger schreibt WARENGRUPPEN in die fuenfte
 # Spalte (`food x3, liquid x1`).  Rezepte nennen seit dem 24.11. Stoffe.  Wer
 # ihn laufen laesst, muss danach `korpusgen ... -- stoffe` und dann `rezepte`
-# laufen lassen; `alles` macht es in der richtigen Reihenfolge
-# (doc/architecture/rezept_stoffe_2026-11-24.md).
+# laufen lassen (doc/architecture/rezept_stoffe_2026-11-24.md).  `alles`
+# laesst `stoffe` seit 25.11.2026 aus: zweimal angewandt schreibt es
+# Rezeptzeilen um.
 #
 # Gemessen vor diesem Lauf: bracer 1 Rezept, trouser 1, helmet 2, boots 2,
 # gloves 3, cape 4, device 4, rune 6.  Fuer eine Armschiene kannte das Modell

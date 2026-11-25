@@ -35,6 +35,9 @@
       - [werkzeug, list<string>]
       - [ausgabe,  string]          # out_type
       - [stil,     string]          # Praefix der Kennung: rune, metal, kitchen ...
+      # 1 = steht im KOCHEN-/TRAGBARES-Block.  Seine Zeile schreibt der fremde
+      # Erzeuger; hier kommen nur zusaetzliche Eingaben dazu (25.11.2026).
+      - [fremd,    i32]
 
 - class:
     name: RezeptKorpus
@@ -49,6 +52,9 @@
       - [schwanz,  list<string>, null, { access: public }]   # KOCHEN + TRAGBARES, unveraendert
       - [domaenen, list<string>, null, { access: public }]
       - [ersetzt,  i32, 0, { access: public }]               # Fundamente, die getauscht wurden
+      # So viele Eingaben schreiben korpus_kochen_app und korpus_tragbares_app
+      # je Rezept in ihren Block.
+      - [schwanz_eingaben, i32, 8]
     methods:
       - def:
           name: start
@@ -75,15 +81,19 @@
             - if: { condition: { gt: [schnitt, 0] }, then: [{ return: { call: [sauber.substr, 0, schnitt] } }] }
             - return: sauber
 
-      # Der Stil aus der Kennung: `recipe-rune-amulet-medallion` -> `rune`.
+      # Der Stil aus der Kennung: `recipe_rune_amulet_medallion` -> `rune`.
+      # Bis 25.11.2026 stand hier `-` als Trenner (die Kennungen hatten
+      # frueher Bindestriche).  Damit fand `cluster_fuer` fuer KEIN Rezept
+      # ein Cluster: keine Kernstoffe, keine Prozessmarken, und das Fundament
+      # aller 4.832 Eingaben war `resource_lore`.
       - def:
           name: stil_von
           access: public
           args: [[kennung, string]]
           return: string
           body:
-            - decl: [ohne, string, { call: [kennung.replace, "recipe-", ""] }]
-            - decl: [teile, list<string>, { call: [ohne.split, "-"] }]
+            - decl: [ohne, string, { call: [kennung.replace, "recipe_", ""] }]
+            - decl: [teile, list<string>, { call: [ohne.split, "_"] }]
             - if: { condition: { gt: [teile.len, 0] }, then: [{ return: { at: [teile, 0] } }] }
             - return: ""
 
@@ -132,34 +142,38 @@
                   - if:
                       condition: { eq: [im_schwanz, 1] }
                       then: [{ call: [<.schwanz.push, roh] }]
-                      else:
+                  # Rezepte werden in BEIDEN Teilen gelesen: die des Schwanzes
+                  # bekamen von ihren Erzeugern nur acht Eingaben (Abnahme der
+                  # Grundlinie 57 % bzw. 70 % gegen 83 % im Hauptteil,
+                  # gemessen 25.11.2026); hier werden sie aufgefuellt.
+                  - if:
+                      condition: { eq: [{ call: [roh.starts_with, "recipe |"] }, 1] }
+                      then:
+                        - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
                         - if:
-                            condition: { eq: [{ call: [roh.starts_with, "recipe |"] }, 1] }
+                            condition: { ge: [spalten.len, 7] }
                             then:
-                              - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
-                              - if:
-                                  condition: { ge: [spalten.len, 7] }
-                                  then:
-                                    - decl: [rez, Rezept]
-                                    - set: [rez.zeile, roh]
-                                    - decl: [kenn_roh, string, { at: [spalten, 1] }]
-                                    - set: [rez.kennung, { call: [kenn_roh.trim] }]
-                                    - decl: [marke_roh, string, { at: [spalten, 3] }]
-                                    - set: [rez.marke, { call: [marke_roh.trim] }]
-                                    - decl: [mat_roh, string, { at: [spalten, 4] }]
-                                    - decl: [mat_teile, list<string>, { call: [topf_teile, mat_roh] }]
-                                    - decl: [mpos, i32, 0]
-                                    - while:
-                                        condition: { lt: [mpos, mat_teile.len] }
-                                        body:
-                                          - call: [rez.arten.push, { call: [<.art_ohne_zahl, { at: [mat_teile, mpos] }] }]
-                                          - set: [mpos, { "+": [mpos, 1] }]
-                                    - decl: [wkz_roh, string, { at: [spalten, 5] }]
-                                    - set: [rez.werkzeug, { call: [topf_teile, wkz_roh] }]
-                                    - decl: [aus_roh, string, { at: [spalten, 6] }]
-                                    - set: [rez.ausgabe, { call: [aus_roh.trim] }]
-                                    - set: [rez.stil, { call: [<.stil_von, rez.kennung] }]
-                                    - call: [<.rezepte.push, rez]
+                              - decl: [rez, Rezept]
+                              - set: [rez.zeile, roh]
+                              - decl: [kenn_roh, string, { at: [spalten, 1] }]
+                              - set: [rez.kennung, { call: [kenn_roh.trim] }]
+                              - decl: [marke_roh, string, { at: [spalten, 3] }]
+                              - set: [rez.marke, { call: [marke_roh.trim] }]
+                              - decl: [mat_roh, string, { at: [spalten, 4] }]
+                              - decl: [mat_teile, list<string>, { call: [topf_teile, mat_roh] }]
+                              - decl: [mpos, i32, 0]
+                              - while:
+                                  condition: { lt: [mpos, mat_teile.len] }
+                                  body:
+                                    - call: [rez.arten.push, { call: [<.art_ohne_zahl, { at: [mat_teile, mpos] }] }]
+                                    - set: [mpos, { "+": [mpos, 1] }]
+                              - decl: [wkz_roh, string, { at: [spalten, 5] }]
+                              - set: [rez.werkzeug, { call: [topf_teile, wkz_roh] }]
+                              - decl: [aus_roh, string, { at: [spalten, 6] }]
+                              - set: [rez.ausgabe, { call: [aus_roh.trim] }]
+                              - set: [rez.stil, { call: [<.stil_von, rez.kennung] }]
+                              - set: [rez.fremd, im_schwanz]
+                              - call: [<.rezepte.push, rez]
             - call: [log.info, "rezepte: ${<.rezepte.len} Rezeptzeilen, ${<.schwanz.len} Zeilen bleiben unveraendert"]
             - return: <.rezepte.len
 
@@ -184,7 +198,7 @@
             - return: raus
 
       # Eine Eingabezeile zu einem Rezept.  Die Vielfalt kommt aus
-      # Materialarten, Kernstoffen, Werkzeug, Prozessmarke, Taetigkeit und
+      # Zutaten, Werkzeug, Prozessmarke, Taetigkeit und
       # Fertigkeit -- nicht aus umsortierten Woertern (Plan Punkt 4).
       - def:
           name: eingabe_zeile
@@ -202,18 +216,11 @@
                 body:
                   - call: [beutel.push, { at: [gezogen, apos] }]
                   - set: [apos, { "+": [apos, 1] }]
-            # Kernstoffe des Clusters: echte Namen, kein Umsortieren.
-            - if:
-                condition: { "&&": [{ gt: [kern.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.55] }, 1] }] }
-                then:
-                  - decl: [kzahl, i32, { call: [<.zie.spanne, 1, 2] }]
-                  - decl: [kgez, list<string>, { call: [<.zie.mehrere, kern, kzahl] }]
-                  - decl: [kpos, i32, 0]
-                  - while:
-                      condition: { lt: [kpos, kgez.len] }
-                      body:
-                        - call: [beutel.push, { at: [kgez, kpos] }]
-                        - set: [kpos, { "+": [kpos, 1] }]
+            # KEINE Kernstoffe des Clusters mehr (25.11.2026).  Sie standen hier
+            # mit 0.55, wirkten aber nie, weil `stil_von` kein Cluster fand.  Mit
+            # repariertem `stil_von` gemessen: Grundlinie im Hauptteil 83 % -> 72 %;
+            # Eisen und Kupfer, die gar nicht im Rezept stehen, machen alle
+            # Schmiederezepte gleich.  Was im Beutel liegt, sind die Zutaten.
             - if: { condition: { eq: [{ call: [<.zie.muenze, 0.75] }, 1] }, then: [{ call: [beutel.push, rez.marke] }] }
             - if:
                 condition: { "&&": [{ gt: [marken.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.35] }, 1] }] }
@@ -252,7 +259,10 @@
                         - decl: [satz, ref<Satz>, { at: [<.cluster, pos] }]
                         - set: [kern, { call: [satz_liste, satz, "core_materials"] }]
                         - set: [marken, { call: [satz_liste, satz, "process_tags"] }]
+                  # Ein Rezept aus dem Schwanz hat dort schon acht Eingaben;
+                  # hier nur, was bis `je_rezept` fehlt.
                   - decl: [lauf, i32, 0]
+                  - if: { condition: { eq: [rez.fremd, 1] }, then: [{ set: [lauf, <.schwanz_eingaben] }] }
                   - while:
                       condition: { lt: [lauf, je_rezept] }
                       body:
@@ -289,7 +299,8 @@
                 body:
                   - decl: [rez, ref<Rezept>, { at: [<.rezepte, idx] }]
                   - set: [idx, { "+": [idx, 1] }]
-                  - call: [io.write, datei, "${rez.zeile}\n"]
+                  # Die Zeile eines Schwanz-Rezepts steht im Schwanz.
+                  - if: { condition: { eq: [rez.fremd, 0] }, then: [{ call: [io.write, datei, "${rez.zeile}\n"] }] }
             - call: [io.write, datei, "\n# -- Eingaben (Marken -> Rezept + Fertigkeit) --\n"]
             - decl: [pos, i32, 0]
             - while:
