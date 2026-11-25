@@ -413,8 +413,19 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Vorgaben (1200, 200, 150). Der Item-Kopf trainierte also 1,25 % seiner
   Epochen, mit `lr=0.0005` — Trainingstreffer 1,8 %, Abnahme Zufall. Behoben
   25.11.2026: `epochen` ist leer voreingestellt. Lauf #7: der Item-Kopf
-  trifft mit 1200 Epochen 20,3 % in der Abnahme (vorher 0,4 %). Skill- und
-  Kampfskill-Kopf mit vollen Epochen: Lauf #8.
+  trifft mit 1200 Epochen 20,3 % in der Abnahme (vorher 0,4 %).
+* **Skill- und Kampfskill-Kopf: tote relu-Schicht.** Mit vollen Epochen
+  (Lauf #9, 200 bzw. 150) fiel der Verlust bis Epoche 20 (12,1 → 9,48 bzw.
+  7,15 → 6,11) und stand danach **auf die fünfte Stelle fest**; Abnahme 2/1411
+  und 2/973, unter Zufall. Das ist dasselbe Bild wie früher beim Item-Kopf:
+  `lr=0.005` je Einzelbeispiel treibt alle 64 Einheiten unter 0, dann sind
+  alle Gradienten außer dem des Ausgabe-Bias 0 und der Kopf lernt nur noch die
+  Klassenhäufigkeit. Der Lauf dauerte 13 + 3 Minuten, nicht 2 h — die
+  Hochrechnung oben galt für lebende Schichten. Geändert: `lr=0.0005`, fallend
+  mit 1/sqrt(1+Epoche), `DC_LR` wird gelesen, und vor dem Training zählt
+  `BagBackbone.wache_einheiten` auf 300 Taschen die feuernden Einheiten — bei
+  0 wird die geladene Schicht verworfen und neu gezogen, denn ein toter Stand
+  aus dem Vorlauf erholt sich nie.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den

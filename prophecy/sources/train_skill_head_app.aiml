@@ -28,7 +28,10 @@
     name: SkillHeadTrainer
     members:
       - [n_epochs,         i32, 200]
-      - [learn_rate,       f32, 0.005]
+      # 0.005 je Einzelbeispiel erschlug die relu-Schicht (Lauf #9, 25.11.2026:
+      # fester Verlust ab Epoche 20, Abnahme unter Zufall) -- wie beim
+      # Item-Kopf 0.0005, fallend mit 1/sqrt(1+Epoche).
+      - [learn_rate,       f32, 0.0005]
       - [adam_b1,          f32, 0.9]
       - [adam_b2,          f32, 0.999]
       - [adam_eps,         f32, 0.00000001]
@@ -231,6 +234,9 @@
                 condition: { lt: [epoch, <.n_epochs] }
                 body:
                   - decl: [total_loss, f32, 0.0]
+                  - decl: [ep_f,       f32, epoch]
+                  - decl: [lr_teiler,  f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
+                  - decl: [lr_e,       f32, { "/": [<.learn_rate, lr_teiler] }]
                   - decl: [n_trained, i32, 0]
                   - decl: [s_idx, i32, 0]
                   - while:
@@ -260,10 +266,10 @@
                               # Backward + Adam + zero_grad
                               - call: [tensor.backward, loss]
                               - set: [global_step, { "+": [global_step, 1] }]
-                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.skill_head.weight, m_sw, v_sw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.skill_head.bias,   m_sb, v_sb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.skill_head.weight, m_sw, v_sw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.skill_head.bias,   m_sb, v_sb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
                               - call: [<.backbone.weight_1.zero_grad]
                               - call: [<.backbone.bias_1.zero_grad]
                               - call: [<.skill_head.weight.zero_grad]
@@ -278,7 +284,7 @@
                   - if:
                       condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
                       then:
-                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} avg_loss=${avg} samples=${n_trained}"]
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} lr=${lr_e} avg_loss=${avg} samples=${n_trained}"]
                   # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte die
                   # Schleife jede N-te Epoche und `run` am Ende UNBEDINGT -- beim
                   # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
@@ -390,6 +396,11 @@
                 then:
                   - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
                   - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_LR"] }, 1] }
+                then:
+                  - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
+                  - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
             - call: [log.info, "SkillHead training starting…"]
             # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
             # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
@@ -421,6 +432,15 @@
             - set: [<.backbone.foundation, <.embedder]
             - set: [<.backbone.hidden_dim, <.hidden_dim]
             - call: [<.backbone.init_model]
+            # Ein toter Stand aus einem frueheren Lauf erholt sich nie (alle
+            # Gradienten durch relu sind 0).  Dann frisch anfangen.
+            - decl: [wach, i32, { call: [<.backbone.wache_einheiten, <.train_input_ids, 300] }]
+            - call: [log.info, "backbone: ${wach} von ${<.hidden_dim} Einheiten wach"]
+            - if:
+                condition: { eq: [wach, 0] }
+                then:
+                  - call: [log.warn, "backbone ist tot -- neu initialisiert"]
+                  - call: [<.backbone.neu_initialisieren]
             - set: [<.skill_head.weights_name, "prophecy_skill_head_outputs"]
             - set: [<.skill_head.head_id_str, "skill"]
             - set: [<.skill_head.n_outputs_val, <.skill_vocab.len]

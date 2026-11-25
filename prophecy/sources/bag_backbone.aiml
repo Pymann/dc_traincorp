@@ -64,3 +64,60 @@
             - decl: [h1b_tn,    tensor, { call: [tensor.add, h1_tn, <.bias_1] }]
             - decl: [h1r_tn,    tensor, { call: [tensor.relu, h1b_tn] }]
             - return: h1r_tn
+
+      # Wie viele relu-Einheiten feuern auf den ersten `n_max` Taschen
+      # ueberhaupt einmal?  0 heisst: die Schicht ist tot, jeder Gradient
+      # ausser dem des Ausgabe-Bias ist 0, und kein Training holt sie zurueck.
+      # Gemessen am 25.11.2026 (Lauf #9): Skill- und Kampf-Skill-Kopf standen
+      # ab Epoche 20 auf festem Verlust, Abnahme unter Zufall.
+      - def:
+          name: wache_einheiten
+          args: [[taschen, list<list<i32>>], [n_max, i32]]
+          return: i32
+          body:
+            - decl: [je, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [h_idx, i32, 0]
+            - decl: [n_t, i32, taschen.len]
+            - decl: [gesehen, i32, 0]
+            - decl: [t_idx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [t_idx, n_t] }, { lt: [gesehen, n_max] }] }
+                body:
+                  - decl: [ids, list<i32>, { at: [taschen, t_idx] }]
+                  - set: [t_idx, { "+": [t_idx, 1] }]
+                  - if:
+                      condition: { gt: [ids.len, 0] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [hid, tensor, { call: [<.encode_bag, ids] }]
+                        - set: [h_idx, 0]
+                        - while:
+                            condition: { lt: [h_idx, <.hidden_dim] }
+                            body:
+                              - if:
+                                  condition: { gt: [{ call: [hid.get, h_idx] }, 0.0] }
+                                  then: [{ call: [je.set, h_idx, 1.0] }]
+                              - set: [h_idx, { "+": [h_idx, 1] }]
+                        - set: [gesehen, { "+": [gesehen, 1] }]
+            - decl: [wach, i32, 0]
+            - set: [h_idx, 0]
+            - while:
+                condition: { lt: [h_idx, <.hidden_dim] }
+                body:
+                  - if:
+                      condition: { gt: [{ call: [je.get, h_idx] }, 0.5] }
+                      then: [{ set: [wach, { "+": [wach, 1] }] }]
+                  - set: [h_idx, { "+": [h_idx, 1] }]
+            - return: wach
+
+      # Tote Schicht verwerfen: frisch wie beim ersten Lauf.
+      - def:
+          name: neu_initialisieren
+          args: []
+          return: i32
+          body:
+            - set: [<.weight_1, { call: [tensor.randn_ex, 0.0, 0.3, <.foundation.d_embed, <.hidden_dim] }]
+            - set: [<.bias_1,   { call: [tensor.zeros, <.hidden_dim] }]
+            - call: [<.weight_1.set_requires_grad, 1]
+            - call: [<.bias_1.set_requires_grad, 1]
+            - return: 1
