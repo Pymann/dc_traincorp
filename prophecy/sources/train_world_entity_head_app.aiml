@@ -446,6 +446,13 @@
             - while:
                 condition: { lt: [epoch, <.n_epochs] }
                 body:
+                  # Lernrate faellt mit 1/sqrt(1+Epoche), wie beim Embedding.
+                  # Mit fester 0.003 stieg der Gesamtverlust ab Epoche 2 (16,1
+                  # -> 18,5 in 15 Epochen, Lauf #5 am 25.11.2026), getrieben vom
+                  # Namens-Kopf, und jede Epoche dauerte laenger (1:21 -> 5:51).
+                  - decl: [ep_f, f32, epoch]
+                  - decl: [lr_teiler, f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
+                  - decl: [lr_e, f32, { "/": [<.learn_rate, lr_teiler] }]
                   - decl: [total_loss, f32, 0.0]
                   # Eigener Zaehler: der Gesamtverlust wird vom Namens-Kopf
                   # beherrscht und verriet nicht, ob die Fundart lernt.
@@ -517,18 +524,18 @@
                               # Backward + Adam + zero_grad
                               - call: [tensor.backward, loss]
                               - set: [global_step, { "+": [global_step, 1] }]
-                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.et_body.weight_1, m_eb1, v_eb1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.et_body.bias_1,   m_ebb, v_ebb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.et_head.weight,    m_etw, v_etw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.et_head.bias,      m_etb, v_etb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.tag_head.weight,   m_tgw, v_tgw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.tag_head.bias,     m_tgb, v_tgb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.yield_head.weight, m_ylw, v_ylw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.yield_head.bias,   m_ylb, v_ylb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.name_head.weight,  m_nmw, v_nmw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.name_head.bias,    m_nmb, v_nmb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_body.weight_1, m_eb1, v_eb1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_body.bias_1,   m_ebb, v_ebb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_head.weight,    m_etw, v_etw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_head.bias,      m_etb, v_etb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.tag_head.weight,   m_tgw, v_tgw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.tag_head.bias,     m_tgb, v_tgb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.yield_head.weight, m_ylw, v_ylw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.yield_head.bias,   m_ylb, v_ylb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.name_head.weight,  m_nmw, v_nmw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.name_head.bias,    m_nmb, v_nmb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
                               - call: [<.backbone.weight_1.zero_grad]
                               - call: [<.backbone.bias_1.zero_grad]
                               - call: [<.et_body.weight_1.zero_grad]
@@ -553,18 +560,23 @@
                       condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
                       then:
                         - decl: [et_avg, f32, { "/": [et_total, n_tf] }]
-                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} avg_loss=${avg} (Fundart ${et_avg}) samples=${n_trained}"]
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} lr=${lr_e} avg_loss=${avg} (Fundart ${et_avg}) samples=${n_trained}"]
                   # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte die
                   # Schleife jede N-te Epoche und `run` am Ende UNBEDINGT -- beim
                   # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
                   # Abnahme 2,6 %) ueber einen guten (13,7 %), gemessen 21.11.2026.
+                  # "Besser" misst der Fundart-Verlust, nicht der Gesamtverlust:
+                  # den beherrscht der Namens-Kopf, und in Lauf #5 sicherte die
+                  # Schleife darum Epoche 2 (Fundart 0,74), waehrend die Fundart
+                  # bis Epoche 14 auf 0,65 weiter fiel.
+                  - decl: [et_ep, f32, { "/": [et_total, n_tf] }]
                   - decl: [besser, i32, 0]
                   - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
-                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [et_ep, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
                   - if:
                       condition: { eq: [besser, 1] }
                       then:
-                        - set: [<.beste_verlust, avg]
+                        - set: [<.beste_verlust, et_ep]
                         - set: [<.hat_beste, 1]
                         - call: [<.backbone.save_weights]
                         - call: [<.et_body.save_weights]

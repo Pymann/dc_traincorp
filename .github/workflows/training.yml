@@ -41,6 +41,9 @@ on:
         description: "Modelle nach kontor hochladen (braucht die Geheimnisse KONTOR_*)"
         type: boolean
         default: true
+      koepfe:
+        description: "Nur diese Koepfe in Schritt 3, z.B. world-entity-head (leer = alle fuenf)"
+        default: ""
       korpus_neu:
         description: "Korpora vorher neu erzeugen (korpusgen alles)"
         type: boolean
@@ -290,22 +293,23 @@ jobs:
         env:
           # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
           # Variable dann auf "", die App sieht sie als vorhanden und parst
-          # "" -- je nach parse_* zu 0, also Lernrate 0 und Stapel 0.  Lauf #4
-          # stand damit 47 Minuten in den Koepfen statt Sekunden.
+          # "" -- in Lauf #4 trainierte der Item-Kopf darum mit `lr=0`.
           IN_LR: ${{ inputs.lernrate }}
           IN_STAPEL: ${{ inputs.stapel }}
+          # Ein einzelner Kopf laesst sich so nachtrainieren, ohne die anderen
+          # vier (zusammen gut 80 Minuten) noch einmal laufen zu lassen.
+          IN_KOEPFE: ${{ inputs.koepfe }}
         run: |
           set -eu
           if [ -n "$IN_LR" ]; then export DC_LR="$IN_LR"; fi
           if [ -n "$IN_STAPEL" ]; then export DC_STAPEL="$IN_STAPEL"; fi
-          for teil in item-head skill-head combat-skill-head world-entity-head combat-score-head; do
+          koepfe="${IN_KOEPFE:-item-head skill-head combat-skill-head world-entity-head combat-score-head}"
+          for teil in $koepfe; do
+            [ -f "exodus-prophecy-$teil.json" ] || { echo "unbekannter Kopf: $teil"; exit 1; }
             echo "== $teil =="
             exodus build -c "exodus-prophecy-$teil.json" 2>&1 | tee "berichte/build_$teil.log"
-          done
-          for bin in prophecy_train_item_head prophecy_train_skill_head \
-                     prophecy_train_combat_skill_head prophecy_train_world_entity_head \
-                     prophecy_train_combat_score_head; do
-            echo "== $bin =="
+            bin="prophecy_train_${teil%-head}_head"
+            bin="${bin//-/_}"
             "./$bin" 2>&1 | tee "berichte/3_$bin.log"
           done
 
@@ -314,8 +318,7 @@ jobs:
         env:
           # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
           # Variable dann auf "", die App sieht sie als vorhanden und parst
-          # "" -- je nach parse_* zu 0, also Lernrate 0 und Stapel 0.  Lauf #4
-          # stand damit 47 Minuten in den Koepfen statt Sekunden.
+          # "" statt ihre Vorgabe zu nehmen (siehe Schritt 3).
           IN_LR: ${{ inputs.lernrate }}
           IN_STAPEL: ${{ inputs.stapel }}
         run: |

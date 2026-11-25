@@ -35,7 +35,7 @@ recipe | recipe_metal_tool_bone_bench | bone_bench x1 | forged | char x1, minera
 recipe | recipe_metal_weapon_morningstar | morningstar x1 | blunt | bronze x1, iron x1 | anvil, forge_bench | weapon
 recipe | recipe_metal_helmet_burgonet | burgonet x1 | iron_craft | copper x1 | anvil, forge_bench | helmet
 recipe | recipe_metal_tool_needle | needle x1 | blunt | ash x1, ember_coal x1, bone_ash x1, steel x1 | anvil, forge_bench | tool
-recipe | recipe_metal_weapon_hammer | hammer x1 | iron_craft | copper x1, silver x1 | anvil, forge_bench | weapon
+recipe | recipe_metal_weapon_hammer | warhammer x1 | iron_craft | copper x1, silver x1 | anvil, forge_bench | weapon
 recipe | recipe_metal_weapon_shortbow | shortbow x1 | iron_craft | sulfur x1, firesand x1, mineral_dust x1, bronze x1, silver x1 | anvil, forge_bench | weapon
 recipe | recipe_wood_weapon_dagger | dagger x1 | balance | pine x1, willow x1 | woodworker_bench | weapon
 recipe | recipe_wood_tool_anvil | anvil x1 | balance | canvas x1, hemp x1 | woodworker_bench | tool

@@ -52,8 +52,9 @@ Dazu zwei Prüfungen, die keine Gewichte brauchen:
 
 `.github/workflows/training.yml`, nur von Hand auslösbar
 (`workflow_dispatch`). Eingaben: welcher Teil der Kette, Epochen, Lernrate,
-Stapelgröße, und die Run-ID eines früheren Laufes, dessen `aiondb` fortgesetzt
-wird.
+Stapelgröße, welche Köpfe Schritt 3 trainiert (`koepfe`, leer = alle fünf,
+z. B. `world-entity-head` für einen einzelnen), und die Run-ID eines früheren
+Laufes, dessen `aiondb` fortgesetzt wird.
 
 Ergebnis jedes Laufes: zwei Artefakte — `aiondb` (die KV-Stores) und
 `berichte` (alle Logs). Ein Folgelauf nimmt die `aiondb` des Vorlaufs über
@@ -272,7 +273,20 @@ letzten Schritt auffällt).
 Auf dem Runner war das Embedding **schneller** als auf dem
 Arbeitsplatzrechner: Lauf #3 (25.11.2026, `ubuntu-24.04`) brauchte **31 s je
 Epoche**, 15 Epochen in gut 8 Minuten (Verlust 965 → 38, noch fallend). Der
-ganze Lauf samt aiml-Bau dauerte 14 Minuten. Die übrigen Schritte sind auf
+ganze Lauf samt aiml-Bau dauerte 14 Minuten.
+
+Schritt 3 auf dem Runner, Lauf #5 (25.11.2026, 15 Epochen): **81 Minuten**,
+fast alles im World-Entity-Kopf.
+
+| Kopf | Dauer |
+|---|---|
+| item_head | 6 s |
+| skill_head | 9 min |
+| combat_skill_head | 4 min |
+| world_entity_head | **68 min** (Epoche 0: 1:21, Epoche 14: 5:51) |
+| combat_score_head | 6 s |
+
+Die übrigen Schritte sind auf
 dem Runner noch nicht gemessen; bis dahin gilt die Tabelle oben als obere
 Schätzung.
 
@@ -288,8 +302,8 @@ Schätzung.
 * **Leere Eingaben `lernrate`/`stapel` setzen keine Variable.** Bis zum
   25.11.2026 wurden sie direkt als `DC_LR`/`DC_STAPEL` übergeben; ein leeres
   Feld ergab dann eine *vorhandene, leere* Variable, die die Apps statt ihrer
-  Vorgabe parsten. Lauf #4 (`3-koepfe`) stand damit 47 Minuten in den Köpfen
-  und wurde abgebrochen. Jetzt wird nur exportiert, was gesetzt ist.
+  Vorgabe parsten; in Lauf #4 trainierte der Item-Kopf darum mit `lr=0`.
+  Jetzt wird nur exportiert, was gesetzt ist.
 * **Ein Lauf zur Zeit** (`concurrency: training`). Zwei Läufe auf derselben
   Datenbank überschreiben sich die Gewichte.
 
@@ -317,13 +331,25 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
 
 ## Bekannte Befunde
 
-* **Das Korpus-Gate ist rot: 1 von 300 Rezeptfolgen wird abgelehnt.** In
-  Lauf #2 (25.11.2026, frischer Atlas auf dem Runner) lautete der Grund:
-  `'hammer' ist im Korpus tool, nicht weapon`. Die abgelehnte Folge ist
-  `<out> hammer x1 … <skill> iron_craft <type> weapon`, also ein Rezept, das
-  einen Hammer als Waffe ausgibt, während `hammer` sonst als Werkzeug geführt
-  wird. Entfernen oder umbenennen, dann wird das Gate grün und `neueste` in
-  kontor wieder beschrieben.
+* **Behoben 25.11.2026: der Hammer mit zwei Arten.** Das Gate lehnte 1 von
+  300 Rezeptfolgen ab (`'hammer' ist im Korpus tool, nicht weapon`): zwei
+  Rezepte gaben `hammer` aus, `recipe_tech_tool_hammer` als `tool` und
+  `recipe_metal_weapon_hammer` als `weapon`. Die Regel kennt je Ausgabename
+  genau eine Art. Das Waffenrezept gibt jetzt `warhammer` aus (steht in
+  `names/items/weapon.txt`); Kennung, Zutaten und Art bleiben, damit die
+  Kennung in der Spieldatenbank weiter passt.
+* **World-Entity-Kopf (Lauf #5, 25.11.2026).** Die Fundart lernte (Abnahme
+  80 %, häufigste Art wäre 30 %), aber der Gesamtverlust stieg ab Epoche 2
+  (16,1 → 18,5), getrieben vom Namens-Kopf, und jede Epoche dauerte länger
+  (1:21 → 5:51). Dazu sicherte die Schleife nach dem Gesamtverlust und
+  behielt damit Epoche 2, obwohl die Fundart bis Epoche 14 weiter fiel.
+  Geändert: Lernrate fällt mit 1/√(1+Epoche) wie beim Embedding, gesichert
+  wird nach dem Fundart-Verlust. Ob das auch die Verlangsamung behebt, zeigt
+  der nächste Lauf; die Vermutung ist, dass auseinanderlaufende Gewichte im
+  Namens-Kopf Rechenzeit kosten (z. B. denormale Zahlen), belegt ist das nicht.
+* **Item-, Skill- und Kampfskill-Kopf liegen in der Abnahme auf Zufallsniveau**
+  (Lauf #5: 2/526, 2/1411, 2/973 richtig). Der Item-Kopf ist nach 6 Sekunden
+  fertig. Noch nicht untersucht.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
