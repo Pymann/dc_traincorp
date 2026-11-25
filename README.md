@@ -302,6 +302,16 @@ World-Entity-Kopf):
 | Embedding | 30 | 15 | ≈ 16 min |
 | Chance-Kopf (`CS_EPOCHEN`) | 1500 | — | nicht gemessen |
 
+Gemessen mit den Vorgaben, Lauf #7 (25.11.2026):
+
+| Kopf | Epochen | Dauer | Abnahme (nicht trainiert) | vorher, 15 Epochen |
+|---|---|---|---|---|
+| item_head | 1200 | **6 min** | **107 / 526 richtig (20,3 %)**, Zufall 0,4 % | 2 / 526 |
+| combat_score_head | 150 | 50 s | erklärte Streuung **0,85** (Wucht 0,82) | 0,80 (0,77) |
+
+Der Verlust des Item-Kopfs fällt bis Epoche 1200 noch (5,47 → 4,07); seine
+Lernrate ist dann schon auf 1,5·10⁻⁵ gefallen.
+
 Alle fünf Köpfe zusammen passen damit vermutlich **nicht** in einen Job
 (350 min). Darum über `koepfe` verteilen, z. B. ein Lauf mit `skill-head`,
 einer mit `world-entity-head`, einer mit den übrigen drei, jeweils mit der
@@ -378,8 +388,9 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   `DC_EPOCHEN=15` für alle Apps, und die Köpfe nahmen das statt ihrer
   Vorgaben (1200, 200, 150). Der Item-Kopf trainierte also 1,25 % seiner
   Epochen, mit `lr=0.0005` — Trainingstreffer 1,8 %, Abnahme Zufall. Behoben
-  25.11.2026: `epochen` ist leer voreingestellt. Ob die Köpfe mit vollen
-  Epochen über Zufall kommen, ist auf dem Runner noch nicht gemessen.
+  25.11.2026: `epochen` ist leer voreingestellt. Lauf #7: der Item-Kopf
+  trifft mit 1200 Epochen 20,3 % in der Abnahme (vorher 0,4 %). Skill- und
+  Kampfskill-Kopf mit vollen Epochen: Lauf #8.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
