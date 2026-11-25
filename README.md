@@ -442,6 +442,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   nicht neu gezogen; Verlust fiel nur langsam (11,0 → 9,52), Abnahme 1 / 1411,
   weiter unter Zufall. Darum gilt seitdem: weniger als ein Viertel wach → neu
   ziehen.
+
+  Lauf #13 (nur Skill-Kopf, neu gezogen): Verlust fällt jetzt (12,0 → 10,17
+  bis Epoche 80), aber **45 s je Epoche** statt 3 s — die 3 s waren das Tempo
+  der toten Schicht. Lauf #5 hatte schon 36 s je Epoche gemessen; die
+  Hochrechnung von ≈ 2 h für 200 Epochen stimmt also für einen lebenden
+  Kopf. Abgebrochen nach Epoche 80 (1 h), damit der Transformer vorgeht. Der
+  Skill-Kopf braucht einen eigenen Lauf von rund 2,5 h.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
