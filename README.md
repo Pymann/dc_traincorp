@@ -91,19 +91,22 @@ Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die
 `X-Checksum-Sha256`-Prüfung):
 
 ```
-generic/datacreatures/prophecy/<laufnummer>-<commit>/modelle.tar.gz
-generic/datacreatures/prophecy/<laufnummer>-<commit>/modelle.json
-generic/datacreatures/prophecy/neueste/modelle.tar.gz
-generic/datacreatures/prophecy/neueste/modelle.json
+generic/datacreatures/prophecy/<laufnummer>-<commit>/models.tar.gz
+generic/datacreatures/prophecy/<laufnummer>-<commit>/models.json
+generic/datacreatures/prophecy/latest/models.tar.gz
+generic/datacreatures/prophecy/latest/models.json
 ```
 
-`modelle.json` liegt daneben, damit die Herkunft ohne Download lesbar ist:
+Alles, was in kontor landet — Pfade, Dateinamen, JSON-Schlüssel — ist
+englisch; die Ablage teilen sich mehrere Projekte.
+
+`models.json` liegt daneben, damit die Herkunft ohne Download lesbar ist:
 Laufnummer, Korpus-Commit, aiml-Commit, Schritte, Epochen, die Liste der
 Stores, Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
 Atlas-Token gefunden hat.
 
-**`neueste` wird nur überschrieben, wenn das Gate grün war und kein Wort
-ohne Token meldet.** Kaputte Gewichte als „neueste" zu veröffentlichen wäre schlimmer,
+**`latest` wird nur überschrieben, wenn das Gate grün war und kein Wort
+ohne Token meldet.** Kaputte Gewichte als „latest" zu veröffentlichen wäre schlimmer,
 als sie gar nicht zu veröffentlichen; der lauf-eigene Pfad bekommt sie
 trotzdem, damit man hineinsehen kann.
 

@@ -407,9 +407,9 @@ jobs:
           [ -n "$stores" ] || { echo "keine prophecy-Stores in aiondb -- nichts hochzuladen."; exit 1; }
 
           # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
-          tar --sparse -C aiondb -czf modelle.tar.gz $stores
-          summe=$(sha256sum modelle.tar.gz | cut -d' ' -f1)
-          groesse=$(stat -c%s modelle.tar.gz)
+          tar --sparse -C aiondb -czf models.tar.gz $stores
+          summe=$(sha256sum models.tar.gz | cut -d' ' -f1)
+          groesse=$(stat -c%s models.tar.gz)
 
           # Herkunft neben das Paket, damit man sie ohne Download lesen kann.
           # `grep -c` gibt bei null Treffern "0" aus UND Exitcode 1 -- ein
@@ -419,43 +419,43 @@ jobs:
             gate_zeile=$(grep -c 'ohne Token' berichte/gate_korpus.log || true)
             [ -n "$gate_zeile" ] || gate_zeile=0
           fi
-          python3 - "$summe" "$groesse" "$gate_zeile" <<'EOP' > modelle.json
+          python3 - "$summe" "$groesse" "$gate_zeile" <<'EOP' > models.json
           import json, os, sys
           summe, groesse, gate = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
           print(json.dumps({
-            "erzeugt_von": "dc_traincorp/.github/workflows/training.yml",
-            "lauf": os.environ.get("GITHUB_RUN_ID"),
-            "laufnummer": os.environ.get("GITHUB_RUN_NUMBER"),
-            "korpus_commit": os.environ.get("GITHUB_SHA"),
+            "produced_by": "dc_traincorp/.github/workflows/training.yml",
+            "run_id": os.environ.get("GITHUB_RUN_ID"),
+            "run_number": os.environ.get("GITHUB_RUN_NUMBER"),
+            "corpus_commit": os.environ.get("GITHUB_SHA"),
             "aiml_commit": os.environ.get("AIML_SHA"),
-            "schritte": os.environ.get("SCHRITTE"),
-            "epochen": os.environ.get("DC_EPOCHEN", "Vorgabe"),
-            "cs_epochen": os.environ.get("CS_EPOCHEN", "Vorgabe"),
+            "steps": os.environ.get("SCHRITTE"),
+            "epochs": os.environ.get("DC_EPOCHEN", "default"),
+            "cs_epochs": os.environ.get("CS_EPOCHEN", "default"),
             "stores": sorted(f for f in os.listdir("aiondb") if f.startswith("prophecy_")),
-            "paket_sha256": summe,
-            "paket_bytes": groesse,
-            "gate_woerter_ohne_token": gate,
+            "package_sha256": summe,
+            "package_bytes": groesse,
+            "gate_words_without_token": gate,
           }, indent=1, ensure_ascii=False))
           EOP
 
           ziel="generic/datacreatures/prophecy/${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:12}"
           echo "== $ziel =="
-          hoch -X PUT -T modelle.tar.gz -H "X-Checksum-Sha256: $summe" "$KONTOR_URL/$ziel/modelle.tar.gz"
-          hoch -X PUT -T modelle.json "$KONTOR_URL/$ziel/modelle.json"
+          hoch -X PUT -T models.tar.gz -H "X-Checksum-Sha256: $summe" "$KONTOR_URL/$ziel/models.tar.gz"
+          hoch -X PUT -T models.json "$KONTOR_URL/$ziel/models.json"
 
-          # `neueste` nur, wenn das Gate kein Wort ohne Token gefunden hat.
-          # Kaputte Gewichte als "neueste" zu veroeffentlichen waere schlimmer
+          # `latest` nur, wenn das Gate kein Wort ohne Token gefunden hat.
+          # Kaputte Gewichte als "latest" zu veroeffentlichen waere schlimmer
           # als sie gar nicht zu veroeffentlichen.
           # Und nur, wenn das Gate selbst gruen war: ein Gate, das abstuerzt
           # oder Trainingsfolgen ablehnt, schreibt kein "ohne Token" -- die
           # Zeilenzaehlung allein liesse es durch.
           if [ "$gate_zeile" = "0" ] && [ "$GATE_ERGEBNIS" = "success" ]; then
-            hoch -X PUT -T modelle.tar.gz -H "X-Checksum-Sha256: $summe" \
-                  "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.tar.gz"
-            hoch -X PUT -T modelle.json "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.json"
-            echo "auch als neueste veroeffentlicht"
+            hoch -X PUT -T models.tar.gz -H "X-Checksum-Sha256: $summe" \
+                  "$KONTOR_URL/generic/datacreatures/prophecy/latest/models.tar.gz"
+            hoch -X PUT -T models.json "$KONTOR_URL/generic/datacreatures/prophecy/latest/models.json"
+            echo "also published as latest"
           else
-            echo "NICHT als neueste: Gate ${GATE_ERGEBNIS}, Zeilen ohne Token: ${gate_zeile}"
+            echo "NOT published as latest: Gate ${GATE_ERGEBNIS}, Zeilen ohne Token: ${gate_zeile}"
           fi
 
       - name: Ergebnis sichern
