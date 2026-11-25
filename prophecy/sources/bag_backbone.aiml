@@ -75,7 +75,7 @@
           args: [[taschen, list<list<i32>>], [n_max, i32]]
           return: i32
           body:
-            - decl: [je, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [gefeuert, tensor, { call: [tensor.zeros, <.hidden_dim] }]
             - decl: [h_idx, i32, 0]
             - decl: [n_t, i32, taschen.len]
             - decl: [gesehen, i32, 0]
@@ -96,7 +96,7 @@
                             body:
                               - if:
                                   condition: { gt: [{ call: [hid.get, h_idx] }, 0.0] }
-                                  then: [{ call: [je.set, h_idx, 1.0] }]
+                                  then: [{ call: [gefeuert.set, h_idx, 1.0] }]
                               - set: [h_idx, { "+": [h_idx, 1] }]
                         - set: [gesehen, { "+": [gesehen, 1] }]
             - decl: [wach, i32, 0]
@@ -105,7 +105,7 @@
                 condition: { lt: [h_idx, <.hidden_dim] }
                 body:
                   - if:
-                      condition: { gt: [{ call: [je.get, h_idx] }, 0.5] }
+                      condition: { gt: [{ call: [gefeuert.get, h_idx] }, 0.5] }
                       then: [{ set: [wach, { "+": [wach, 1] }] }]
                   - set: [h_idx, { "+": [h_idx, 1] }]
             - return: wach

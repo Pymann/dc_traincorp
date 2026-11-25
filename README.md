@@ -223,7 +223,7 @@ Darum liegt der fertige Übersetzer in kontor, **geschlüsselt auf den
 aiml-Commit**:
 
 ```
-generic/aiml/<commit-sha>/aiml-x86_64-linux.tar.gz     185 MB → 56 MB gepackt
+generic/aiml/<commit-sha>/aiml-x86_64-linux.tar.gz     gebündelt, 131 MB gepackt
 ```
 
 Der Lauf versucht zu laden; liegt der Stand dort nicht, wird gebaut und das
@@ -263,6 +263,12 @@ object file`), weil beim Laden kein `exodus pkg install` läuft. Darum prüft
 der Ladeschritt jetzt mit `ldd`: fehlt eine Bibliothek, gilt der Stand als
 nicht vorhanden, wird neu gebaut und überschreibt den alten (die generische
 Ablage nimmt ein zweites `PUT` an, gesehen in Lauf #9).
+
+Gemessen in Lauf #10 (25.11.2026): der alte Stand wurde am `ldd` erkannt
+(libyaml-cpp, libglfw, libGLEW, libopenblas fehlten), neu gebaut, das
+Bündel trägt **48 Bibliotheken** (darunter libLLVM) und ist gepackt
+**131 MB** statt 56 MB; Rauchtest außerhalb des Checkouts grün. Lauf #11 lud
+es in 10 s und übersetzte damit.
 
 Ohne die `KONTOR_*`-Geheimnisse läuft der Workflow trotzdem: dann wird gebaut
 und nichts abgelegt.
