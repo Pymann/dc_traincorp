@@ -214,14 +214,40 @@ curl --cacert tls/ca.crt -H "Authorization: Bearer <token>" \
 # {"name":"gha-training","kind":"token","roles":["writer"]}
 ```
 
-### Warum der aiml-Build gecacht wird
+### Der Übersetzer kommt aus kontor
 
-`out/aiml/aiml` und `libaiml.so` sind je rund 90 MB und binden LLVM ein. Der
-Cache ist auf den aiml-Commit geschlüsselt: einmal bauen je Commit, danach
-laden. Ohne das wäre die Übersetzung die teuerste Zeile des Workflows.
-Gemessen in Lauf #2 (25.11.2026): der Bau dauert auf dem Runner **7 Minuten**,
-der Cache ist rund 670 MB groß. Nach einem neuen aiml-Commit baut der erste
-Lauf neu.
+`out/aiml/aiml` und `libaiml.so` sind je rund 90 MB und binden LLVM 18 ein.
+Gemessen in Lauf #2 (25.11.2026): der Bau dauert auf dem Runner **7 Minuten**.
+Darum liegt der fertige Übersetzer in kontor, **geschlüsselt auf den
+aiml-Commit**:
+
+```
+generic/aiml/<commit-sha>/aiml-x86_64-linux.tar.gz     185 MB → 56 MB gepackt
+```
+
+Der Lauf versucht zu laden; liegt der Stand dort nicht, wird gebaut und das
+Ergebnis **für den nächsten Lauf abgelegt**. Einmal bauen je aiml-Commit.
+
+| `aiml_quelle` | |
+|---|---|
+| `auto` (Vorgabe) | laden; liegt nichts da, bauen und ablegen |
+| `kontor` | nur laden; liegt nichts da, abbrechen |
+| `bauen` | bauen, auch wenn etwas daliegt, und ablegen |
+
+Das ersetzt den GHA-Cache, es tritt nicht daneben: zwei Speicher für dieselbe
+Sache wären zwei Wahrheiten. kontor ist der haltbarere — Caches verfallen nach
+sieben Tagen ohne Zugriff und gelten nur je Repo, während derselbe Übersetzer
+auch für 9rooms und datacreatures taugt. Und er ist schlanker: 56 MB statt
+rund 670 MB, weil nur Binary und Laufzeit abgelegt werden, nicht der ganze
+Baubaum samt apt-Beiwerk.
+
+Warum die **generische** Ablage und nicht `/exodus/<name>/<version>/package`:
+dort müssen Name und Version mit dem Manifest übereinstimmen, und aiml trägt
+eine Version über alle Commits — jeder neue Stand würde den alten
+überschreiben. Hier ist der Commit der Schlüssel.
+
+Ohne die `KONTOR_*`-Geheimnisse läuft der Workflow trotzdem: dann wird gebaut
+und nichts abgelegt.
 
 ### Laufzeiten, gemessen
 

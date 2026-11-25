@@ -32,6 +32,11 @@ on:
       vorlauf:
         description: "Run-ID eines frueheren Laufes, dessen aiondb fortgesetzt wird (leer = leer anfangen)"
         default: ""
+      aiml_quelle:
+        description: "aiml: aus kontor holen, bauen, oder holen-sonst-bauen"
+        type: choice
+        default: auto
+        options: [auto, kontor, bauen]
       kontor:
         description: "Modelle nach kontor hochladen (braucht die Geheimnisse KONTOR_*)"
         type: boolean
@@ -107,6 +112,32 @@ jobs:
           python -m pip install ./.werkzeug/exodus
           exodus --version
 
+      # kontor wird fuer ZWEIERLEI gebraucht -- den Uebersetzer holen und die
+      # Modelle ablegen --, darum steht der Zugang hier und nicht erst am Ende.
+      # Fehlt ein Geheimnis, laeuft der Lauf trotzdem: dann wird aiml gebaut.
+      - name: kontor-Zugang
+        id: kontor
+        env:
+          KONTOR_URL: ${{ secrets.KONTOR_URL }}
+          KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
+          KONTOR_CA: ${{ secrets.KONTOR_CA }}
+        run: |
+          set -eu
+          mkdir -p .werkzeug
+          if [ -z "${KONTOR_URL:-}" ] || [ -z "${KONTOR_TOKEN:-}" ] || [ -z "${KONTOR_CA:-}" ]; then
+            echo "da=0" >> "$GITHUB_OUTPUT"
+            echo "Geheimnisse KONTOR_* fehlen -- aiml wird gebaut."
+            exit 0
+          fi
+          printf '%s\n' "$KONTOR_CA" > .werkzeug/kontor-ca.crt
+          # Kein `curl -k`: ohne Zertifikatspruefung koennte ein Mittelsmann
+          # das Schreibtoken abfangen.
+          echo "kontor: $(curl --silent --show-error --fail-with-body --max-time 60 \
+                               --cacert .werkzeug/kontor-ca.crt \
+                               -H "Authorization: Bearer $KONTOR_TOKEN" \
+                               "$KONTOR_URL/api/v1/whoami")"
+          echo "da=1" >> "$GITHUB_OUTPUT"
+
       - name: Welcher aiml-Stand
         id: stand
         run: |
@@ -114,24 +145,57 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "AIML_SHA=$sha" >> "$GITHUB_ENV"
 
-      # Der aiml-Uebersetzer bindet LLVM-18 ein; ihn bei jedem Lauf neu zu
-      # bauen waere die teuerste Zeile dieses Workflows.  Darum je Commit
-      # genau einmal, danach aus dem Cache.
-      - name: aiml-Build aus dem Cache
-        id: cache
-        uses: actions/cache@v4
-        with:
-          key: aiml-${{ runner.os }}-${{ steps.stand.outputs.sha }}
-          path: |
-            .werkzeug/aiml/out
-            .werkzeug/aiml/__exodus_cache
+      # Der aiml-Uebersetzer bindet LLVM 18 ein; ihn bei jedem Lauf neu zu
+      # bauen waere die teuerste Zeile dieses Workflows.  Darum liegt der
+      # fertige Uebersetzer in kontor, geschluesselt auf den Commit: einmal
+      # bauen je Stand, danach laden (185 MB, 56 MB gepackt).
+      #
+      # Warum die GENERISCHE Ablage und nicht `/exodus/<name>/<version>/package`:
+      # dort muessen Name und Version mit dem Manifest uebereinstimmen, und
+      # aiml traegt EINE Version ueber alle Commits -- jeder neue Stand wuerde
+      # den alten ueberschreiben.  Hier ist der Commit der Schluessel.
+      #
+      # Statt des GHA-Caches, nicht dazu: zwei Speicher fuer dieselbe Sache
+      # waeren zwei Wahrheiten.  kontor ist der haltbarere -- Caches verfallen
+      # nach sieben Tagen ohne Zugriff und gelten nur je Repo.
+      - name: aiml aus kontor holen
+        id: holen
+        if: inputs.aiml_quelle != 'bauen' && steps.kontor.outputs.da == '1'
+        env:
+          KONTOR_URL: ${{ secrets.KONTOR_URL }}
+          KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
+        run: |
+          set -eu
+          ziel="$KONTOR_URL/generic/aiml/${AIML_SHA}/aiml-x86_64-linux.tar.gz"
+          if curl --silent --show-error --fail --max-time 900 \
+                  --cacert .werkzeug/kontor-ca.crt \
+                  -H "Authorization: Bearer $KONTOR_TOKEN" \
+                  -o .werkzeug/aiml-paket.tar.gz "$ziel"; then
+            mkdir -p .werkzeug/venv
+            tar -xzf .werkzeug/aiml-paket.tar.gz -C .werkzeug/venv
+            rm -f .werkzeug/aiml-paket.tar.gz
+            test -x .werkzeug/venv/bin/aiml
+            test -f .werkzeug/venv/lib/libaiml.so
+            echo "da=1" >> "$GITHUB_OUTPUT"
+            echo "geladen: $ziel"
+          else
+            echo "da=0" >> "$GITHUB_OUTPUT"
+            echo "${AIML_SHA} liegt nicht in kontor -- wird gebaut und danach abgelegt."
+          fi
+
+      - name: aiml war Pflicht aus kontor
+        if: inputs.aiml_quelle == 'kontor' && steps.holen.outputs.da != '1'
+        run: |
+          echo "aiml_quelle=kontor verlangt, aber ${AIML_SHA} liegt nicht in kontor."
+          echo "Mit aiml_quelle=auto laufen lassen -- das baut und legt ab."
+          exit 1
 
       # Wie die aiml-CI: erst die gepinnten .debs holen (Launchpad als
       # Rueckfall, wenn der Spiegel eine Version verloren hat), dann
       # `exodus pkg install`, dann gezielt Uebersetzer und Laufzeit.  Kein
       # `--all`: das baute jede exodus*.json im aiml-Repo, auch asan und wasm.
       - name: aiml bauen
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.holen.outputs.da != '1'
         working-directory: .werkzeug/aiml
         run: |
           set -eu
@@ -144,15 +208,42 @@ jobs:
       # exodus loest `$AIML` und `$AIML_VENV` in den Configs auf (aiml spec/68
       # F68-23).  Darum steht in keiner Config dieses Repos ein absoluter Pfad.
       - name: aiml-Venv zusammenstellen
+        if: steps.holen.outputs.da != '1'
         run: |
           set -eu
           mkdir -p .werkzeug/venv/bin .werkzeug/venv/lib
           cp .werkzeug/aiml/out/aiml/aiml .werkzeug/venv/bin/aiml
           cp .werkzeug/aiml/out/libaiml/libaiml.so .werkzeug/venv/lib/
           echo "# aiml venv" > .werkzeug/venv/env
+
+      # Was gebaut wurde, kommt nach kontor -- damit der naechste Lauf laedt.
+      - name: aiml nach kontor legen
+        if: steps.holen.outputs.da != '1' && steps.kontor.outputs.da == '1'
+        env:
+          KONTOR_URL: ${{ secrets.KONTOR_URL }}
+          KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
+        run: |
+          set -eu
+          tar -czf .werkzeug/aiml-paket.tar.gz -C .werkzeug/venv bin lib env
+          summe=$(sha256sum .werkzeug/aiml-paket.tar.gz | cut -d' ' -f1)
+          curl --silent --show-error --fail-with-body --max-time 1800 \
+               --cacert .werkzeug/kontor-ca.crt \
+               -H "Authorization: Bearer $KONTOR_TOKEN" \
+               -H "X-Checksum-Sha256: $summe" \
+               -X PUT -T .werkzeug/aiml-paket.tar.gz \
+               "$KONTOR_URL/generic/aiml/${AIML_SHA}/aiml-x86_64-linux.tar.gz"
+          echo "abgelegt: generic/aiml/${AIML_SHA}/ ($(stat -c%s .werkzeug/aiml-paket.tar.gz) B)"
+          rm -f .werkzeug/aiml-paket.tar.gz
+
+      # Beide Wege -- geladen und gebaut -- brauchen dieselben Pfade.
+      - name: Pfade setzen
+        run: |
+          set -eu
           echo "AIML=$PWD/.werkzeug/venv/bin/aiml" >> "$GITHUB_ENV"
           echo "AIML_VENV=$PWD/.werkzeug/venv" >> "$GITHUB_ENV"
           echo "AIONDB_PATH=$PWD/aiondb" >> "$GITHUB_ENV"
+          test -x .werkzeug/venv/bin/aiml
+          test -f .werkzeug/venv/lib/libaiml.so
 
       - name: Stand des Vorlaufs holen
         if: inputs.vorlauf != ''
@@ -270,9 +361,8 @@ jobs:
             eval "wert=\${$name:-}"
             [ -n "$wert" ] || { echo "Geheimnis $name fehlt -- siehe README."; exit 1; }
           done
-          # Die eigene CA.  Kein `curl -k`: mit abgeschalteter Pruefung
-          # koennte ein Mittelsmann das Schreibtoken abfangen.
-          printf '%s\n' "$KONTOR_CA" > .werkzeug/kontor-ca.crt
+          # Die CA liegt schon vom Schritt `kontor-Zugang` her da.
+          test -f .werkzeug/kontor-ca.crt || printf '%s\n' "$KONTOR_CA" > .werkzeug/kontor-ca.crt
           # Als Funktion, nicht als Variable: ein mehrzeiliger Befehl in einer
           # Variablen wird bei der Wortzerlegung zur Gluecksache, und das
           # Token darf nicht durch eine Zerlegung rutschen.
