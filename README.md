@@ -247,8 +247,32 @@ dort müssen Name und Version mit dem Manifest übereinstimmen, und aiml trägt
 eine Version über alle Commits — jeder neue Stand würde den alten
 überschreiben. Hier ist der Commit der Schlüssel.
 
+**Was im Tarball liegt.** Gepackt wird mit aiml's eigenem
+`tools/ci/package_release.sh` (der Schritt „Package“ der aiml-CI), nicht mit
+einem eigenen Skript und nicht mit `aiml venv publish` — das packt die von git
+verfolgten Quellen eines Werkzeugs nach `/exodus/<name>/<version>/`, nicht
+einen gebauten Übersetzer. `package_release.sh` legt neben `bin/aiml` und
+`lib/libaiml.so` die **gepinnten Bibliotheken** aus `__exodus_cache`
+(libyaml-cpp, openblas, …) nach `lib/`, setzt bei allen RUNPATH `$ORIGIN` und
+startet das Bündel einmal außerhalb des Checkouts. Systembibliotheken (libc,
+libstdc++, GL/X11, …) bleiben draußen.
+
+Bis Lauf #9 wurden nur die zwei Dateien gepackt. Lauf #8 lud so einen Stand
+und brach beim ersten Übersetzen ab (`libyaml-cpp.so.0.8: cannot open shared
+object file`), weil beim Laden kein `exodus pkg install` läuft. Darum prüft
+der Ladeschritt jetzt mit `ldd`: fehlt eine Bibliothek, gilt der Stand als
+nicht vorhanden, wird neu gebaut und überschreibt den alten (die generische
+Ablage nimmt ein zweites `PUT` an, gesehen in Lauf #9).
+
 Ohne die `KONTOR_*`-Geheimnisse läuft der Workflow trotzdem: dann wird gebaut
 und nichts abgelegt.
+
+**Was jeder Lauf neu holt** (Lauf #7–#9): apt (g++, dpkg-dev, patchelf)
+11–18 s, `pip install` exodus rund 15 s, Checkouts und Vorlauf-Artefakt rund
+15 s. Ein GHA-Cache dafür spart höchstens eine halbe Minute und lohnt nicht.
+Die gepinnten .debs (`fetch_pinned_debs.py`, `exodus pkg install`) werden nur
+beim Bauen geholt; der Bau samt ihnen kostet 4–5 Minuten, das Laden aus
+kontor rund 6 s.
 
 ### Laufzeiten, gemessen
 

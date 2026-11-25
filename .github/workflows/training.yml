@@ -175,10 +175,18 @@ jobs:
             mkdir -p .werkzeug/venv
             tar -xzf .werkzeug/aiml-paket.tar.gz -C .werkzeug/venv
             rm -f .werkzeug/aiml-paket.tar.gz
-            test -x .werkzeug/venv/bin/aiml
-            test -f .werkzeug/venv/lib/libaiml.so
-            echo "da=1" >> "$GITHUB_OUTPUT"
-            echo "geladen: $ziel"
+            # Ein Stand von vor dem Buendeln (bis Lauf #9) laedt seine
+            # gepinnten Bibliotheken nicht: dann wie nicht vorhanden behandeln,
+            # neu bauen und ueberschreiben.
+            fehlt="$(ldd .werkzeug/venv/bin/aiml .werkzeug/venv/lib/libaiml.so | grep 'not found' || true)"
+            if [ -x .werkzeug/venv/bin/aiml ] && [ -f .werkzeug/venv/lib/libaiml.so ] && [ -z "$fehlt" ]; then
+              echo "da=1" >> "$GITHUB_OUTPUT"
+              echo "geladen: $ziel"
+            else
+              echo "geladen, aber unvollstaendig -- wird neu gebaut:"; echo "$fehlt"
+              rm -rf .werkzeug/venv
+              echo "da=0" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "da=0" >> "$GITHUB_OUTPUT"
             echo "${AIML_SHA} liegt nicht in kontor -- wird gebaut und danach abgelegt."
@@ -205,6 +213,11 @@ jobs:
           exodus build -c exodus.json  -j "$(nproc)"
           exodus build -c exodus2.json -j "$(nproc)"
           ls -l out/aiml/aiml out/libaiml/libaiml.so
+          # aiml's eigener Packschritt (CI-Schritt "Package"): legt die
+          # gepinnten .so aus __exodus_cache nach lib/, setzt RUNPATH $ORIGIN
+          # und prueft das Buendel ausserhalb des Checkouts.
+          rm -rf "$GITHUB_WORKSPACE/.werkzeug/dist"
+          bash tools/ci/package_release.sh "git-${AIML_SHA::7}" "$GITHUB_WORKSPACE/.werkzeug/dist"
 
       # exodus loest `$AIML` und `$AIML_VENV` in den Configs auf (aiml spec/68
       # F68-23).  Darum steht in keiner Config dieses Repos ein absoluter Pfad.
@@ -212,10 +225,11 @@ jobs:
         if: steps.holen.outputs.da != '1'
         run: |
           set -eu
-          mkdir -p .werkzeug/venv/bin .werkzeug/venv/lib
-          cp .werkzeug/aiml/out/aiml/aiml .werkzeug/venv/bin/aiml
-          cp .werkzeug/aiml/out/libaiml/libaiml.so .werkzeug/venv/lib/
+          rm -rf .werkzeug/venv
+          mkdir -p .werkzeug/venv
+          tar -xzf .werkzeug/dist/aiml-git-*-linux-x86_64.tar.gz -C .werkzeug/venv --strip-components=1
           echo "# aiml venv" > .werkzeug/venv/env
+          ls .werkzeug/venv/lib
 
       # Was gebaut wurde, kommt nach kontor -- damit der naechste Lauf laedt.
       - name: aiml nach kontor legen
