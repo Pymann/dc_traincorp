@@ -59,15 +59,86 @@ Ergebnis jedes Laufes: zwei Artefakte — `aiondb` (die KV-Stores) und
 `berichte` (alle Logs). Ein Folgelauf nimmt die `aiondb` des Vorlaufs über
 seine Run-ID entgegen; so lässt sich die Kette über mehrere Läufe verteilen.
 
-### Zwei Voraussetzungen
+### Voraussetzungen
 
-1. **Geheimnis `AIML_TOKEN`.** Der aiml-Übersetzer liegt im privaten Repo
-   `Pymann/aiml`; der Workflow checkt es mit diesem Token aus. Ein
-   Fine-grained-PAT mit Leserecht auf genau dieses Repo genügt.
-2. **Ubuntu 24.04.** aiml bindet LLVM 18 ein und zieht rund 30 versions- und
+1. **Ubuntu 24.04.** aiml bindet LLVM 18 ein und zieht rund 30 versions- und
    digest-gepinnte apt-Pakete in einen eigenen Cache (ohne root). Die
    gepinnten Versionen sind Noble-Versionen; auf einem anderen Runner-Image
    schlägt `apt-get download` fehl.
+2. **Drei Geheimnisse für kontor** — nur wenn hochgeladen werden soll (siehe
+   unten). Ohne sie bricht der Upload-Schritt mit einer klaren Meldung ab; das
+   Training selbst läuft trotzdem.
+
+`Pymann/aiml` und `Pymann/exodus` sind öffentlich, der Workflow braucht für
+sie kein Token.
+
+## Veröffentlichen nach kontor
+
+Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die
+`prophecy_*`-Stores und legt sie in die **generische** Ablage von kontor
+(`PUT /generic/<pfad>`, `Authorization: Bearer`, mit
+`X-Checksum-Sha256`-Prüfung):
+
+```
+generic/datacreatures/prophecy/<laufnummer>-<commit>/modelle.tar.gz
+generic/datacreatures/prophecy/<laufnummer>-<commit>/modelle.json
+generic/datacreatures/prophecy/neueste/modelle.tar.gz
+generic/datacreatures/prophecy/neueste/modelle.json
+```
+
+`modelle.json` liegt daneben, damit die Herkunft ohne Download lesbar ist:
+Laufnummer, Korpus-Commit, aiml-Commit, Schritte, Epochen, die Liste der
+Stores, Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
+Atlas-Token gefunden hat.
+
+**`neueste` wird nur überschrieben, wenn das Gate kein Wort ohne Token
+meldet.** Kaputte Gewichte als „neueste" zu veröffentlichen wäre schlimmer,
+als sie gar nicht zu veröffentlichen; der lauf-eigene Pfad bekommt sie
+trotzdem, damit man hineinsehen kann.
+
+Gepackt wird mit `tar --sparse`: ein `kvwal` ist 16 bis 128 MB groß und
+besteht überwiegend aus Nullen. Gemessen an einem Lauf mit Atlas, Wortschatz
+und Transformer-Gewichten: **111 KB** statt 160 MB.
+
+### Die drei Geheimnisse
+
+| Name | Inhalt |
+|---|---|
+| `KONTOR_URL` | `https://<host>:8443` — ohne Schrägstrich am Ende |
+| `KONTOR_TOKEN` | ein API-Token mit der Rolle `writer` (lesen + schreiben, **kein** Löschen) |
+| `KONTOR_CA` | der Inhalt von `tls/ca.crt` der kontor-Installation |
+
+Die CA gehört als Geheimnis hinein und nicht als Datei ins Repo: sie ist zwar
+kein Geheimnis im kryptografischen Sinn, verrät aber Host und Aufbau der
+eigenen Ablage — und dieses Repo ist öffentlich.
+
+Es wird **nicht** mit `curl -k` gearbeitet. Ohne Zertifikatsprüfung könnte ein
+Mittelsmann das Schreibtoken abfangen; das Serverzertifikat trägt die IP im
+SAN, also ist echte Prüfung gegen die eigene CA möglich.
+
+Das Token legt man auf der kontor-Maschine an (das Admin-Token steht in
+`tls/admin-token` und bleibt dort):
+
+```bash
+cd ~/kontor
+curl --cacert tls/ca.crt \
+     -H "Authorization: Bearer $(cat tls/admin-token)" \
+     -H 'Content-Type: application/json' \
+     --data '{"label":"gha-training","roles":["writer"]}' \
+     https://151.80.143.81:8443/api/v1/tokens
+```
+
+Die Antwort zeigt das Geheimnis **einmal** — das gehört nach
+*Settings → Secrets and variables → Actions* als `KONTOR_TOKEN`. Widerrufen
+später mit `DELETE /api/v1/tokens/<id>`.
+
+Prüfen, dass es trägt, bevor ein Lauf startet:
+
+```bash
+curl --cacert tls/ca.crt -H "Authorization: Bearer <token>" \
+     https://151.80.143.81:8443/api/v1/whoami
+# {"name":"gha-training","kind":"token","roles":["writer"]}
+```
 
 ### Warum der aiml-Build gecacht wird
 

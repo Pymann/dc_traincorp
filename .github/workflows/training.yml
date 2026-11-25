@@ -32,6 +32,10 @@ on:
       vorlauf:
         description: "Run-ID eines frueheren Laufes, dessen aiondb fortgesetzt wird (leer = leer anfangen)"
         default: ""
+      kontor:
+        description: "Modelle nach kontor hochladen (braucht die Geheimnisse KONTOR_*)"
+        type: boolean
+        default: true
       korpus_neu:
         description: "Korpora vorher neu erzeugen (korpusgen alles)"
         type: boolean
@@ -54,18 +58,19 @@ jobs:
     env:
       AIML_REF: main
       DC_EPOCHEN: ${{ inputs.epochen }}
+      SCHRITTE: ${{ inputs.schritte }}
       CS_EPOCHEN: ${{ inputs.cs_epochen }}
 
     steps:
       - name: Korpus-Repo
         uses: actions/checkout@v4
 
-      - name: aiml (privat -- braucht das Geheimnis AIML_TOKEN)
+      # Seit 25.11.2026 oeffentlich -- kein Token mehr noetig.
+      - name: aiml
         uses: actions/checkout@v4
         with:
           repository: Pymann/aiml
           ref: ${{ env.AIML_REF }}
-          token: ${{ secrets.AIML_TOKEN }}
           path: .werkzeug/aiml
 
       - name: exodus
@@ -84,7 +89,10 @@ jobs:
 
       - name: Welcher aiml-Stand
         id: stand
-        run: echo "sha=$(git -C .werkzeug/aiml rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          sha=$(git -C .werkzeug/aiml rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "AIML_SHA=$sha" >> "$GITHUB_ENV"
 
       # Der aiml-Uebersetzer bindet LLVM-18 ein; ihn bei jedem Lauf neu zu
       # bauen waere die teuerste Zeile dieses Workflows.  Darum je Commit
@@ -202,6 +210,85 @@ jobs:
           set -eu
           exodus build -c exodus-prophecy-gate-korpus.json 2>&1 | tee berichte/build_gate.log
           ./prophecy_gate_korpus 2>&1 | tee berichte/gate_korpus.log
+
+      # ── Nach kontor ──────────────────────────────────────────────────────
+      # Ein Lauf, der nur geprueft hat, hat keine Gewichte erzeugt -- der
+      # laedt auch nichts hoch.
+      - name: Modelle nach kontor
+        if: ${{ inputs.kontor && inputs.schritte != 'nur-pruefen' }}
+        env:
+          KONTOR_URL: ${{ secrets.KONTOR_URL }}
+          KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
+          KONTOR_CA: ${{ secrets.KONTOR_CA }}
+        run: |
+          set -eu
+          for name in KONTOR_URL KONTOR_TOKEN KONTOR_CA; do
+            eval "wert=\${$name:-}"
+            [ -n "$wert" ] || { echo "Geheimnis $name fehlt -- siehe README."; exit 1; }
+          done
+          # Die eigene CA.  Kein `curl -k`: mit abgeschalteter Pruefung
+          # koennte ein Mittelsmann das Schreibtoken abfangen.
+          printf '%s\n' "$KONTOR_CA" > .werkzeug/kontor-ca.crt
+          # Als Funktion, nicht als Variable: ein mehrzeiliger Befehl in einer
+          # Variablen wird bei der Wortzerlegung zur Gluecksache, und das
+          # Token darf nicht durch eine Zerlegung rutschen.
+          hoch() {
+            curl --silent --show-error --fail-with-body --max-time 900 \
+                 --cacert .werkzeug/kontor-ca.crt \
+                 -H "Authorization: Bearer $KONTOR_TOKEN" "$@"
+          }
+
+          stores=$(cd aiondb && ls prophecy_*.kvwal 2>/dev/null || true)
+          [ -n "$stores" ] || { echo "keine prophecy-Stores in aiondb -- nichts hochzuladen."; exit 1; }
+
+          # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
+          tar --sparse -C aiondb -czf modelle.tar.gz $stores
+          summe=$(sha256sum modelle.tar.gz | cut -d' ' -f1)
+          groesse=$(stat -c%s modelle.tar.gz)
+
+          # Herkunft neben das Paket, damit man sie ohne Download lesen kann.
+          # `grep -c` gibt bei null Treffern "0" aus UND Exitcode 1 -- ein
+          # `|| echo 0` dahinter haengt eine zweite Null an.  Gemessen.
+          gate_zeile=0
+          if [ -f berichte/gate_korpus.log ]; then
+            gate_zeile=$(grep -c 'ohne Token' berichte/gate_korpus.log || true)
+            [ -n "$gate_zeile" ] || gate_zeile=0
+          fi
+          python3 - "$summe" "$groesse" "$gate_zeile" <<'EOP' > modelle.json
+          import json, os, sys
+          summe, groesse, gate = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+          print(json.dumps({
+            "erzeugt_von": "dc_traincorp/.github/workflows/training.yml",
+            "lauf": os.environ.get("GITHUB_RUN_ID"),
+            "laufnummer": os.environ.get("GITHUB_RUN_NUMBER"),
+            "korpus_commit": os.environ.get("GITHUB_SHA"),
+            "aiml_commit": os.environ.get("AIML_SHA"),
+            "schritte": os.environ.get("SCHRITTE"),
+            "epochen": os.environ.get("DC_EPOCHEN"),
+            "cs_epochen": os.environ.get("CS_EPOCHEN"),
+            "stores": sorted(f for f in os.listdir("aiondb") if f.startswith("prophecy_")),
+            "paket_sha256": summe,
+            "paket_bytes": groesse,
+            "gate_woerter_ohne_token": gate,
+          }, indent=1, ensure_ascii=False))
+          EOP
+
+          ziel="generic/datacreatures/prophecy/${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:12}"
+          echo "== $ziel =="
+          hoch -X PUT -T modelle.tar.gz -H "X-Checksum-Sha256: $summe" "$KONTOR_URL/$ziel/modelle.tar.gz"
+          hoch -X PUT -T modelle.json "$KONTOR_URL/$ziel/modelle.json"
+
+          # `neueste` nur, wenn das Gate kein Wort ohne Token gefunden hat.
+          # Kaputte Gewichte als "neueste" zu veroeffentlichen waere schlimmer
+          # als sie gar nicht zu veroeffentlichen.
+          if [ "$gate_zeile" = "0" ]; then
+            hoch -X PUT -T modelle.tar.gz -H "X-Checksum-Sha256: $summe" \
+                  "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.tar.gz"
+            hoch -X PUT -T modelle.json "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.json"
+            echo "auch als neueste veroeffentlicht"
+          else
+            echo "NICHT als neueste: das Gate meldet Woerter ohne Token"
+          fi
 
       - name: Ergebnis sichern
         if: always()
