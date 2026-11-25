@@ -18,8 +18,8 @@ on:
           - 5-chance
           - alles
       epochen:
-        description: "DC_EPOCHEN (Koepfe, Transformer)"
-        default: "15"
+        description: "DC_EPOCHEN fuer Embedding, Koepfe, Transformer (leer = Vorgabe jeder App; 2-3 fuer eine Rauchprobe)"
+        default: ""
       lernrate:
         description: "DC_LR (leer = Vorgabe der App)"
         default: ""
@@ -27,8 +27,8 @@ on:
         description: "DC_STAPEL (leer = Vorgabe der App)"
         default: ""
       cs_epochen:
-        description: "CS_EPOCHEN (Chance-Kopf)"
-        default: "15"
+        description: "CS_EPOCHEN (Chance-Kopf; leer = Vorgabe der App, 1500)"
+        default: ""
       vorlauf:
         description: "Run-ID eines frueheren Laufes, dessen aiondb fortgesetzt wird (leer = leer anfangen)"
         default: ""
@@ -72,9 +72,7 @@ jobs:
     env:
       # aiml hat keinen `main`, nur `master` -- daran starb Lauf #1.
       AIML_REF: master
-      DC_EPOCHEN: ${{ inputs.epochen }}
       SCHRITTE: ${{ inputs.schritte }}
-      CS_EPOCHEN: ${{ inputs.cs_epochen }}
 
     steps:
       - name: Korpus-Repo
@@ -257,6 +255,21 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: aiondb
 
+      # DC_EPOCHEN/CS_EPOCHEN nur, wenn eine Zahl eingetragen ist.  Bis zum
+      # 25.11.2026 stand hier fest `DC_EPOCHEN: 15` fuer ALLE Apps -- die
+      # Koepfe haben aber eigene Vorgaben (Item 1200, Skill 200, Kampfskill
+      # 150, World-Entity 60, Kampfwert 150).  Der Item-Kopf bekam damit 1,25 %
+      # seiner Epochen und lag in der Abnahme auf Zufallsniveau (Lauf #5:
+      # 2 von 526 richtig).
+      - name: Epochen
+        env:
+          IN_EPOCHEN: ${{ inputs.epochen }}
+          IN_CS_EPOCHEN: ${{ inputs.cs_epochen }}
+        run: |
+          if [ -n "$IN_EPOCHEN" ]; then echo "DC_EPOCHEN=$IN_EPOCHEN" >> "$GITHUB_ENV"; fi
+          if [ -n "$IN_CS_EPOCHEN" ]; then echo "CS_EPOCHEN=$IN_CS_EPOCHEN" >> "$GITHUB_ENV"; fi
+          echo "DC_EPOCHEN=${IN_EPOCHEN:-<Vorgabe>}  CS_EPOCHEN=${IN_CS_EPOCHEN:-<Vorgabe>}"
+
       - name: Datenbankordner
         run: mkdir -p aiondb berichte
 
@@ -297,7 +310,8 @@ jobs:
           IN_LR: ${{ inputs.lernrate }}
           IN_STAPEL: ${{ inputs.stapel }}
           # Ein einzelner Kopf laesst sich so nachtrainieren, ohne die anderen
-          # vier (zusammen gut 80 Minuten) noch einmal laufen zu lassen.
+          # vier noch einmal laufen zu lassen.  Mit den Epochen-Vorgaben der
+          # Apps passen alle fuenf vermutlich nicht in einen Job (README).
           IN_KOEPFE: ${{ inputs.koepfe }}
         run: |
           set -eu
@@ -401,8 +415,8 @@ jobs:
             "korpus_commit": os.environ.get("GITHUB_SHA"),
             "aiml_commit": os.environ.get("AIML_SHA"),
             "schritte": os.environ.get("SCHRITTE"),
-            "epochen": os.environ.get("DC_EPOCHEN"),
-            "cs_epochen": os.environ.get("CS_EPOCHEN"),
+            "epochen": os.environ.get("DC_EPOCHEN", "Vorgabe"),
+            "cs_epochen": os.environ.get("CS_EPOCHEN", "Vorgabe"),
             "stores": sorted(f for f in os.listdir("aiondb") if f.startswith("prophecy_")),
             "paket_sha256": summe,
             "paket_bytes": groesse,

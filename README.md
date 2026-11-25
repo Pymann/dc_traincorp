@@ -286,6 +286,27 @@ fast alles im World-Entity-Kopf.
 | world_entity_head | **68 min** (Epoche 0: 1:21, Epoche 14: 5:51) |
 | combat_score_head | 6 s |
 
+**Diese 15 Epochen waren falsch.** Bis zum 25.11.2026 setzte der Workflow
+`DC_EPOCHEN=15` für alle Apps; die Köpfe haben aber eigene Vorgaben. Seitdem
+ist `epochen` leer voreingestellt und jede App nimmt ihre eigene Zahl.
+Hochgerechnet aus Lauf #5 (linear, ohne die Verlangsamung beim
+World-Entity-Kopf):
+
+| Kopf | Vorgabe | Lauf #5 | hochgerechnet |
+|---|---|---|---|
+| item_head | 1200 | 15 | ≈ 6 min |
+| skill_head | 200 | 15 | ≈ **2 h** |
+| combat_skill_head | 150 | 15 | ≈ 40 min |
+| world_entity_head | 60 | 15 | ≥ 80 min |
+| combat_score_head | 150 | 15 | ≈ 1 min |
+| Embedding | 30 | 15 | ≈ 16 min |
+| Chance-Kopf (`CS_EPOCHEN`) | 1500 | — | nicht gemessen |
+
+Alle fünf Köpfe zusammen passen damit vermutlich **nicht** in einen Job
+(350 min). Darum über `koepfe` verteilen, z. B. ein Lauf mit `skill-head`,
+einer mit `world-entity-head`, einer mit den übrigen drei, jeweils mit der
+Run-ID des vorigen als `vorlauf`.
+
 Die übrigen Schritte sind auf
 dem Runner noch nicht gemessen; bis dahin gilt die Tabelle oben als obere
 Schätzung.
@@ -347,9 +368,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   wird nach dem Fundart-Verlust. Ob das auch die Verlangsamung behebt, zeigt
   der nächste Lauf; die Vermutung ist, dass auseinanderlaufende Gewichte im
   Namens-Kopf Rechenzeit kosten (z. B. denormale Zahlen), belegt ist das nicht.
-* **Item-, Skill- und Kampfskill-Kopf liegen in der Abnahme auf Zufallsniveau**
-  (Lauf #5: 2/526, 2/1411, 2/973 richtig). Der Item-Kopf ist nach 6 Sekunden
-  fertig. Noch nicht untersucht.
+* **Item-, Skill- und Kampfskill-Kopf lagen in der Abnahme auf Zufallsniveau**
+  (Lauf #5: 2/526, 2/1411, 2/973 richtig). Ursache: der Workflow setzte
+  `DC_EPOCHEN=15` für alle Apps, und die Köpfe nahmen das statt ihrer
+  Vorgaben (1200, 200, 150). Der Item-Kopf trainierte also 1,25 % seiner
+  Epochen, mit `lr=0.0005` — Trainingstreffer 1,8 %, Abnahme Zufall. Behoben
+  25.11.2026: `epochen` ist leer voreingestellt. Ob die Köpfe mit vollen
+  Epochen über Zufall kommen, ist auf dem Runner noch nicht gemessen.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
