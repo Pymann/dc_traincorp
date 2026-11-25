@@ -358,16 +358,21 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   `recipe_metal_weapon_hammer` als `weapon`. Die Regel kennt je Ausgabename
   genau eine Art. Das Waffenrezept gibt jetzt `warhammer` aus (steht in
   `names/items/weapon.txt`); Kennung, Zutaten und Art bleiben, damit die
-  Kennung in der Spieldatenbank weiter passt.
+  Kennung in der Spieldatenbank weiter passt. Lauf #6: das Gate nimmt alle 300
+  Rezeptfolgen an, alle vier Aufgaben kommen durch.
 * **World-Entity-Kopf (Lauf #5, 25.11.2026).** Die Fundart lernte (Abnahme
   80 %, häufigste Art wäre 30 %), aber der Gesamtverlust stieg ab Epoche 2
   (16,1 → 18,5), getrieben vom Namens-Kopf, und jede Epoche dauerte länger
   (1:21 → 5:51). Dazu sicherte die Schleife nach dem Gesamtverlust und
   behielt damit Epoche 2, obwohl die Fundart bis Epoche 14 weiter fiel.
   Geändert: Lernrate fällt mit 1/√(1+Epoche) wie beim Embedding, gesichert
-  wird nach dem Fundart-Verlust. Ob das auch die Verlangsamung behebt, zeigt
-  der nächste Lauf; die Vermutung ist, dass auseinanderlaufende Gewichte im
-  Namens-Kopf Rechenzeit kosten (z. B. denormale Zahlen), belegt ist das nicht.
+  wird nach dem Fundart-Verlust. **Lauf #6** (nur dieser Kopf, 15 Epochen):
+  jede Epoche **35 s, gleichbleibend** (statt 1:21 → 5:51), Gesamtverlust
+  fällt durchgehend (16,6 → 15,5), Fundart 0,61, Abnahme **81 %**; der Kopf
+  brauchte 9 statt 68 Minuten. Einschränkung: Lauf #6 setzte auf dem Stand
+  von Lauf #5 auf, also auf schon trainierten Gewichten. Warum die festen
+  0,003 die Epochen verlangsamten, ist nicht nachgewiesen (Vermutung:
+  auseinanderlaufende Gewichte im Namens-Kopf, z. B. denormale Zahlen).
 * **Item-, Skill- und Kampfskill-Kopf lagen in der Abnahme auf Zufallsniveau**
   (Lauf #5: 2/526, 2/1411, 2/973 richtig). Ursache: der Workflow setzte
   `DC_EPOCHEN=15` für alle Apps, und die Köpfe nahmen das statt ihrer
