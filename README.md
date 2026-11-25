@@ -72,13 +72,15 @@ seine Run-ID entgegen; so lässt sich die Kette über mehrere Läufe verteilen.
 `Pymann/aiml` und `Pymann/exodus` sind öffentlich, der Workflow braucht für
 sie kein Token.
 
-**exodus wird mit `pip install -e` eingerichtet, und das ist nötig, nicht
-bequem:** `exodus/pyproject.toml` listet `packages = ["exodus"]` und lässt
-damit alle Unterpakete weg. Ein normaler Install bringt beim ersten Aufruf
-`ModuleNotFoundError: No module named 'exodus.core'` — gemessen am 25.11.2026
-in einem frischen Python 3.12. Editierbar zeigt der Pfad auf den Quellbaum,
-dann ist alles da. Der saubere Fix gehört ins exodus-Repo
-(`[tool.setuptools.packages.find] include = ["exodus*"]`).
+exodus wird normal installiert. Bis zum 23.11.2026 fehlten im exodus-Paket
+die Unterpakete (`ModuleNotFoundError: No module named 'exodus.core'`); seit
+exodus `fd39730` packt `pyproject.toml` alle `exodus*`-Pakete.
+
+aiml wird wie in der aiml-CI gebaut: Systempakete (`g++ dpkg-dev patchelf`),
+die gepinnten .debs über `tools/ci/fetch_pinned_debs.py`, `exodus pkg install`,
+dann gezielt `exodus.json` (Übersetzer) und `exodus2.json` (Laufzeit). Nicht
+`exodus build --all` — das baute jede `exodus*.json` im aiml-Repo, auch asan
+und wasm.
 
 ## Veröffentlichen nach kontor
 
@@ -99,8 +101,8 @@ Laufnummer, Korpus-Commit, aiml-Commit, Schritte, Epochen, die Liste der
 Stores, Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
 Atlas-Token gefunden hat.
 
-**`neueste` wird nur überschrieben, wenn das Gate kein Wort ohne Token
-meldet.** Kaputte Gewichte als „neueste" zu veröffentlichen wäre schlimmer,
+**`neueste` wird nur überschrieben, wenn das Gate grün war und kein Wort
+ohne Token meldet.** Kaputte Gewichte als „neueste" zu veröffentlichen wäre schlimmer,
 als sie gar nicht zu veröffentlichen; der lauf-eigene Pfad bekommt sie
 trotzdem, damit man hineinsehen kann.
 

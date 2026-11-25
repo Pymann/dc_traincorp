@@ -55,8 +55,15 @@ jobs:
   train:
     runs-on: ubuntu-24.04
     timeout-minutes: 350   # GitHub kappt bei 360
+    # Ausdruecklich `bash`: nur dann setzt GitHub `-eo pipefail`.  Ohne
+    # Angabe laeuft `bash -e`, und in `exodus build ... | tee` zaehlt dann
+    # allein der Exitcode von tee -- ein gescheiterter Build ginge durch.
+    defaults:
+      run:
+        shell: bash
     env:
-      AIML_REF: main
+      # aiml hat keinen `main`, nur `master` -- daran starb Lauf #1.
+      AIML_REF: master
       DC_EPOCHEN: ${{ inputs.epochen }}
       SCHRITTE: ${{ inputs.schritte }}
       CS_EPOCHEN: ${{ inputs.cs_epochen }}
@@ -84,16 +91,20 @@ jobs:
         with:
           python-version: "3.12"
 
-      # `-e` ist noetig, nicht bequem: exodus/pyproject.toml listet
-      # `packages = ["exodus"]` und laesst damit alle Unterpakete weg -- ein
-      # normaler Install ergibt `ModuleNotFoundError: No module named
-      # 'exodus.core'` beim ersten Aufruf.  Gemessen 25.11.2026 in einem
-      # frischen Python 3.12.  Editierbar zeigt der Pfad auf den Quellbaum
-      # und alles ist da.
+      # Dieselben Systempakete wie die aiml-CI (ohne die Display-Pakete, die
+      # nur deren Testkorpus braucht).  patchelf und dpkg-dev braucht
+      # `exodus pkg install` fuer die gepinnten .debs.
+      - name: Systempakete
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends g++ dpkg-dev patchelf
+
+      # Seit exodus fd39730 (23.11.2026) packt pyproject alle Unterpakete;
+      # ein normaler Install reicht.
       - name: exodus einrichten
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ./.werkzeug/exodus
+          python -m pip install ./.werkzeug/exodus
           exodus --version
 
       - name: Welcher aiml-Stand
@@ -115,10 +126,20 @@ jobs:
             .werkzeug/aiml/out
             .werkzeug/aiml/__exodus_cache
 
+      # Wie die aiml-CI: erst die gepinnten .debs holen (Launchpad als
+      # Rueckfall, wenn der Spiegel eine Version verloren hat), dann
+      # `exodus pkg install`, dann gezielt Uebersetzer und Laufzeit.  Kein
+      # `--all`: das baute jede exodus*.json im aiml-Repo, auch asan und wasm.
       - name: aiml bauen
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: .werkzeug/aiml
-        run: exodus build --all
+        run: |
+          set -eu
+          python3 tools/ci/fetch_pinned_debs.py exodus.json exodus2.json
+          exodus pkg install
+          exodus build -c exodus.json  -j "$(nproc)"
+          exodus build -c exodus2.json -j "$(nproc)"
+          ls -l out/aiml/aiml out/libaiml/libaiml.so
 
       # exodus loest `$AIML` und `$AIML_VENV` in den Configs auf (aiml spec/68
       # F68-23).  Darum steht in keiner Config dieses Repos ein absoluter Pfad.
@@ -213,6 +234,7 @@ jobs:
       # haben.  Vor Schritt 1 sind es 9 (Prozessmarken wie `rune_craft`);
       # danach soll es 0 sein.  Darum laeuft es NACH der Kette.
       - name: Korpus-Gate
+        id: gate
         if: always()
         continue-on-error: true
         run: |
@@ -229,6 +251,7 @@ jobs:
           KONTOR_URL: ${{ secrets.KONTOR_URL }}
           KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
           KONTOR_CA: ${{ secrets.KONTOR_CA }}
+          GATE_ERGEBNIS: ${{ steps.gate.outcome }}
         run: |
           set -eu
           for name in KONTOR_URL KONTOR_TOKEN KONTOR_CA; do
@@ -290,13 +313,16 @@ jobs:
           # `neueste` nur, wenn das Gate kein Wort ohne Token gefunden hat.
           # Kaputte Gewichte als "neueste" zu veroeffentlichen waere schlimmer
           # als sie gar nicht zu veroeffentlichen.
-          if [ "$gate_zeile" = "0" ]; then
+          # Und nur, wenn das Gate selbst gruen war: ein Gate, das abstuerzt
+          # oder Trainingsfolgen ablehnt, schreibt kein "ohne Token" -- die
+          # Zeilenzaehlung allein liesse es durch.
+          if [ "$gate_zeile" = "0" ] && [ "$GATE_ERGEBNIS" = "success" ]; then
             hoch -X PUT -T modelle.tar.gz -H "X-Checksum-Sha256: $summe" \
                   "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.tar.gz"
             hoch -X PUT -T modelle.json "$KONTOR_URL/generic/datacreatures/prophecy/neueste/modelle.json"
             echo "auch als neueste veroeffentlicht"
           else
-            echo "NICHT als neueste: das Gate meldet Woerter ohne Token"
+            echo "NICHT als neueste: Gate ${GATE_ERGEBNIS}, Zeilen ohne Token: ${gate_zeile}"
           fi
 
       - name: Ergebnis sichern
