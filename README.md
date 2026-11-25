@@ -243,8 +243,12 @@ sich mit `DC_EPOCHEN` für eine Rauchprobe heruntersetzen (vorher waren sie
 fest verdrahtet — eine Probe hätte 90 Minuten gekostet, bevor ein Fehler im
 letzten Schritt auffällt).
 
-Ein Runner ist langsamer als ein Arbeitsplatzrechner; rechne mit dem Zwei- bis
-Dreifachen. Auch dann bleibt Luft bis zu den 350 Minuten.
+Auf dem Runner war das Embedding **schneller** als auf dem
+Arbeitsplatzrechner: Lauf #3 (25.11.2026, `ubuntu-24.04`) brauchte **31 s je
+Epoche**, 15 Epochen in gut 8 Minuten (Verlust 965 → 38, noch fallend). Der
+ganze Lauf samt aiml-Bau dauerte 14 Minuten. Die übrigen Schritte sind auf
+dem Runner noch nicht gemessen; bis dahin gilt die Tabelle oben als obere
+Schätzung.
 
 ### Grenzen, die man kennen muss
 
