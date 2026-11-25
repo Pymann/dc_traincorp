@@ -14,3 +14,8 @@ prophecy_pretrain
 prophecy_train_*
 prophecy_gate_korpus
 rezept_probe
+
+# Niemals ein Zugangstoken im Repo -- es ist oeffentlich.
+*.token
+tls/
+*secret*

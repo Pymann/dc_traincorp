@@ -135,6 +135,50 @@ Die Antwort zeigt das Geheimnis **einmal** — das gehört nach
 *Settings → Secrets and variables → Actions* als `KONTOR_TOKEN`. Widerrufen
 später mit `DELETE /api/v1/tokens/<id>`.
 
+Setzen lassen sich die drei auch per Skript, statt von Hand zu klicken — das
+Token steht dabei nie in einem Argument, sondern in einer Datei oder auf der
+Standardeingabe (Argumente stehen in der Prozessliste und in der
+Shell-Historie):
+
+```bash
+export GH_TOKEN=<PAT mit Recht "Secrets: write" auf dieses Repo>
+python3 tools/geheimnisse_setzen.py \
+    --url https://<host>:8443 \
+    --token-datei ~/kontor-ci.token \
+    --ca-datei    <kontor-checkout>/tls/ca.crt
+# --trocken zeigt vorher, was gesetzt würde, ohne etwas zu setzen
+```
+
+### Das Token bleibt nicht öffentlich einsehbar
+
+Dieses Repo ist öffentlich, das Schreibtoken darf es nicht sein. Was dafür
+gilt:
+
+* **Actions-Secrets sind auch in einem öffentlichen Repo nicht lesbar** —
+  nicht über die Weboberfläche, nicht über die API, auch nicht von
+  Mitlesenden. Nur Läufe bekommen sie als Umgebungsvariable.
+* Der Workflow ist **`workflow_dispatch`-only**. Ein Fork oder ein Pull
+  Request von außen kann ihn nicht auslösen und kommt damit nie an die
+  Geheimnisse. Das ist der Grund, warum es keinen `push`-Auslöser gibt.
+* GitHub **maskiert** Geheimniswerte in den Logs, und der Upload-Schritt gibt
+  das Token ohnehin nie aus — es geht nur als `Authorization`-Kopfzeile in
+  `curl`.
+* Im Repo liegt es nirgends; `.gitignore` sperrt `*.token`, `tls/` und
+  `*secret*` zusätzlich ab.
+* **Was in einem öffentlichen Repo dagegen wirklich öffentlich ist: die
+  Artefakte eines Laufes.** `aiondb` (die Gewichte) und `berichte` (die Logs)
+  kann jeder herunterladen. Ein Token steht in keinem von beiden — aber die
+  Modelle liegen damit offen. Wer das nicht will, schaltet das Repo privat;
+  der Workflow läuft unverändert.
+* Das Token ist **jederzeit ersetzbar**: Die Antwort beim Anlegen enthält eine
+  `id`, und `DELETE /api/v1/tokens/<id>` (mit dem Admin-Token) widerruft es.
+  Danach ein neues anlegen und das Geheimnis überschreiben.
+
+Die Rolle ist bewusst `writer` und nicht `maintainer`: lesen und schreiben,
+**kein Löschen**. Nachgemessen am 25.11.2026 — die generische Ablage hat
+ohnehin keinen Löschendpunkt (`DELETE` → `404 no such endpoint`), und ein
+Upload mit falscher Prüfsumme wird mit `400 checksum mismatch` abgewiesen.
+
 Prüfen, dass es trägt, bevor ein Lauf startet:
 
 ```bash
