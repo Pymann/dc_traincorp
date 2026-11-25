@@ -343,6 +343,13 @@ Gemessen mit den Vorgaben, Lauf #7 (25.11.2026):
 | item_head | 1200 | **6 min** | **107 / 526 richtig (20,3 %)**, Zufall 0,4 % | 2 / 526 |
 | combat_score_head | 150 | 50 s | erklärte Streuung **0,85** (Wucht 0,82) | 0,80 (0,77) |
 
+Transformer auf dem Runner, Lauf #14 (25.11.2026, Vorgabe 60 Epochen):
+**46 s je Epoche, 46 Minuten**, Verlust 7,37 → 0,86 (5696 Folgen), am Ende
+noch fallend. Gate danach 300/298/298/293 angenommen. Das erste Paket in
+kontor: `generic/datacreatures/prophecy/14-f2f090a62c76/` und `latest/`,
+`models.tar.gz` **146 MB** — mit allen Köpfen ist es nicht mehr die 111 KB
+aus der Messung ohne sie.
+
 Der Verlust des Item-Kopfs fällt bis Epoche 1200 noch (5,47 → 4,07); seine
 Lernrate ist dann schon auf 1,5·10⁻⁵ gefallen.
 
