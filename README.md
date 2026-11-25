@@ -435,6 +435,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   `BagBackbone.wache_einheiten` auf 300 Taschen die feuernden Einheiten — bei
   0 wird die geladene Schicht verworfen und neu gezogen, denn ein toter Stand
   aus dem Vorlauf erholt sich nie.
+
+  Lauf #12 (25.11.2026, auf dem Stand von #9): **Kampfskill-Kopf** — 0 von 64
+  wach, neu gezogen, Verlust 4,96 → 2,19, Abnahme **108 / 973 richtig
+  (11,1 %)**, Zufall 0,6 %; 5 Minuten. **Skill-Kopf** — 2 von 64 wach, also
+  nicht neu gezogen; Verlust fiel nur langsam (11,0 → 9,52), Abnahme 1 / 1411,
+  weiter unter Zufall. Darum gilt seitdem: weniger als ein Viertel wach → neu
+  ziehen.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den

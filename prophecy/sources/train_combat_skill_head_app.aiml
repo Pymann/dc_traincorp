@@ -407,13 +407,16 @@
             - set: [<.backbone.hidden_dim, <.hidden_dim]
             - call: [<.backbone.init_model]
             # Ein toter Stand aus einem frueheren Lauf erholt sich nie (alle
-            # Gradienten durch relu sind 0).  Dann frisch anfangen.
+            # Gradienten durch relu sind 0).  Dann frisch anfangen.  Schon
+            # ein Viertel reicht als Grenze: Lauf #12 lud beim Skill-Kopf 2
+            # von 64 wache Einheiten, trainierte darauf weiter und blieb in
+            # der Abnahme unter Zufall (1/1411).
             - decl: [wach, i32, { call: [<.backbone.wache_einheiten, <.train_input_ids, 300] }]
             - call: [log.info, "backbone: ${wach} von ${<.hidden_dim} Einheiten wach"]
             - if:
-                condition: { eq: [wach, 0] }
+                condition: { lt: [{ "*": [wach, 4] }, <.hidden_dim] }
                 then:
-                  - call: [log.warn, "backbone ist tot -- neu initialisiert"]
+                  - call: [log.warn, "backbone ist (fast) tot -- neu initialisiert"]
                   - call: [<.backbone.neu_initialisieren]
             - set: [<.combat_head.weights_name, "prophecy_combat_skill_head_outputs"]
             - set: [<.combat_head.head_id_str, "combat_skill"]
