@@ -197,10 +197,16 @@ jobs:
       - name: 3 Koepfe
         if: contains(fromJSON('["3-koepfe","alles"]'), inputs.schritte)
         env:
-          DC_LR: ${{ inputs.lernrate }}
-          DC_STAPEL: ${{ inputs.stapel }}
+          # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
+          # Variable dann auf "", die App sieht sie als vorhanden und parst
+          # "" -- je nach parse_* zu 0, also Lernrate 0 und Stapel 0.  Lauf #4
+          # stand damit 47 Minuten in den Koepfen statt Sekunden.
+          IN_LR: ${{ inputs.lernrate }}
+          IN_STAPEL: ${{ inputs.stapel }}
         run: |
           set -eu
+          if [ -n "$IN_LR" ]; then export DC_LR="$IN_LR"; fi
+          if [ -n "$IN_STAPEL" ]; then export DC_STAPEL="$IN_STAPEL"; fi
           for teil in item-head skill-head combat-skill-head world-entity-head combat-score-head; do
             echo "== $teil =="
             exodus build -c "exodus-prophecy-$teil.json" 2>&1 | tee "berichte/build_$teil.log"
@@ -215,10 +221,16 @@ jobs:
       - name: 4 Transformer
         if: contains(fromJSON('["4-transformer","alles"]'), inputs.schritte)
         env:
-          DC_LR: ${{ inputs.lernrate }}
-          DC_STAPEL: ${{ inputs.stapel }}
+          # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
+          # Variable dann auf "", die App sieht sie als vorhanden und parst
+          # "" -- je nach parse_* zu 0, also Lernrate 0 und Stapel 0.  Lauf #4
+          # stand damit 47 Minuten in den Koepfen statt Sekunden.
+          IN_LR: ${{ inputs.lernrate }}
+          IN_STAPEL: ${{ inputs.stapel }}
         run: |
           set -eu
+          if [ -n "$IN_LR" ]; then export DC_LR="$IN_LR"; fi
+          if [ -n "$IN_STAPEL" ]; then export DC_STAPEL="$IN_STAPEL"; fi
           exodus build -c exodus-prophecy-train-transformer.json 2>&1 | tee berichte/build_transformer.log
           ./prophecy_train_transformer 2>&1 | tee berichte/4_transformer.log
 

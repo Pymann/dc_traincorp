@@ -259,6 +259,11 @@ Schätzung.
   Epochenzahlen gedacht, nicht für den vollen Lauf.
 * **Kein Determinismus-Versprechen über Runner hinweg.** Gleicher Seed, andere
   CPU: die Korpora sind reproduzierbar, die Gewichte nicht bitgenau.
+* **Leere Eingaben `lernrate`/`stapel` setzen keine Variable.** Bis zum
+  25.11.2026 wurden sie direkt als `DC_LR`/`DC_STAPEL` übergeben; ein leeres
+  Feld ergab dann eine *vorhandene, leere* Variable, die die Apps statt ihrer
+  Vorgabe parsten. Lauf #4 (`3-koepfe`) stand damit 47 Minuten in den Köpfen
+  und wurde abgebrochen. Jetzt wird nur exportiert, was gesetzt ist.
 * **Ein Lauf zur Zeit** (`concurrency: training`). Zwei Läufe auf derselben
   Datenbank überschreiben sich die Gewichte.
 
