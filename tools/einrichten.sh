@@ -145,7 +145,7 @@ if [ -n "$repo" ]; then
 d=json.load(sys.stdin)
 namen={s["name"] for s in d.get("secrets",[])}
 for n in ("KONTOR_URL","KONTOR_TOKEN","KONTOR_CA"):
-    print(f"  {n:13s} {\"steht\" if n in namen else \"FEHLT\"}")
+    print("  %-13s %s" % (n, "steht" if n in namen else "FEHLT"))
 uebrig=sorted(namen-{"KONTOR_URL","KONTOR_TOKEN","KONTOR_CA"})
 if uebrig: print("  (weitere: "+", ".join(uebrig)+")")'
 fi
