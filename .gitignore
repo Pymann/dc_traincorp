@@ -19,3 +19,4 @@ rezept_probe
 *.token
 tls/
 *secret*
+einrichten.conf

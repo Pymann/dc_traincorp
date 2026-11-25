@@ -143,19 +143,36 @@ Die Antwort zeigt das Geheimnis **einmal** — das gehört nach
 *Settings → Secrets and variables → Actions* als `KONTOR_TOKEN`. Widerrufen
 später mit `DELETE /api/v1/tokens/<id>`.
 
-Setzen lassen sich die drei auch per Skript, statt von Hand zu klicken — das
-Token steht dabei nie in einem Argument, sondern in einer Datei oder auf der
-Standardeingabe (Argumente stehen in der Prozessliste und in der
-Shell-Historie):
+### In einem Aufruf
 
 ```bash
-export GH_TOKEN=<PAT mit Recht "Secrets: write" auf dieses Repo>
-python3 tools/geheimnisse_setzen.py \
-    --url https://<host>:8443 \
-    --token-datei ~/kontor-ci.token \
-    --ca-datei    <kontor-checkout>/tls/ca.crt
-# --trocken zeigt vorher, was gesetzt würde, ohne etwas zu setzen
+./tools/einrichten.sh            # --trocken zeigt vorher, was passieren würde
 ```
+
+Beim ersten Mal fragt es drei örtliche Angaben ab (kontor-Adresse, Pfad zu
+`tls/ca.crt`, Pfad zur Datei mit dem Schreibtoken) und merkt sie in
+`tools/einrichten.conf`. Die Datei ist **nicht eingecheckt**: dieses Repo ist
+öffentlich, und Adresse und Pfade der eigenen Ablage gehören nicht hinein.
+
+Danach in dieser Reihenfolge:
+
+1. **kontor fragen, ob das Token trägt** — vor dem Schreiben, nicht danach.
+   Ein Geheimnis, das man nicht mehr auslesen kann, soll nicht schon falsch
+   hineingehen.
+2. **GitHub-Zugang suchen** — `GH_TOKEN`/`GITHUB_TOKEN`, sonst der
+   git-Credential-Helfer (`git credential fill`), sonst Eingabe von Hand. Ein
+   PAT lässt sich nur auf github.com erzeugen, eine API dafür gibt es nicht —
+   aber meistens liegt schon eines da, sonst könnte man nicht pushen. Reicht
+   das Recht nicht, sagt das Skript, welches fehlt, und bricht ab, bevor es
+   schreibt.
+3. **Setzen und gegenprüfen** — GitHub nennt danach die Namen (nie die Werte).
+
+Das Token steht nie in einem Argument, sondern immer in einer Datei oder auf
+der Standardeingabe: Argumente stehen in der Prozessliste und in der
+Shell-Historie. Die Eingabe des PAT ist verdeckt.
+
+Wer es einzeln will, nimmt `tools/geheimnisse_setzen.py` direkt — dasselbe
+ohne die Abfragen.
 
 ### Das Token bleibt nicht öffentlich einsehbar
 
