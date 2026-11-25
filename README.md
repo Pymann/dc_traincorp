@@ -116,11 +116,14 @@ Es wird **nicht** mit `curl -k` gearbeitet. Ohne Zertifikatsprüfung könnte ein
 Mittelsmann das Schreibtoken abfangen; das Serverzertifikat trägt die IP im
 SAN, also ist echte Prüfung gegen die eigene CA möglich.
 
-Das Token legt man auf der kontor-Maschine an (das Admin-Token steht in
-`tls/admin-token` und bleibt dort):
+Das Token legt man **vom auslieferenden Rechner aus** an — dort liegt
+`tls/` mit CA, Schlüsseln und dem Admin-Token, und dort bleibt es auch
+(kontor-README: *„`tls/ca.crt` is the only thing clients need, and it stays on
+the deploying machine"*). Nicht auf dem Server: dessen Verzeichnis enthält nur
+die Zertifikate, die er vorzeigt.
 
 ```bash
-cd ~/kontor
+cd <kontor-checkout>          # hier: projects/python/test/kontor
 curl --cacert tls/ca.crt \
      -H "Authorization: Bearer $(cat tls/admin-token)" \
      -H 'Content-Type: application/json' \
