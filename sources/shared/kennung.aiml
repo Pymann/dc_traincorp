@@ -1,0 +1,122 @@
+# Eine Kennung ist klein, ohne Leerzeichen, mit Unterstrich.  EINE Stelle.
+# Spec: doc/architecture/namensregel_2026-11-23.md
+#
+# Anlass (Messung 22./23.11.2026): dieselbe Sache hiess an drei Orten
+# verschieden, und zwei Vergleiche gingen deshalb monatelang ins Leere:
+#
+#   Gegenstand im Rucksack   "Cooking Pot"     (Anzeigename)
+#   Rezept-Anforderung       "cooking_pot"     (Kennung, Unterstrich)
+#   Erreichbarkeits-Pruefung "cooking-pot"     (Kennung, Bindestrich)
+#
+#   Fertigkeit der Figur     "Focus Breathing" -> Marke `focus_breathing`
+#   Tor der Rubrik           `focus_breath`
+#
+# Beide Male verglich der Server Anzeigenamen mit Kennungen.  Die Regel
+# dagegen hat zwei Haelften:
+#
+#   1. Ein Satz TRAEGT seine Kennung (`katalog_id`, `stamm_id`).  Niemand
+#      rechnet eine Kennung aus einem Anzeigenamen zurueck.
+#   2. Wo doch Text verglichen werden muss (Altdaten, Korpus, Fremdquelle),
+#      geht er durch `kennung()` -- auf BEIDEN Seiten des Vergleichs.
+#
+# Anzeigenamen entstehen nur noch nach aussen, mit `anzeige_name()`.
+- import: "sources/shared/vokabular.aiml"
+
+- def:
+    name: kennung
+    args: [[roh, string]]
+    return: string
+    body:
+      - decl: [klein, string, { call: [roh.lower] }]
+      - decl: [eng, string, { call: [klein.trim] }]
+      - decl: [ohne_strich, string, { call: [eng.replace, "-", "_"] }]
+      - decl: [ohne_leer, string, { call: [ohne_strich.replace, " ", "_"] }]
+      - return: { call: [ohne_leer.replace, ".", "_"] }
+
+# Zwei Texte als Kennung vergleichen.  Der einzige erlaubte Weg, zwei Namen
+# aufeinander zu pruefen, wenn keiner von beiden eine getragene Kennung ist.
+- def:
+    name: kennung_gleich
+    args: [[links, string], [rechts, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - decl: [a_var, string, { call: [kennung, links] }]
+      - decl: [b_var, string, { call: [kennung, rechts] }]
+      - if: { condition: { eq: [a_var, b_var] }, then: [{ return: 1 }] }
+      - return: 0
+
+# Aus einer Kennung einen Anzeigenamen machen -- NUR fuer die Oberflaeche.
+# Die Rueckrichtung gibt es nicht.
+- def:
+    name: anzeige_name
+    args: [[kenn, string]]
+    return: string
+    body:
+      - decl: [mit_leer, string, { call: [kenn.replace, "_", " "] }]
+      - decl: [sauber, string, { call: [mit_leer.replace, "-", " "] }]
+      - return: { call: [sauber.title] }
+
+# Ist dieser Text ueberhaupt eine saubere Kennung?  Fuer Lader und Pruefungen:
+# ein Wert, der nicht so aussieht, soll LAUT scheitern und nicht still ein Tor
+# schliessen.
+- def:
+    name: ist_kennung
+    args: [[roh, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [roh.len, 0] }, then: [{ return: 0 }] }
+      - decl: [soll, string, { call: [kennung, roh] }]
+      - if: { condition: { eq: [roh, soll] }, then: [{ return: 1 }] }
+      - return: 0
+
+# ── Text gegen das feste Vokabular pruefen ──────────────────────────────────
+# `enums.value` verlangt ein Stringliteral, taugt also nicht fuer Daten aus
+# einer Datei.  Darum diese Schleife ueber die Namen -- dieselbe Form, die
+# `quelle_aus_umgebung` schon benutzt.  0 heisst: kein Mitglied, und der
+# Aufrufer soll LAUT scheitern statt still ein Tor zu schliessen.
+- def:
+    name: fundament_wert
+    args: [[roh, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - decl: [gesucht, string, { call: [kennung, roh] }]
+      - decl: [wert, i32, Fundament.resource_lore]
+      - while:
+          condition: { le: [wert, Fundament.tracking] }
+          body:
+            - if: { condition: { eq: [gesucht, { call: [enums.name, "Fundament", wert] }] }, then: [{ return: wert }] }
+            - set: [wert, { "+": [wert, 1] }]
+      - return: 0
+
+- def:
+    name: material_art_wert
+    args: [[roh, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - decl: [gesucht, string, { call: [kennung, roh] }]
+      - decl: [wert, i32, MaterialArt.metal]
+      - while:
+          condition: { le: [wert, MaterialArt.stone] }
+          body:
+            - if: { condition: { eq: [gesucht, { call: [enums.name, "MaterialArt", wert] }] }, then: [{ return: wert }] }
+            - set: [wert, { "+": [wert, 1] }]
+      - return: 0
+
+- def:
+    name: werkzeug_wert
+    args: [[roh, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - decl: [gesucht, string, { call: [kennung, roh] }]
+      - decl: [wert, i32, Werkzeug.forge_bench]
+      - while:
+          condition: { le: [wert, Werkzeug.cooking_pot] }
+          body:
+            - if: { condition: { eq: [gesucht, { call: [enums.name, "Werkzeug", wert] }] }, then: [{ return: wert }] }
+            - set: [wert, { "+": [wert, 1] }]
+      - return: 0

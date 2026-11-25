@@ -1,0 +1,37 @@
+# Magical disease tags (kind=4) — Flüche, Hexen, magische Korruption
+
+# Quelle
+cursed_item_origin
+botched_spell_origin
+rune_misfire
+demonic_contact
+ritual_failure
+ancient_artifact
+
+# Wirk-Domäne
+soul_drain
+mind_warp
+shadow_taint
+arcane_burn
+binding
+silence
+
+# Wirk-Profil
+gradual_corruption
+sudden_curse
+trigger_based
+location_bound
+time_bound
+
+# Brechung erfordert
+runeworker_skill
+ritual_cleansing
+artifact_dispel
+willpower_test
+sacrifice_required
+
+# Sichtbarkeit
+visible_mark
+invisible_taint
+flickers_in_moonlight
+sensible_by_magic_users

@@ -1,0 +1,76 @@
+# Was eine Quest IST und wie sie fuer eine Figur steht.
+# Spec: doc/architecture/quests_2026-11-15.md
+#
+# Das Vokabular steht in Aufzaehlungen, nicht in freien Strings -- das alte
+# `Quest`-Modell trug `quest_kind` und `status` als Text, und genau dieser
+# Fehler hat bei `LockedThing.state` eine Migration samt Wipe gekostet.
+# `wire: true`, weil beide ueber RPC gehen und im Kv stehen.
+- import: "sources/shared/counted_item.aiml"
+- import: "sources/shared/harvestable.aiml"
+- import: "sources/shared/enemy.aiml"
+
+- enum:
+    name: QuestArt
+    wire: true
+    values:
+      - besuch: 1        # "erreiche diesen Ort"
+      - toeten: 2        # "besiege N von dieser Sorte"
+      - sammeln: 3       # deliver the requested owned item
+      - boss: 4          # defeat the personal quest encounter
+
+- enum:
+    name: QuestZustand
+    wire: true
+    values:
+      - offen:    1      # angeboten, nicht angenommen -- KEIN gespeicherter Satz
+      - aktiv:    2
+      - erfuellt: 3      # abgeholt und bezahlt
+      # Bedingung erfuellt, Lohn liegt beim Geber.  GERECHNET, nicht
+      # gespeichert: was dazwischen gilt, folgt aus der Bedingung.
+      - bereit:   4
+
+# Die Definition kommt aus der Realm-Datei, dort wo Zonen und NPCs liegen.
+# Zone als Id, nicht als eingebettetes Modell: eine Kopie der Weltdaten in
+# jedem Questsatz waere dieselbe Doppelhaltung, die wir sonst vermeiden.
+- model:
+    name: QuestDef
+    fields:
+      - [quest_id,     string]
+      - [art,          i32, QuestArt.besuch]
+      - [titel,        string]
+      - [text,         string]
+      - [geber_id,     string]      # npc_id
+      - [ziel_zone_id, string]
+      # Fuer `toeten`: die ART des Gegners (`enemy_kind`, z.B. "wraith") und
+      # wie viele.  Die Art, nicht die Instanz -- eine erlegte Instanz ist weg.
+      - [ziel_id,      string]
+      - [ziel_zahl,    i32, 1]
+      - [lohn_hashes,  i32, 0]
+      - [lohn_bytes,   i32, 0]
+      - [lohn_items,   list<CountedItem>]
+      # Eine passive Fertigkeit als Lohn: dieselbe Form wie jede andere
+      # (Kanal -> Zahl, `attr.*` ist ein Summand).  Leere skill_id = keine.
+      - [lohn_skill_id,   string]
+      - [lohn_skill_name, string]
+      - [lohn_wirkungen,  map<string:f32>]
+      # 1 = ein zufaelliges tragbares Stueck dazu.
+      - [lohn_wearable,   i32, 0]
+      # Realm definitions only: QuestStand and DataCreature keep their layouts.
+      - [vorquest_id, string]
+      - [fund_stelle, Harvestable]
+      - [fund_gegner, Enemy]
+      - [lohn_skill_dauerhaft, i32, 0]
+
+# Der Stand EINER Figur zu EINER Quest.  Liegt im Kv `quest_stand` unter
+# "cid|quest_id"; kein Satz heisst `offen`.
+- model:
+    name: QuestStand
+    fields:
+      - [quest_id,      string]
+      - [creature_id,   string]
+      - [zustand,       i32, QuestZustand.aktiv]
+      - [angenommen_um, i64, 0]
+      - [erfuellt_um,   i64, 0]
+      # Zaehlt NUR, solange die Quest aktiv ist -- ein Auftrag ist etwas, das
+      # man annimmt und dann tut, keine Rueckschau auf die Statistik.
+      - [fortschritt,   i32, 0]

@@ -1,0 +1,19 @@
+# Environmental Diseases (kind=6) — umwelt-induziert
+# Quelle: extreme weather + zone ohne passende item-tags
+# Cure: mittel (shelter, gear)
+
+heatstroke
+frostbite
+sun_blindness
+high_altitude_sickness
+shard_storm_dust_lung
+ionizing_radiation
+electromagnetic_disorientation
+glacial_chill
+swamp_immersion_rot
+sand_blast_skin
+acid_rain_burn
+suffocation_haze
+oxygen_deprivation
+cosmic_static_shock
+mineral_dust_pneumonia

@@ -1,0 +1,14 @@
+# Shared economy model.
+#
+# Welche der beiden Waehrungen gemeint ist, sagt eine Aufzaehlung und nicht
+# eine nackte 0 oder 1 -- das Einkommen hat je Waehrung einen eigenen Takt
+# (doc/architecture/einkommen_2026-11-15.md).
+- enum:
+    name: MuenzArt
+    values: [hashes, bytes]
+
+- model:
+    name: Currency
+    fields:
+      - [hashes, i32, 0]
+      - [bytes,  i32, 0]

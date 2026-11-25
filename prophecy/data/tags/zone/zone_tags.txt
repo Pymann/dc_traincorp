@@ -1,0 +1,64 @@
+# Zone-Tags — verfeinern den Realm-Charakter pro Zone (Zone.zone_tags).
+# Discovergen-Input zusammen mit terrain_tags + weather_tags + realm_tags.
+
+# ── Größe / Form ───────────────────────────────────────────────────────────
+open
+enclosed
+narrow
+sprawling
+ridged
+canyon
+cavernous
+plateau
+basin
+slope
+flat
+
+# ── Aktivität / Lebewesen ──────────────────────────────────────────────────
+populated
+deserted
+contested
+guarded
+patrolled
+beast_lair
+spawn_ground
+sanctuary
+
+# ── Ressourcen ─────────────────────────────────────────────────────────────
+mineral_rich
+gem_rich
+fungal_rich
+herbal_rich
+ore_rich
+crystal_rich
+sap_rich
+
+# ── Wetter / Stimmung ──────────────────────────────────────────────────────
+echoing
+silent
+windy
+still
+storm_prone
+fog_bound
+sunlit
+shadowed
+twilight
+
+# ── Spielmechanik ──────────────────────────────────────────────────────────
+quest_hub
+trade_hub
+beginner_safe
+high_risk
+high_yield
+loot_dense
+puzzle_locked
+shortcut
+
+# ── Story / Lore ───────────────────────────────────────────────────────────
+ancient
+new
+contested_ruin
+holy
+cursed
+forgotten
+recent_event

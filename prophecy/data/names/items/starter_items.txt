@@ -1,0 +1,13 @@
+# Starter Item IDs — hardcoded in server (sources/server/
+# server_handlers.aiml::starter_item_name).
+#
+# NOTE: server code currently uses German item-IDs (kristall, schwert, …).
+# When the server is refactored to English IDs, these names will match 1:1.
+
+crystal
+sword
+staff
+cooking_pot
+pouch
+rune_stylus
+jump_rope

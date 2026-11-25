@@ -1,0 +1,44 @@
+# Remedy item-type tags (item_type=20).  Mit den Disease-Tag-Domains
+# matched (toxic, biological, physical, magical, mental, environmental,
+# genetic) — Remedy.cures_tags zieht aus diesem Pool.
+
+# cures-Domain (welche Disease-Familie das Item heilt)
+cures_toxic
+cures_biological
+cures_physical
+cures_magical
+cures_mental
+cures_environmental
+cures_genetic_slow
+
+# Wirk-Profil
+fast_acting
+slow_release
+broad_spectrum
+single_target
+preventive
+emergency_use
+
+# Quellen/Herkunft
+herbal
+mineral
+synthetic
+arcane
+ritual
+field_kit
+distilled
+fermented
+alchemical
+
+# Nebenwirkungen
+drowsy
+energizing
+nauseating
+addictive
+neutral
+
+# Lagerung/Haltbarkeit
+fresh
+preserved
+stable
+volatile

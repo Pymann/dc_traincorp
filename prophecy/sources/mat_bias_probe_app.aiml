@@ -1,0 +1,138 @@
+# Welche MATERIALART schlaegt der Transformer vor -- und haengt sie am Beutel?
+#
+# Anlass: im Spiel verlangten fuenf Rezepte hintereinander `liquid`.  Im
+# Korpus ist liquid mit 11 von 243 Vorkommen fast das SELTENSTE; eine
+# Haeufigkeits-Rueckfalls-Erklaerung greift also nicht.  Diese Probe zaehlt
+# je Beutel, welche Arten in den angenommenen Vorschlaegen stehen.
+- import: "prophecy/sources/erzeuger.aiml"
+
+- decl: [arten_reihe, list<string>]
+- decl: [arten_zahl,  map<string:i32>]
+
+- def:
+    name: zaehle_art
+    args: [[art, string]]
+    body:
+      - if: { condition: { eq: [art.len, 0] }, then: [{ return: 0 }] }
+      - if:
+          condition: { eq: [{ call: [arten_zahl.contains, art] }, 0] }
+          then:
+            - call: [arten_zahl.put, art, 1]
+            - call: [arten_reihe.push, art]
+          else: [{ call: [arten_zahl.put, art, { "+": [{ call: [arten_zahl.get, art] }, 1] }] }]
+
+- def:
+    name: zeige_zaehlung
+    args: [[marke, string], [gesamt, i32]]
+    body:
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, arten_reihe.len] }
+          body:
+            - decl: [art_nm, string, { at: [arten_reihe, idx] }]
+            - decl: [art_zl, i32, { call: [arten_zahl.get, art_nm] }]
+            - decl: [art_pz, i32, 0]
+            - if: { condition: { gt: [gesamt, 0] }, then: [{ set: [art_pz, { "/": [{ "*": [art_zl, 100] }, gesamt] }] }] }
+            - call: [log.info, "  ${marke}: ${art_nm} ${art_zl}x (${art_pz} %)"]
+            - set: [idx, { "+": [idx, 1] }]
+      - call: [arten_reihe.clear]
+      - call: [arten_zahl.clear]
+
+# Die erste Materialart eines Vorschlags ("essence x1, stone x3" -> essence).
+- def:
+    name: erste_art
+    args: [[mats, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [mats.len, 0] }, then: [{ return: "" }] }
+      - decl: [teile, list<string>, { call: [mats.split, ","] }]
+      - if: { condition: { eq: [teile.len, 0] }, then: [{ return: "" }] }
+      - decl: [erst_roh, string, { at: [teile, 0] }]
+      - decl: [erst, string, { call: [erst_roh.trim] }]
+      - decl: [worte, list<string>, { call: [erst.split, " "] }]
+      - if: { condition: { eq: [worte.len, 0] }, then: [{ return: erst }] }
+      - return: { at: [worte, 0] }
+
+- def:
+    name: messe
+    args: [[erz, ref<Erzeuger>], [beutel, string], [marke, string], [n_seeds, i32]]
+    body:
+      - call: [log.info, "── ${marke}: '${beutel}'"]
+      - decl: [gueltig, i32, 0]
+      - decl: [saat, i32, 1]
+      - while:
+          condition: { le: [saat, n_seeds] }
+          body:
+            - decl: [fls, list<i32>, { call: [erz.erzeuge, "<a:rezept>", beutel, { cast: [saat, i64] }] }]
+            - decl: [bad, i32, { call: [erz.pruefe_vorschlag, fls, "<a:rezept>"] }]
+            - if:
+                condition: { eq: [bad, 0] }
+                then:
+                  - set: [gueltig, { "+": [gueltig, 1] }]
+                  - decl: [mats, string, { call: [erz.abschnitt_text, fls, "<mat>"] }]
+                  - call: [zaehle_art, { call: [erste_art, mats] }]
+                  - if:
+                      condition: { le: [gueltig, 3] }
+                      then: [{ call: [log.info, "  Beispiel ${gueltig}: aus '${mats}'"] }]
+                else:
+                  # Woran scheitert es?  Ohne den Grund bleibt eine Null
+                  # unerklaert (gemessen: Topf-Beutel 0 von 120).
+                  - if:
+                      condition: { lt: [saat, 4] }
+                      then:
+                        - decl: [txt_b, string, { call: [erz.lesbar, fls] }]
+                        - call: [log.info, "  ${marke} abgelehnt (${erz.grund}): ${txt_b}"]
+            - set: [saat, { "+": [saat, 1] }]
+      - call: [log.info, "${marke}: ${gueltig} von ${n_seeds} angenommen"]
+      - call: [zeige_zaehlung, marke, gueltig]
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "mat-bias: nicht bereit"]
+            - return: 1
+      - decl: [prio, list<string>, { call: [erz.fge.prio_lesen, "itemgen/data/items_augmented.txt"] }]
+      - call: [erz.prio_setzen, prio]
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+      # 1) Ein Beutel wie im Spiel: Grundaktion, Startfertigkeiten, Werkzeuge.
+      - call: [messe, erz, "workout magic_aptitude rune_sense tracking pouch staff crystal rock", "spiel", 120]
+      # 2) Derselbe Beutel mit ausdruecklichen Materialarten.
+      - call: [messe, erz, "workout metal stone wood hammer", "metall", 120]
+      - call: [messe, erz, "study essence gem rune-stylus elemental", "essenz", 120]
+      # 3) Gar keine Materialien im Beutel -- was faellt dann heraus?
+      - call: [messe, erz, "workout", "nackt", 120]
+      # 4) Die Verdachtsprobe: EIN liquid-Stoff im Rucksack (Honig, Oel, Harz,
+      #    Nektar sind alle `liquid`) -- faerbt das jedes Rezept?
+      - call: [messe, erz, "workout liquid", "liquid_allein", 120]
+      - call: [messe, erz, "workout liquid stone fiber pouch staff", "liquid_gemischt", 120]
+      # 5) Der ECHTE Beutel aus dem Spielprotokoll: Grundaktionen + Element +
+      #    passive Fertigkeiten, KEINE Materialart.  Genau so sieht er aus,
+      #    wenn rezept_beutel im Rucksack nichts erkennt.
+      - call: [messe, erz, "workout fire meditate workout study breathe sing sleep iron_lungs clear_mind", "echt_ohne_material", 120]
+      - call: [messe, erz, "workout water meditate workout study breathe sing sleep", "echt_wasser", 120]
+      # 6) DER Fall aus der lebenden Datenbank: im Rucksack liegt genau ein
+      #    Material, `moss` -- Art `fungus`.  Was macht der Erzeuger daraus?
+      - call: [log.info, "material_art('moss') = '${{ call: [erz.fge.material_art, \"moss\"] }}'"]
+      - call: [messe, erz, "workout fungus", "nur_fungus", 120]
+      - call: [messe, erz, "workout fire meditate workout study breathe sing sleep iron_lungs clear_mind fungus", "echt_plus_fungus", 120]
+      # 7) DER Verdacht: der KOCHTOPF im Aktions-Input.  Alle 15 Rezepte am
+      #    cooking_pot brauchen liquid/fungus/herb/essence -- am Topf wird
+      #    gebraut.  Steuert allein das Werkzeug die Materialart?
+      - call: [messe, erz, "cooking_pot", "nur_topf", 120]
+      - call: [messe, erz, "workout cooking_pot sing animal_sense", "topf_singen", 120]
+      - call: [messe, erz, "workout cooking pot sing animal_sense", "topf_getrennt", 120]
+      - call: [messe, erz, "workout forge-bench iron", "esse_eisen", 120]
+      # Der ECHTE Kochfall: Topf UND Zutat eingelegt -- so sieht der
+      # Aktions-Input seit dem 19.11.2026 aus.
+      - call: [messe, erz, "cooking_pot food", "topf_mit_zutat", 120]
+      - call: [messe, erz, "workout cooking_pot fungus liquid", "topf_moos", 120]
+      - call: [messe, erz, "study cooking_pot food herb resource_lore", "topf_kraut", 120]
+      - return: 0

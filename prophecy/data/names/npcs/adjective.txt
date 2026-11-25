@@ -1,0 +1,44 @@
+# NPC-Adjektive (vor dem Substantiv) — Kebab-Case einzelne Tokens.
+# Kombinatorik: {adjective} {role/noun} → "Glittering Trader", "Shard-Bound Hermit"
+# Stilrichtung: shard/qbit/coherence/meadow-Welt.
+
+glittering
+shard_bound
+crystal_eyed
+phase_shifted
+qbit_touched
+coherence_warm
+bloom_marked
+static_veiled
+echoing
+softstep
+brittle
+luminous
+fractured
+serene
+restless
+clouded
+threaded
+salvaged
+exiled
+weather_worn
+meadow_born
+cultivator
+shimmer_cloaked
+prism_clad
+lattice_marked
+half_faded
+quiet
+old
+wandering
+nameless
+last
+first_light
+twilight
+rusted
+gilded
+plain
+patient
+listening
+seeking
+watching

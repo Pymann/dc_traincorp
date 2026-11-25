@@ -1,0 +1,166 @@
+# Was als ZUTAT gilt -- Regelliste, kein Namens-Pool (darum nicht unter names/).
+# Spec: doc/architecture/essen_2026-11-19.md, essbarkeit_2026-11-24.md
+#
+# WARUM diese Datei seit dem 24.11.2026 existiert:
+#
+# Bis zum 24.11. war `food.txt` beides -- die Materialart UND die Antwort auf
+# "ist das eine Zutat?".  Darum standen Pilze und Kraeuter in ZWEI Artenlisten,
+# und welche gewann, entschied die Ladereihenfolge.  Der User-Entscheid vom
+# 24.11. ("ein Name, eine Liste") hat die Doppelung aufgeloest -- und damit die
+# Zutaten-Information mitgeloescht: ein geernteter Pilz war ploetzlich nicht
+# mehr essbar (rpc_gate_handel: "Pilze auch", "auch der schlichte Pilz").
+#
+# Die Art sagt jetzt, WAS FUER EIN Stoff etwas ist (fungus, herb, food).  Diese
+# Datei sagt, ob er in einen Topf gehoert.  Beides getrennt, beides an genau
+# einer Stelle.
+#
+# Enthaelt: alle `food`-Namen, dazu die essbaren Pilze, Algen und Kuechen-
+# kraeuter.  NICHT enthalten sind giftige Kraeuter (nightshade, mandrake_root,
+# wormwood) -- die stehen in herb.txt und bleiben Handwerksstoff.
+#
+# `raw_edible.txt` ist eine Teilmenge hiervon: was man OHNE Zubereiten isst.
+
+# ---- Materialart `food` ----
+oat
+spelt
+rye
+wheat
+millet
+quinoa
+rice
+barley
+buckwheat
+amaranth
+emmer
+einkorn
+sorghum
+teff
+wild_rice
+corn
+strawberry
+raspberry
+blackberry
+blueberry
+elderberry
+gooseberry
+redcurrant
+blackcurrant
+cranberry
+lingonberry
+cloudberry
+seaberry
+juniper_berry
+glow_berry
+frost_berry
+shadow_berry
+apple
+pear
+plum
+cherry
+peach
+apricot
+fig
+quince
+grape
+melon
+date_fruit
+sloe
+rowan_fruit
+crabapple
+sun_apple
+moon_pear
+potato
+carrot
+beetroot
+turnip
+parsnip
+radish
+yam
+sunroot
+onion
+garlic
+leek
+ginger_root
+chicory_root
+cabbage
+kale
+pumpkin
+squash
+cucumber
+bean
+broad_bean
+pea
+lentil
+chickpea
+asparagus
+nettle_shoot
+seaweed_leaf
+hazelnut
+walnut
+chestnut
+acorn
+pine_nut
+almond
+sunflower_seed
+pumpkin_seed
+flax_seed
+poppy_seed
+sesame
+egg
+goose_egg
+river_fish
+sea_fish
+smoked_fish
+roe
+game_meat
+poultry
+mutton
+bacon
+lard
+cheese
+curd
+cream
+butter
+goat_milk
+flour
+dough
+bread_grain
+dried_fruit
+preserved_plum
+maple_syrup
+molasses
+vinegar
+broth
+stock_bone
+yeast
+nutrient_paste
+protein_cube
+ration_gel
+algae_cake
+cultured_protein
+honey
+royal_jelly
+nectar
+
+# ---- essbar, aber andere Art: Pilze, Algen, Kuechenkraeuter ----
+mushroom
+black_mushroom
+red_mushroom
+glow_mushroom
+morel
+truffle
+kelp
+seaweed
+mint
+sage
+thyme
+rosemary
+lavender
+ginseng
+cactus_flesh
+honeyflower
+sweet_grass
+fresh_leaf
+nut
+seed
+root

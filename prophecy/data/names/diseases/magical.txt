@@ -1,0 +1,19 @@
+# Magical Diseases (kind=4) — übernatürliche Flüche
+# Quelle: failed magic-skill, cursed item equip, rune-error
+# Cure: schwer (Rune-Skill + Spezial-Item)
+
+bone_curse
+hollow_hex
+shadow_brand
+rune_backlash
+soul_drain_mark
+echo_curse
+withering_touch
+forbidden_glyph_burn
+binding_chains
+spectral_taint
+arcane_feedback
+night_terror_curse
+silence_hex
+mirror_curse
+sleepless_mark

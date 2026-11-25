@@ -1,0 +1,22 @@
+# Shared in-world portal — ein begehbares Welt-Objekt, das beim Aktivieren
+# einen ZoneTransfer auslöst.  Im Unterschied zur Reise via Travel-Map
+# (zentrale Route, NPC-mediated) ist ein Portal *vor Ort* in einer Zone
+# sichtbar und braucht keine Reise-Dauer / Currency-Logik in seinem eigenen
+# Modell — die Kosten/Voraussetzungen kommen aus dem referenzierten
+# ZoneTransfer (single source of truth: zone_transfer_id).
+#
+# UI-Wirkung: ein Portal-Objekt sitzt in einer Location innerhalb seiner Zone.
+# Klick auf das Objekt → öffnet TravelConfirmModal mit dem gelinkten Transfer.
+
+- model:
+    name: Portal
+    fields:
+      - [portal_id,         string]
+      - [name,              string]
+      - [realm_id,          string]
+      - [zone_id,           string]
+      - [location_id,       string]    # leer = an offener Stelle in der Zone
+      - [zone_transfer_id,  string]    # referenziert RealmFile.zone_transfers
+      - [portal_kind,       string]    # "realm_gate", "location_warp", "spawn_anchor", …
+      - [portal_tags,       list<string>]
+      - [description,       string]

@@ -1,0 +1,113 @@
+# Passive-Skill-Namen — dauerhafte oder langfristig wirkende Fähigkeiten,
+# Haltungen, Talente und Resistenzen. Kebab-Case Konvention, passend zum
+# übrigen itemgen-/skillgen-Korpus.
+#
+# Eine Zeile = ein Skill-Name. Leere Zeilen / # Kommentare ignoriert.
+
+# ── Resilience / Recovery ───────────────────────────────────────────────────
+steady_heart
+calm_breath
+slow_healing
+deep_rest
+pain_tolerance
+scar_memory
+shock_resistance
+stability_core
+fatigue_buffer
+recovery_instinct
+
+# ── Awareness / Senses ──────────────────────────────────────────────────────
+keen_sight
+night_sight
+echo_hearing
+scent_tracing
+motion_sense
+danger_instinct
+pattern_sense
+presence_reading
+trail_memory
+horizon_sense
+
+# ── Crystal / Resonance ─────────────────────────────────────────────────────
+crystal_attunement
+shard_memory
+resonance_skin
+prism_focus
+signal_hum
+lattice_sense
+frequency_memory
+aether_harmony
+coherence_anchor
+glass_instinct
+
+# ── Elemental Tolerance ─────────────────────────────────────────────────────
+ember_blood
+frost_blood
+storm_skin
+stone_bones
+tide_breath
+dust_ward
+heat_tolerance
+cold_tolerance
+static_guard
+smoke_lung
+
+# ── Craft / Hands ───────────────────────────────────────────────────────────
+steady_hands
+measured_strike
+fine_motor_memory
+material_instinct
+tool_familiarity
+careful_crafting
+clean_cuts
+balanced_grip
+thread_surety
+forge_rhythm
+
+# ── Survival / Travel ───────────────────────────────────────────────────────
+long_stride
+sure_footing
+light_pack
+trail_discipline
+weather_hardening
+ration_sense
+camp_routine
+shelter_instinct
+terrain_memory
+route_confidence
+
+# ── Social / Mind ───────────────────────────────────────────────────────────
+quiet_charisma
+trust_building
+crowd_reading
+patient_listening
+trade_memory
+vow_keeping
+firm_presence
+group_discipline
+rumor_filter
+cool_headedness
+
+# ── Ward / Defense ──────────────────────────────────────────────────────────
+ward_shell
+sigil_memory
+curse_resistance
+hex_diffusion
+null_pressure
+veil_step
+mind_shield
+binding_resistance
+reflective_aura
+ghost_calm
+
+# ── Growth / Fortune ────────────────────────────────────────────────────────
+lucky_find
+harvest_bonus
+bloom_touch
+seed_memory
+abundance_sense
+rare_eye
+careful_salvage
+keeper_instinct
+cache_memory
+resource_thrift

@@ -1,0 +1,27 @@
+helmet
+helm
+cap
+hood
+coif
+kettle_hat
+sallet
+barbute
+bascinet
+armet
+great_helm
+burgonet
+morion
+plate_helm
+half_helm
+war_mask
+diadem
+crown
+circlet
+
+# tech / data-realm
+vr_headset
+hud_visor
+neural_helm
+signal_mask
+data_crown
+holo_circlet

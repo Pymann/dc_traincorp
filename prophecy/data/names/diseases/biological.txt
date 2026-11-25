@@ -1,0 +1,19 @@
+# Biological Diseases (kind=2) — infektiös, durch Epidemic-Events oder
+# Kontakt verbreitet
+# Cure: mittel (Antibiotics, rest, Heal-Skill)
+
+shard_flu
+shard_plague
+quantum_pox
+gear_rot
+hollow_lung
+parasitic_worms
+moss_mold_infection
+verdant_blight
+crystalline_infection
+data_fever
+silicate_cough
+spore_throat
+nest_louse_infestation
+bone_dust_lung
+glimmer_eye

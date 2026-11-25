@@ -1,0 +1,22 @@
+# Shared harvestable world-object model.
+
+- import: "sources/shared/counted_item.aiml"
+
+- model:
+    name: Harvestable
+    fields:
+      - [harvestable_id,   string]
+      - [name,             string]
+      - [realm_id,         string]
+      - [zone_id,          string]
+      - [yield_items,      list<CountedItem>]
+      - [required_tool_ids,list<string>]
+      - [state_tags,       list<string>]
+      # Harvest-Minigame: difficulty (1=easy/slow, 5=hard/fast) steuert
+      # Cursor-Geschwindigkeit + Marker-Anzahl.  max_harvests = wie oft
+      # der Node abbaubar ist, harvest_count = wie oft schon abgebaut wurde
+      # (depletion-Check server-side).  Felder am Ende, damit alte DB-/
+      # Realm-Einträge ohne diese Werte default-zero deserialisieren.
+      - [difficulty,       i32, 1]
+      - [max_harvests,     i32, 5]
+      - [harvest_count,    i32, 0]

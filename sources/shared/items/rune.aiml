@@ -1,0 +1,9 @@
+# Shared item subtype model.
+# item_type = 4
+
+- import: "sources/shared/item.aiml"
+
+- model:
+    name: Rune
+    inherits: Item
+    fields: []

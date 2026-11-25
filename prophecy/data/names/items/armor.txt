@@ -1,0 +1,26 @@
+chestplate
+breastplate
+cuirass
+hauberk
+brigandine
+gambeson
+jack
+jerkin
+tabard
+robe
+tunic
+vest
+harness
+mantle
+doublet
+corset
+girdle
+
+# tech / data-realm
+nano_suit
+bio_mesh
+exo_frame
+polymer_shield
+data_cloak
+signal_vest
+neural_suit

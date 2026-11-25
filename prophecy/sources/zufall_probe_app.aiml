@@ -1,0 +1,145 @@
+# Probe fuer den wiederholbaren Zufall.  Sie ist das Fundament der
+# Seed-Idee: ist diese Probe nicht gruen, ist "gleicher Beutel + gleicher
+# Seed = gleiches Rezept" nicht zu halten.
+#
+# Geprueft wird:
+#   1 Wiederholbarkeit -- gleicher Seed, gleiche Folge (1000 Ziehungen)
+#   2 Entkopplung      -- seed und seed+1 muessen auseinanderlaufen, denn das
+#                         Verwerfen eines Vorschlags zieht mit seed+1 nach
+#   3 Gleichverteilung -- bruch() in [0,1), Mittel bei 0,5
+#   4 Verteilungstreue -- kategorisch() trifft die vorgegebenen Anteile
+#   5 keine kurze Periode
+- import: "prophecy/sources/zufall.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [fehler, i32, 0]
+      - decl: [wrf, ptr<Zufall>, { new: Zufall }]
+
+      # ── 1 Wiederholbarkeit ──────────────────────────────────────────────
+      - decl: [folge_a, list<i64>]
+      - call: [wrf.setze, 424242]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, 1000] }
+          body:
+            - call: [folge_a.push, { call: [wrf.weiter] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - call: [wrf.setze, 424242]
+      - decl: [gleich, i32, 1]
+      - set: [idx, 0]
+      - while:
+          condition: { lt: [idx, 1000] }
+          body:
+            - decl: [neu, i64, { call: [wrf.weiter] }]
+            - if: { condition: { neq: [neu, { at: [folge_a, idx] }] }, then: [{ set: [gleich, 0] }] }
+            - set: [idx, { "+": [idx, 1] }]
+      - if:
+          condition: { eq: [gleich, 1] }
+          then: [{ call: [log.info, "zufall 1 Wiederholbarkeit: 1000 von 1000 gleich"] }]
+          else:
+            - call: [log.error, "zufall 1 Wiederholbarkeit VERLETZT — gleicher Seed, andere Folge"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      # ── 2 Entkopplung benachbarter Seeds ────────────────────────────────
+      - decl: [kollision, i32, 0]
+      - decl: [saat, i32, 1]
+      - while:
+          condition: { le: [saat, 256] }
+          body:
+            - call: [wrf.setze, { cast: [saat, i64] }]
+            - decl: [ers, i64, { call: [wrf.weiter] }]
+            - call: [wrf.setze, { cast: [{ "+": [saat, 1] }, i64] }]
+            - decl: [zwt, i64, { call: [wrf.weiter] }]
+            - if: { condition: { eq: [ers, zwt] }, then: [{ set: [kollision, { "+": [kollision, 1] }] }] }
+            - set: [saat, { "+": [saat, 1] }]
+      - if:
+          condition: { eq: [kollision, 0] }
+          then: [{ call: [log.info, "zufall 2 Entkopplung: 256 Nachbarpaare, 0 gleiche erste Ziehung"] }]
+          else:
+            - call: [log.error, "zufall 2 Entkopplung: ${kollision} von 256 Nachbarpaaren liefern dieselbe erste Ziehung"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      # ── 3 Gleichverteilung ──────────────────────────────────────────────
+      - call: [wrf.setze, 7]
+      - decl: [sum_f, f32, 0.0]
+      - decl: [kl_min, f32, 2.0]
+      - decl: [kl_max, f32, -1.0]
+      - set: [idx, 0]
+      - while:
+          condition: { lt: [idx, 200000] }
+          body:
+            - decl: [brc, f32, { call: [wrf.bruch] }]
+            - set: [sum_f, { "+": [sum_f, brc] }]
+            - if: { condition: { lt: [brc, kl_min] }, then: [{ set: [kl_min, brc] }] }
+            - if: { condition: { gt: [brc, kl_max] }, then: [{ set: [kl_max, brc] }] }
+            - set: [idx, { "+": [idx, 1] }]
+      - decl: [mittel, f32, { "/": [sum_f, 200000.0] }]
+      - call: [log.info, "zufall 3 Gleichverteilung: Mittel ${mittel}, kleinster ${kl_min}, groesster ${kl_max}"]
+      - if:
+          condition: { "||": [{ lt: [kl_min, 0.0] }, { ge: [kl_max, 1.0] }] }
+          then:
+            - call: [log.error, "zufall 3 bruch() verlaesst [0,1)"]
+            - set: [fehler, { "+": [fehler, 1] }]
+      - if:
+          condition: { "||": [{ lt: [mittel, 0.49] }, { gt: [mittel, 0.51] }] }
+          then:
+            - call: [log.error, "zufall 3 Mittel ${mittel} liegt nicht bei 0,5"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      # ── 4 Verteilungstreue ──────────────────────────────────────────────
+      - decl: [antl, list<f32>]
+      - call: [antl.push, 0.1]
+      - call: [antl.push, 0.2]
+      - call: [antl.push, 0.7]
+      - call: [wrf.setze, 99]
+      - decl: [zh0, i32, 0]
+      - decl: [zh1, i32, 0]
+      - decl: [zh2, i32, 0]
+      - set: [idx, 0]
+      - while:
+          condition: { lt: [idx, 100000] }
+          body:
+            - decl: [wahl, i32, { call: [wrf.kategorisch, antl] }]
+            - if: { condition: { eq: [wahl, 0] }, then: [{ set: [zh0, { "+": [zh0, 1] }] }] }
+            - if: { condition: { eq: [wahl, 1] }, then: [{ set: [zh1, { "+": [zh1, 1] }] }] }
+            - if: { condition: { eq: [wahl, 2] }, then: [{ set: [zh2, { "+": [zh2, 1] }] }] }
+            - set: [idx, { "+": [idx, 1] }]
+      - decl: [pr0, i32, { "/": [zh0, 1000] }]
+      - decl: [pr1, i32, { "/": [zh1, 1000] }]
+      - decl: [pr2, i32, { "/": [zh2, 1000] }]
+      - call: [log.info, "zufall 4 Verteilungstreue: ${pr0} / ${pr1} / ${pr2} % (Soll 10 / 20 / 70)"]
+      - if:
+          condition: { "||": [{ "||": [{ gt: [{ call: [math.abs, { "-": [pr0, 10] }] }, 1] }, { gt: [{ call: [math.abs, { "-": [pr1, 20] }] }, 1] }] }, { gt: [{ call: [math.abs, { "-": [pr2, 70] }] }, 1] }] }
+          then:
+            - call: [log.error, "zufall 4 Anteile weichen um mehr als 1 Punkt ab"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      # ── 5 keine kurze Periode ───────────────────────────────────────────
+      - call: [wrf.setze, 12345]
+      - decl: [start, i64, wrf.zustand]
+      - decl: [rund, i32, 0]
+      - decl: [zurueck, i32, 0]
+      - while:
+          condition: { lt: [rund, 500000] }
+          body:
+            - call: [wrf.weiter]
+            - if: { condition: { eq: [wrf.zustand, start] }, then: [{ set: [zurueck, { "+": [zurueck, 1] }] }] }
+            - set: [rund, { "+": [rund, 1] }]
+      - if:
+          condition: { eq: [zurueck, 0] }
+          then: [{ call: [log.info, "zufall 5 Periode: kein Rueckkehr in 500 000 Schritten"] }]
+          else:
+            - call: [log.error, "zufall 5 Periode zu kurz — Zustand ${zurueck}x zurueckgekehrt"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      - if:
+          condition: { gt: [fehler, 0] }
+          then:
+            - call: [log.error, "zufall: ${fehler} Pruefungen fehlgeschlagen"]
+            - return: 1
+      - call: [log.info, "zufall: alle 5 Pruefungen gruen"]
+      - return: 0

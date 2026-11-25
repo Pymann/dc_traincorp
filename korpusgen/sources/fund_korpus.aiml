@@ -1,0 +1,572 @@
+# Der Entdeckungs-Korpus: `discovergen/data/discoveries_augmented.txt`.
+#
+# Form: discover | <Eingabe> | <Fundart> | <Marken> | <Ertrag> | <Werkzeug> | <Name>
+#
+# Die Eingabe ist eine FOLGE aus Kontext (Zone, Gelaende, Wetter, Element),
+# Taetigkeit, Faehigkeit und Werkzeug -- jede Fundart hat ihr Profil, und ein
+# Viertel der Zeilen zieht bewusst daneben, damit das Modell Neigungen lernt
+# und keine Regel (so stand es schon im Python-Erzeuger).
+#
+# NEU (Plan Punkt 6, 21.11.2026):
+#   * Jede Fundart hat ein SCHEMA: welche Spalte gefuellt sein MUSS und welche
+#     leer sein darf.  Eine Zeile, die es verletzt, wird verworfen und neu
+#     gezogen -- nicht aus Teilen fremder Funde zusammengesetzt.
+#   * Pflanzen und verschlossene Dinge bekommen einen Ertrag bzw. Inhalt.
+#     Vorher lernte der Kopf fuer beide "leer", also konnte er den Inhalt
+#     einer Truhe nie vorhersagen.
+#   * Name, Marken und Inhalt werden auf VERTRAEGLICHKEIT geprueft:
+#     `unguarded` neben `spirit-guarded` (6 solche Zeilen fand das Audit) oder
+#     `known-empty` mit Inhalt gibt es nicht mehr.
+- import: "korpusgen/sources/topf.aiml"
+- import: "korpusgen/sources/ziehen.aiml"
+- import: "korpusgen/sources/schreiber.aiml"
+
+- model:
+    name: FundArt
+    fields:
+      - [schluessel, string]        # harvestables, growables, ...
+      - [einzahl,    string]        # harvestable, growable, ...
+      - [gruppe,     string]        # Namens-/Markentopf
+      - [anteil,     f32, 0.1]      # wie oft sie vorkommt
+      - [taetigkeit, string]        # die Grundaktion, die dorthin fuehrt
+      - [faehig,     list<string>]  # Faehigkeiten, die sie wahrscheinlich machen
+      - [werkzeug,   i32, 0]        # darf eine Werkzeugbedingung tragen
+      # Hoechstzahl je Stueck im Ertrag; 0 heisst: diese Art traegt keinen.
+      - [ertrag,     i32, 0]
+      - [marken,     list<string>]  # Kontextmarken, die sie begleiten
+
+- class:
+    name: FundKorpus
+    members:
+      - [zie,      ptr<Zieher>, null]
+      - [arten,    list<FundArt>, null]
+      - [welten,   list<Satz>, null]
+      - [handwerk, list<Satz>, null]
+      - [taetig,   list<string>]
+      - [starter,  map<string:i32>]
+      - [zonen,    map<string:i32>]
+      - [gelaende, map<string:i32>]
+      - [wetter,   map<string:i32>]
+      - [elemente, map<string:i32>]
+      # Dieselben Toepfe, aus denen der Server die Tags eines Stuecks zieht
+      # (roll_3_tags, sources/server/tag_pools.aiml): zwei aus dem Typ-Topf,
+      # eines aus dem universellen.  Der Korpus muss dasselbe Vokabular
+      # sprechen, sonst lernt das Modell Woerter, die im Spiel nie kommen.
+      - [wkz_tags,  list<string>]
+      - [util_tags, list<string>]
+      - [uni_tags,  list<string>]
+      - [gegen,    map<string:string>]     # Wort -> unvertraegliche Woerter
+      - [zeilen,   list<string>, null, { access: public }]
+      - [domaenen, list<string>, null, { access: public }]
+      - [verworfen, i32, 0, { access: public }]
+    methods:
+      # Eine Fundart anlegen.  Fuenf Argumente sind die Grenze, darum die
+      # Marken und Faehigkeiten danach ueber `art_fuellen`.
+      - def:
+          name: art_dazu
+          access: public
+          args: [[schluessel, string], [einzahl, string], [gruppe, string], [anteil, f32], [taetigkeit, string]]
+          body:
+            - decl: [art, FundArt]
+            - set: [art.schluessel, schluessel]
+            - set: [art.einzahl,    einzahl]
+            - set: [art.gruppe,     gruppe]
+            - set: [art.anteil,     anteil]
+            - set: [art.taetigkeit, taetigkeit]
+            - call: [<.arten.push, art]
+
+      - def:
+          name: art_fuellen
+          access: public
+          args: [[schluessel, string], [faehig, string], [marken, string], [werkzeug, i32], [ertrag, i32]]
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.arten.len] }
+                body:
+                  - decl: [art, ref<FundArt>, { at: [<.arten, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { eq: [art.schluessel, schluessel] }
+                      then:
+                        - set: [art.faehig,   { call: [topf_teile, faehig] }]
+                        - set: [art.marken,   { call: [topf_teile, marken] }]
+                        - set: [art.werkzeug, werkzeug]
+                        - set: [art.ertrag,   ertrag]
+
+      # Welche Woerter sich widersprechen.  Beide Richtungen, damit die
+      # Pruefung die Reihenfolge nicht kennen muss.
+      - def:
+          name: gegensatz
+          access: public
+          args: [[wort, string], [andere, string]]
+          body:
+            - call: [<.gegen.put, wort, andere]
+
+      - def:
+          name: gegensaetze
+          access: public
+          args: []
+          body:
+            - call: [<.gegensatz, "unguarded", "spirit_guarded sentinel_warded mechanical_guard guarded warded key_required rune_required qbit_keyed"]
+            - call: [<.gegensatz, "guarded", "unguarded free_passage"]
+            - call: [<.gegensatz, "warded", "unguarded free_passage"]
+            - call: [<.gegensatz, "sealed", "half_open slightly_ajar free_passage broken shattered"]
+            - call: [<.gegensatz, "sealed_shut", "half_open slightly_ajar free_passage"]
+            - call: [<.gegensatz, "half_open", "sealed sealed_shut unpickable"]
+            - call: [<.gegensatz, "stable", "unstable collapsing flickering"]
+            - call: [<.gegensatz, "unstable", "stable mostly_stable"]
+            - call: [<.gegensatz, "broken", "intact brand_new mended sealed_shut"]
+            - call: [<.gegensatz, "shattered", "intact brand_new mended"]
+            - call: [<.gegensatz, "mended", "broken shattered"]
+            - call: [<.gegensatz, "ancient", "brand_new recent"]
+            - call: [<.gegensatz, "forgotten", "known public"]
+            - call: [<.gegensatz, "hidden", "in_plain_sight public known"]
+            - call: [<.gegensatz, "silent", "humming chiming weeping"]
+            - call: [<.gegensatz, "dim", "glowing bright shimmering"]
+            - call: [<.gegensatz, "bright", "dim"]
+            - call: [<.gegensatz, "overgrown", "bare sand_buried"]
+            - call: [<.gegensatz, "flooded", "dry dusty"]
+
+      # Vertraegt sich `wort` mit allem in `marken`?
+      - def:
+          name: vertraegt
+          access: public
+          args: [[wort, string], [marken, list<string>]]
+          return: i32
+          body:
+            - if: { condition: { eq: [{ call: [<.gegen.contains, wort] }, 0] }, then: [{ return: 1 }] }
+            - decl: [feind_text, string, { call: [<.gegen.get, wort] }]
+            - decl: [feinde, list<string>, { call: [feind_text.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, marken.len] }
+                body:
+                  - decl: [marke, string, { at: [marken, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [jdx, i32, 0]
+                  - while:
+                      condition: { lt: [jdx, feinde.len] }
+                      body:
+                        - decl: [feind, string, { at: [feinde, jdx] }]
+                        - set: [jdx, { "+": [jdx, 1] }]
+                        - if: { condition: { eq: [marke, feind] }, then: [{ return: 0 }] }
+            - return: 1
+
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          body:
+            - set: [<.zie, { new: Zieher }]
+            - call: [<.zie.start, saat]
+            - set: [<.taetig, { call: [topf_lesen, "prophecy/data/names/actions/base_actions.txt"] }]
+            - decl: [acht, list<string>, { call: [topf_lesen, "prophecy/data/names/skills/starter_skills.txt"] }]
+            - set: [<.starter, { call: [topf_als_karte, acht] }]
+            - set: [<.zonen,    { call: [topf_als_karte, { call: [topf_lesen, "prophecy/data/tags/zone/zone_tags.txt"] }] }]
+            - set: [<.gelaende, { call: [topf_als_karte, { call: [topf_lesen, "prophecy/data/tags/terrain/terrain_only_tags.txt"] }] }]
+            - set: [<.wetter,   { call: [topf_als_karte, { call: [topf_lesen, "prophecy/data/tags/weather/weather_only_tags.txt"] }] }]
+            - set: [<.elemente, { call: [topf_als_karte, { call: [topf_lesen, "prophecy/data/tags/cross/element.txt"] }] }]
+            - set: [<.wkz_tags,  { call: [topf_lesen, "prophecy/data/tags/items/tool_tags.txt"] }]
+            - set: [<.util_tags, { call: [topf_lesen, "prophecy/data/tags/items/utility_tags.txt"] }]
+            - set: [<.uni_tags,  { call: [topf_lesen, "prophecy/data/tags/items/universal_tags.txt"] }]
+            - set: [<.welten,   { call: [cluster_lesen, "prophecy/data/clusters/world_clusters.txt"] }]
+            - set: [<.handwerk, { call: [cluster_lesen, "prophecy/data/clusters/craft_clusters.txt"] }]
+            - call: [<.gegensaetze]
+            # Die sieben Fundarten mit ihren Profilen.
+            - call: [<.art_dazu, "harvestables", "harvestable", "harvestables", 0.30, "workout"]
+            - call: [<.art_fuellen, "harvestables", "resource_lore, terrain_sense",
+                     "rocky, crusted, brittle, porous, steep, rough, sharp_edged, buried, salvage, mineral_rich, lava_rich, frozen, dusty", 1, 6]
+            - call: [<.art_dazu, "growables", "growable", "growables", 0.15, "breathe"]
+            - call: [<.art_fuellen, "growables", "focus_breath",
+                     "fertile, lush, overgrown, damp, humid, mossy, verdant, soft, calm, sheltered, mild", 0, 3]
+            - call: [<.art_dazu, "enemies", "enemy", "enemies", 0.15, "workout"]
+            - call: [<.art_fuellen, "enemies", "tracking, animal_sense",
+                     "hazardous, oppressive, stormy, howling, dark, scorched, haunted, unstable, searing", 0, 4]
+            - call: [<.art_dazu, "npcs", "npc", "npcs", 0.10, "sing"]
+            - call: [<.art_fuellen, "npcs", "navigation",
+                     "settled, trodden, sheltered, frontier, warm, calm, even", 0, 0]
+            - call: [<.art_dazu, "portals", "portal", "portals", 0.05, "meditate"]
+            - call: [<.art_fuellen, "portals", "magic_aptitude, rune_sense",
+                     "shimmering, charged, echoing, humming, aether, anomalous, drifting, pulsing", 0, 0]
+            - call: [<.art_dazu, "locked", "locked", "locked_things", 0.05, "study"]
+            - call: [<.art_fuellen, "locked", "rune_sense, terrain_sense",
+                     "sealed, buried, ancient, ruined, hidden, silent, still", 1, 2]
+            - call: [<.art_dazu, "nothing", "nothing", "", 0.20, "sleep"]
+            - call: [<.art_fuellen, "nothing", "", "", 0, 0]
+            - call: [log.info, "funde: ${<.arten.len} Fundarten, ${<.welten.len} Welt-Cluster, ${<.gegen.len} Gegensatzregeln"]
+
+      # Marken aus einem Topf, mit Vorliebe fuer die der Fundart.
+      - def:
+          name: bevorzugt
+          access: public
+          args: [[topf, list<string>], [erlaubt, map<string:i32>], [marken, list<string>], [hoechstens, i32]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [gueltig, list<string>, { call: [nur_erlaubte, topf, erlaubt] }]
+            - if: { condition: { eq: [gueltig.len, 0] }, then: [{ return: raus }] }
+            - decl: [passend, list<string>, { call: [<.schnitt, gueltig, marken] }]
+            - if:
+                condition: { "&&": [{ gt: [passend.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.75] }, 1] }] }
+                then:
+                  - decl: [wie_viele, i32, { call: [<.zie.spanne, 1, 2] }]
+                  - decl: [gezogen, list<string>, { call: [<.zie.mehrere, passend, wie_viele] }]
+                  - decl: [idx, i32, 0]
+                  - while:
+                      condition: { lt: [idx, gezogen.len] }
+                      body:
+                        - call: [raus.push, { at: [gezogen, idx] }]
+                        - set: [idx, { "+": [idx, 1] }]
+            - decl: [fehlt, i32, { "-": [hoechstens, raus.len] }]
+            - if:
+                condition: { gt: [fehlt, 0] }
+                then:
+                  - decl: [mehr, list<string>, { call: [<.zie.mehrere, gueltig, fehlt] }]
+                  - decl: [jdx, i32, 0]
+                  - while:
+                      condition: { lt: [jdx, mehr.len] }
+                      body:
+                        - call: [raus.push, { at: [mehr, jdx] }]
+                        - set: [jdx, { "+": [jdx, 1] }]
+            - return: { call: [nur_einmal, raus] }
+
+      # Was in beiden Listen steht.
+      - def:
+          name: schnitt
+          access: public
+          args: [[eine, list<string>], [andere, list<string>]]
+          return: list<string>
+          body:
+            - decl: [karte, map<string:i32>, { call: [topf_als_karte, andere] }]
+            - return: { call: [nur_erlaubte, eine, karte] }
+
+      - def:
+          name: welt_feld
+          access: public
+          args: [[welt, ref<Satz>], [feld, string]]
+          return: list<string>
+          body:
+            - return: { call: [satz_liste, welt, feld] }
+
+      # Der Name: ein Adjektiv und ein Substantiv -- aber nur ein Adjektiv,
+      # das den Marken nicht widerspricht (Plan Punkt 6).
+      - def:
+          name: name_bauen
+          access: public
+          args: [[art, ref<FundArt>], [welt, ref<Satz>], [marken, list<string>]]
+          return: string
+          body:
+            - if: { condition: { eq: [art.gruppe.len, 0] }, then: [{ return: "" }] }
+            - decl: [adjektive, list<string>, { call: [topf_lesen, "prophecy/data/names/${art.gruppe}/adjective.txt"] }]
+            - decl: [substantive, list<string>, { call: [topf_lesen, "prophecy/data/names/${art.gruppe}/noun.txt"] }]
+            # Steht in der Welt ein Substantiv dieser Art, hat es Vorrang --
+            # der Fund soll zur Gegend passen.
+            - decl: [welt_namen, list<string>, { call: [<.schnitt, { call: [<.welt_feld, welt, art.schluessel] }, substantive] }]
+            - decl: [wort_haupt, string, ""]
+            - if:
+                condition: { gt: [welt_namen.len, 0] }
+                then: [{ set: [wort_haupt, { call: [<.zie.eines, welt_namen] }] }]
+                else: [{ set: [wort_haupt, { call: [<.zie.eines, substantive] }] }]
+            - decl: [wort_adj, string, ""]
+            - decl: [versuch, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [versuch, 6] }, { eq: [wort_adj.len, 0] }] }
+                body:
+                  - set: [versuch, { "+": [versuch, 1] }]
+                  - decl: [kandidat, string, { call: [<.zie.eines, adjektive] }]
+                  - if:
+                      condition: { "&&": [{ gt: [kandidat.len, 0] }, { eq: [{ call: [<.vertraegt, kandidat, marken] }, 1] }] }
+                      then: [{ set: [wort_adj, kandidat] }]
+            - if: { condition: { eq: [wort_haupt.len, 0] }, then: [{ return: wort_adj }] }
+            - if: { condition: { eq: [wort_adj.len, 0] }, then: [{ return: wort_haupt }] }
+            - return: "${wort_adj}, ${wort_haupt}"
+
+      # Der Ertrag bzw. Inhalt.  Pflanzen tragen, was sie reif hergeben;
+      # eine verschlossene Sache enthaelt etwas -- ausser sie ist als leer
+      # bekannt (`known-empty`).
+      - def:
+          name: ertrag_bauen
+          access: public
+          args: [[art, ref<FundArt>], [welt, ref<Satz>], [marken, list<string>]]
+          return: string
+          body:
+            - if: { condition: { eq: [art.ertrag, 0] }, then: [{ return: "" }] }
+            - if: { condition: { eq: [{ call: [<.vertraegt, "known_empty", marken] }, 0] }, then: [{ return: "" }] }
+            - if: { condition: { eq: [{ call: [<.hat_marke, marken, "known_empty"] }, 1] }, then: [{ return: "" }] }
+            - decl: [stoffe, list<string>, { call: [<.welt_feld, welt, "materials"] }]
+            - if: { condition: { eq: [stoffe.len, 0] }, then: [{ return: "" }] }
+            # Gewichtet: in vier von fuenf Faellen ein KERNSTOFF dieses
+            # Clusters, sonst einer aus dem ganzen Vorrat.  Seit alle 753
+            # Namen verteilt sind (24.11.2026), waere eine Gleichverteilung
+            # das Ende der benannten Rezepte: 100 Namen je Cluster heissen
+            # rund 200 Ziehungen fuer vier bestimmte Zutaten.  Der lange
+            # Schwanz bleibt erreichbar, nur selten.
+            - decl: [kern, list<string>, { call: [<.welt_feld, welt, "kern"] }]
+            - decl: [topf, list<string>, stoffe]
+            - if:
+                condition: { "&&": [{ gt: [kern.len, 0] }, { le: [{ call: [<.zie.spanne, 1, 5] }, 4] }] }
+                then: [{ set: [topf, kern] }]
+            - decl: [wie_viele, i32, { call: [<.zie.spanne, 1, 2] }]
+            - decl: [gezogen, list<string>, { call: [<.zie.mehrere, topf, wie_viele] }]
+            - decl: [hoechst, i32, art.ertrag]
+            - decl: [raus, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, gezogen.len] }
+                body:
+                  - decl: [stoff, string, { at: [gezogen, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [zahl, i32, { call: [<.zie.spanne, 1, hoechst] }]
+                  - if:
+                      condition: { eq: [raus.len, 0] }
+                      then: [{ set: [raus, "${stoff} x${zahl}"] }]
+                      else: [{ set: [raus, "${raus}, ${stoff} x${zahl}"] }]
+            - return: raus
+
+      - def:
+          name: hat_marke
+          access: public
+          args: [[marken, list<string>], [wort, string]]
+          return: i32
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, marken.len] }
+                body:
+                  - decl: [eine, string, { at: [marken, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if: { condition: { eq: [eine, wort] }, then: [{ return: 1 }] }
+            - return: 0
+
+      # Eine Zeile.  "" wenn sie ihr Schema verletzt -- dann zieht der
+      # Aufrufer neu, statt Teile fremder Funde zusammenzusetzen.
+      - def:
+          name: zeile_bauen
+          access: public
+          args: [[art, ref<FundArt>], [welt, ref<Satz>]]
+          return: string
+          body:
+            - decl: [daneben, i32, { call: [<.zie.muenze, 0.25] }]
+            - decl: [eingabe, list<string>]
+            # Kontext: Zone, Gelaende, Wetter -- mit Vorliebe fuer die Marken der Art.
+            - decl: [zon, list<string>, { call: [<.bevorzugt, { call: [<.welt_feld, welt, "zone"] }, <.zonen, art.marken, 2] }]
+            - decl: [ter, list<string>, { call: [<.bevorzugt, { call: [<.welt_feld, welt, "terrain"] }, <.gelaende, art.marken, 2] }]
+            - decl: [wet, list<string>, { call: [<.bevorzugt, { call: [<.welt_feld, welt, "weather"] }, <.wetter, art.marken, 1] }]
+            - call: [<.anhaengen, eingabe, zon]
+            - call: [<.anhaengen, eingabe, ter]
+            - call: [<.anhaengen, eingabe, wet]
+            # Das Grundelement steht in JEDER Zeile: im Spiel hat jede Zone
+            # eines, und ein Beutel ohne Element waere eine Lage, die es dort
+            # nicht gibt.  Vorher nur in 40 % der Zeilen (User-Entscheid
+            # 22.11.2026).
+            - decl: [ele, list<string>, { call: [nur_erlaubte, { call: [<.welt_feld, welt, "elements"] }, <.elemente] }]
+            - if: { condition: { gt: [ele.len, 0] }, then: [{ call: [eingabe.push, { call: [<.zie.eines, ele] }] }] }
+            # Die Taetigkeit: die der Art -- oder, bei einem Viertel der
+            # Zeilen, irgendeine.
+            - if:
+                condition: { eq: [daneben, 1] }
+                then: [{ call: [eingabe.push, { call: [<.zie.eines, <.taetig] }] }]
+                else: [{ call: [eingabe.push, art.taetigkeit] }]
+            # Faehigkeiten der Art, gegen die echten Starter geprueft.
+            - decl: [kann, list<string>, { call: [nur_erlaubte, art.faehig, <.starter] }]
+            - if:
+                condition: { "&&": [{ gt: [kann.len, 0] }, { eq: [daneben, 0] }] }
+                then:
+                  - decl: [wie_viele, i32, { call: [<.zie.spanne, 1, 2] }]
+                  - call: [<.anhaengen, eingabe, { call: [<.zie.mehrere, kann, wie_viele] }]
+            # Getragene Werkzeuge: eins bis drei, jedes mit NAMEN UND seinen
+            # drei Marken -- genau die Form, die das Spiel schickt
+            # (User-Entscheid 22.11.2026).  Vorher stand hier ein einziger
+            # Name, und nur in Zeilen, deren Fundart ein Werkzeug verlangt;
+            # Marken eines Stuecks kamen in der Eingabespalte NIE vor.
+            - decl: [wkz_topf, list<string>, { call: [<.werkzeuge_der_welt, welt] }]
+            - decl: [getragen, list<string>]
+            - if:
+                condition: { gt: [wkz_topf.len, 0] }
+                then:
+                  - decl: [wie_viele_wkz, i32, { call: [<.zie.spanne, 1, 3] }]
+                  - set: [getragen, { call: [<.zie.mehrere, wkz_topf, wie_viele_wkz] }]
+                  - decl: [wdx, i32, 0]
+                  - while:
+                      condition: { lt: [wdx, getragen.len] }
+                      body:
+                        - decl: [eins_wkz, string, { at: [getragen, wdx] }]
+                        - set: [wdx, { "+": [wdx, 1] }]
+                        - call: [eingabe.push, eins_wkz]
+                        - call: [<.anhaengen, eingabe, { call: [<.wkz_marken, eins_wkz] }]
+            # Das VERLANGTE Werkzeug ist eines der getragenen: nur was man
+            # dabei hat, kann man benutzen.  Diese Kopplung (Beutel traegt das
+            # Werkzeug, Ausgabefeld verlangt es) hat das Modell gelernt -- sie
+            # darf beim Erweitern nicht verlorengehen.
+            - decl: [werkzeug, string, ""]
+            - if:
+                condition: { "&&": [{ eq: [art.werkzeug, 1] }, { "&&": [{ eq: [daneben, 0] }, { "&&": [{ gt: [getragen.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.7] }, 1] }] }] }] }
+                then: [{ set: [werkzeug, { call: [<.zie.eines, getragen] }] }]
+            - decl: [sauber, list<string>, { call: [nur_einmal, eingabe] }]
+            - decl: [gemischt, list<string>, { call: [<.zie.mischen, sauber] }]
+            # Ausgabemarken: Beschreibung der Welt plus die Marken der Art.
+            - decl: [marken, list<string>]
+            - decl: [beschreibung, list<string>, { call: [<.welt_feld, welt, "common_descriptors"] }]
+            - if:
+                condition: { "&&": [{ gt: [beschreibung.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.7] }, 1] }] }
+                then: [{ call: [<.anhaengen, marken, { call: [<.zie.mehrere, beschreibung, { call: [<.zie.spanne, 1, 2] }] }] }]
+            - decl: [art_marken, list<string>, { call: [<.marken_der_art, art] }]
+            - if:
+                condition: { gt: [art_marken.len, 0] }
+                then:
+                  - decl: [wie_viel_m, i32, { call: [<.zie.spanne, 1, 2] }]
+                  - decl: [kandidaten, list<string>, { call: [<.zie.mehrere, art_marken, wie_viel_m] }]
+                  # Nur Marken, die sich untereinander vertragen.
+                  - decl: [midx, i32, 0]
+                  - while:
+                      condition: { lt: [midx, kandidaten.len] }
+                      body:
+                        - decl: [kand, string, { at: [kandidaten, midx] }]
+                        - set: [midx, { "+": [midx, 1] }]
+                        - if: { condition: { eq: [{ call: [<.vertraegt, kand, marken] }, 1] }, then: [{ call: [marken.push, kand] }] }
+            - decl: [marken_rein, list<string>, { call: [nur_einmal, marken] }]
+            - decl: [ertrag, string, { call: [<.ertrag_bauen, art, welt, marken_rein] }]
+            - decl: [name, string, { call: [<.name_bauen, art, welt, marken_rein] }]
+            # ── Das Schema (Plan Punkt 6) ──
+            # Pflichtfelder: Eingabe immer; Name ausser bei `nothing`; Ertrag
+            # dort, wo die Art einen tragen muss und die Marken ihn erlauben.
+            - if: { condition: { lt: [gemischt.len, 2] }, then: [{ set: [<.verworfen, { "+": [<.verworfen, 1] }] }, { return: "" }] }
+            - if:
+                condition: { "&&": [{ gt: [art.gruppe.len, 0] }, { eq: [name.len, 0] }] }
+                then: [{ set: [<.verworfen, { "+": [<.verworfen, 1] }] }, { return: "" }]
+            - if:
+                condition: { "&&": [{ gt: [art.ertrag, 0] }, { "&&": [{ eq: [ertrag.len, 0] }, { eq: [{ call: [<.hat_marke, marken_rein, "known_empty"] }, 0] }] }] }
+                then: [{ set: [<.verworfen, { "+": [<.verworfen, 1] }] }, { return: "" }]
+            # Eine Art ohne Werkzeugbedingung darf keines tragen.
+            - if:
+                condition: { "&&": [{ eq: [art.werkzeug, 0] }, { gt: [werkzeug.len, 0] }] }
+                then: [{ set: [<.verworfen, { "+": [<.verworfen, 1] }] }, { return: "" }]
+            - decl: [eingabe_text, string, { call: [zeile_aus, gemischt] }]
+            - decl: [marken_text, string, ""]
+            - decl: [kidx, i32, 0]
+            - while:
+                condition: { lt: [kidx, marken_rein.len] }
+                body:
+                  - decl: [eine, string, { at: [marken_rein, kidx] }]
+                  - set: [kidx, { "+": [kidx, 1] }]
+                  - if:
+                      condition: { eq: [marken_text.len, 0] }
+                      then: [{ set: [marken_text, eine] }]
+                      else: [{ set: [marken_text, "${marken_text}, ${eine}"] }]
+            - return: "discover | ${eingabe_text} | ${art.einzahl} | ${marken_text} | ${ertrag} | ${werkzeug} | ${name}"
+
+      - def:
+          name: anhaengen
+          access: public
+          args: [[ziel, list<string>], [woerter, list<string>]]
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, woerter.len] }
+                body:
+                  - call: [ziel.push, { at: [woerter, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      # Die Ausgabemarken einer Fundart aus ihrem Markentopf.
+      - def:
+          name: marken_der_art
+          access: public
+          args: [[art, ref<FundArt>]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - if: { condition: { eq: [art.gruppe.len, 0] }, then: [{ return: raus }] }
+            - decl: [dateien, list<string>, { call: [io.list_dir, "prophecy/data/tags/${art.gruppe}"] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, dateien.len] }
+                body:
+                  - decl: [datei, string, { at: [dateien, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [datei.ends_with, ".txt"] }, 1] }
+                      then:
+                        - decl: [woerter, list<string>, { call: [topf_lesen, datei] }]
+                        - call: [<.anhaengen, raus, woerter]
+            - return: raus
+
+      # Werkzeuge, die zu dieser Welt gehoeren (ueber `world_affinity`).
+      # Die Marken eines Werkzeugs: zwei aus seinem Typ-Topf, eine universelle
+      # (roll_3_tags).  Welcher Typ-Topf, entscheidet der NAME -- Werkbaenke,
+      # Tische, Staender und Essen sind Utility, der Rest Handwerkzeug.  Die
+      # Handwerksdaten fuehren diese Unterscheidung nicht, also steht sie hier.
+      - def:
+          name: wkz_marken
+          args: [[name, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [topf, list<string>, <.wkz_tags]
+            - decl: [ist_util, i32, 0]
+            - if: { condition: { neq: [{ call: [name.contains, "bench"] }, 0] },   then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { neq: [{ call: [name.contains, "table"] }, 0] },   then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { neq: [{ call: [name.contains, "rack"] }, 0] },    then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { neq: [{ call: [name.contains, "station"] }, 0] }, then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { neq: [{ call: [name.contains, "smithy"] }, 0] },  then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { neq: [{ call: [name.contains, "forge"] }, 0] },   then: [{ set: [ist_util, 1] }] }
+            - if: { condition: { eq: [ist_util, 1] }, then: [{ set: [topf, <.util_tags] }] }
+            - if:
+                condition: { gt: [topf.len, 0] }
+                then: [{ call: [<.anhaengen, raus, { call: [<.zie.mehrere, topf, 2] }] }]
+            - if:
+                condition: { gt: [<.uni_tags.len, 0] }
+                then: [{ call: [raus.push, { call: [<.zie.eines, <.uni_tags] }] }]
+            - return: { call: [nur_einmal, raus] }
+
+      - def:
+          name: werkzeuge_der_welt
+          access: public
+          args: [[welt, ref<Satz>]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.handwerk.len] }
+                body:
+                  - decl: [craft, ref<Satz>, { at: [<.handwerk, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [naehe, list<string>, { call: [satz_liste, craft, "world_affinity"] }]
+                  - if:
+                      condition: { eq: [{ call: [<.hat_marke, naehe, welt.kennung] }, 1] }
+                      then: [{ call: [<.anhaengen, raus, { call: [satz_liste, craft, "tools"] }] }]
+            - return: { call: [nur_einmal, raus] }
+
+      - def:
+          name: bauen
+          access: public
+          args: [[anzahl, i32]]
+          return: i32
+          body:
+            - decl: [versuche, i32, 0]
+            - decl: [grenze, i32, { "*": [anzahl, 6] }]
+            - while:
+                condition: { "&&": [{ lt: [<.zeilen.len, anzahl] }, { lt: [versuche, grenze] }] }
+                body:
+                  - set: [versuche, { "+": [versuche, 1] }]
+                  # Die Fundart nach ihrem Anteil, die Welt gleichverteilt.
+                  - decl: [anteile, list<f32>]
+                  - decl: [aidx, i32, 0]
+                  - while:
+                      condition: { lt: [aidx, <.arten.len] }
+                      body:
+                        - decl: [eine_art, ref<FundArt>, { at: [<.arten, aidx] }]
+                        - set: [aidx, { "+": [aidx, 1] }]
+                        - call: [anteile.push, eine_art.anteil]
+                  - decl: [gewaehlt, i32, { call: [<.zie.wrf.kategorisch, anteile] }]
+                  - if: { condition: { lt: [gewaehlt, 0] }, then: [{ set: [gewaehlt, 0] }] }
+                  - decl: [art, ref<FundArt>, { at: [<.arten, gewaehlt] }]
+                  - decl: [welt, ref<Satz>, { at: [<.welten, { call: [<.zie.zahl, <.welten.len] }] }]
+                  - decl: [zeile, string, { call: [<.zeile_bauen, art, welt] }]
+                  - if: { condition: { gt: [zeile.len, 0] }, then: [{ call: [<.zeilen.push, zeile] }] }
+            # Die Domaenen-Reihenfolge liegt als DATEN daneben
+            # (prophecy/data/domains/funde.txt): gekuerzt verliert ein Wort
+            # still seine Domaene, und die Maske wirft es weg.
+            - set: [<.domaenen, { call: [topf_lesen, "prophecy/data/domains/funde.txt"] }]
+            - return: <.zeilen.len

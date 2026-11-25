@@ -1,0 +1,35 @@
+# Pet/Beast-Namen — basis-Nouns für Beastmaster-System (siehe Skill-Doc
+# "Future: Beastmaster").  Pet = Creature-Subset mit owner_creature_id
+# Binding. Werden via Active-Skill ("capture") aus Enemies konvertiert.
+# Auch unabhängig spawnbar via gen-model.
+
+shardling
+glow_pup
+dust_crawler
+moss_pup
+copper_kit
+crystal_chick
+mirror_fawn
+quantum_otter
+glimmer_bat
+shadow_fox
+data_lizard
+gear_hound
+sky_glider
+tundra_pika
+swamp_newt
+forest_cublet
+rune_ferret
+nest_grub
+echo_calf
+shard_cat
+moss_owl
+ember_mouse
+field_hare
+sap_beetle
+glass_finch
+clockwork_squirrel
+veil_serpentlet
+dewdrop_frog
+runeshell_turtle
+twilight_lemur

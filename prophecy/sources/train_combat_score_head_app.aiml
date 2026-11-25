@@ -1,0 +1,779 @@
+# Prophecy combat_score_head — MultiBag regression scorer.
+#
+# Input:   attacker token-bag + defender token-bag (two separate bags)
+# Output:  scalar f32 score ∈ [0, 1] (regression, MSE loss)
+#
+# Architecture:
+#   att_h    = relu(att_bag @ bag_w + bag_b)   (eigenes Vokabular, gelernt)
+#   def_h    = relu(def_bag @ bag_w + bag_b)   (DIESELBE Schicht -- siamesisch)
+#   diff     = att_h - def_h          (attacker advantage)
+#   score    = diff @ W + b           (1×1)
+#   loss     = (score - target)^2
+#
+# Foundation embedding frozen; Backbone + W + b werden trainiert.
+#
+# Bis 11.11.2026 rechnete dieser Kopf als EINZIGER direkt auf der eingefrorenen
+# 32-dimensionalen Einbettung, ohne Zwischenschicht.  Gemessen erklaerte er
+# damit 26,9 % der Varianz der handgepflegten Scores -- kaum mehr als ihr
+# Mittelwert.  Dieselbe Rechenform mit den TAGS als Merkmalen kommt auf 54 %
+# (kreuzvalidiert), mit bereinigtem Korpus auf 58 %: nicht die Architektur war
+# zu schwach, sondern die Darstellung.  Darum jetzt ein trainierbarer
+# BagBackbone davor, wie ihn jeder andere Kopf hat.
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/bag_backbone.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+- import: "prophecy/sources/aufteilung.aiml"
+
+- decl: [cs_weights_name, string, "prophecy_combat_score_weights"]
+- decl: [cs_priority_name, string, "prophecy_combat_score_priority"]
+- decl: [cs_body_name,     string, "prophecy_combat_score_body"]
+- decl: [cs_vocab_name,    string, "prophecy_combat_score_vocab"]
+
+- class:
+    name: CombatScoreHeadTrainer
+    members:
+      - [n_epochs,    i32, 150]
+      # 0.005 je Einzelbeispiel erschlug beim Item-Kopf die relu-Schicht
+      # (0 von 64 wach, Gradient exakt 0).  Dieselbe Bauart, dieselbe Gefahr.
+      - [learn_rate,  f32, 0.0005]
+      - [stapel,      i32, 32]
+      - [adam_b1,     f32, 0.9]
+      - [adam_b2,     f32, 0.999]
+      - [adam_eps,    f32, 0.00000001]
+      - [log_every,   i32, 50]
+      - [save_every,  i32, 100]
+      - [beste_verlust,   f32, 0.0]
+      - [hat_beste,       i32, 0]
+      # Mess-Knopf: jede n-te Zeile bleibt aus dem Training heraus und dient
+      # der Abnahme (0 = alles trainieren, so laufen die Produktionsgewichte).
+      # Vorher entschied `holdout_every` (Index-Modulo) -- und stand auf 0, die
+      # Abnahme war damit ABGESCHALTET: der Kopf meldete nur den
+      # Trainingsverlust.  Jetzt entscheidet die Ausgangszeile (Plan Punkt 7,
+      # prophecy/sources/aufteilung.aiml): 0 lernen / 1 pruefen / 2 testen.
+      - [teil_liste,    list<i32>]
+      # Zaehler der Diagnose: was faellt beim Auflösen weg?
+      # Eigenes kleines Vokabular: nur die Marken, die in diesem Korpus
+      # vorkommen (~200 statt 5088).  Der Kopf lernt ihre Darstellung SELBST --
+      # die eingefrorene 32er-Einbettung war der gemessene Engpass (Abnahme
+      # blieb bei 0,44 stehen, auch mit 600 Durchlaeufen).
+      - [lok_vokabular, list<string>]
+      - [lok_index,     map<string:i32>]
+      - [bag_w,         tensor]
+      - [bag_b,         tensor]
+      - [fehl_atlas, i32, 0]
+      - [fehl_vocab, i32, 0]
+      - [tok_ges,    i32, 0]
+      - [atlas_kv,    Kv<string:TagAtlasEntry>]
+      - [embedder,    ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
+      # def-id → cached vocab ids of the bag tokens
+      - [bag_ids,     map<string:string>]  # store as " "-joined ids-string
+      - [current_priority, list<string>]
+      # Training samples: att_ids + def_ids + target score
+      - [train_att_ids,  list<list<i32>>]
+      - [train_def_ids,  list<list<i32>>]
+      - [train_scores,   list<f32>]
+      # Zweiter Ausgang: die Wucht eines Treffers.  Zeilen ohne vierte Spalte
+      # (der handgeschriebene Teil) tragen -1 und lehren sie nicht.
+      - [train_wucht,    list<f32>]
+      - [wucht_w,        tensor]
+      - [wucht_b,        tensor]
+      - [hidden_dim,     i32, 64]
+      # Weights (W + b auf der Backbone-Ausgabe)
+      - [score_w,        tensor]    # hidden_dim × 1
+      - [score_b,        tensor]    # 1
+
+    methods:
+      # ── Resolve plain token via priority + atlas ──────────────────────────
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - decl: [n_prio, i32, <.current_priority.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [<.current_priority, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_tag] }, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_name] }, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_adj] }, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      # ── Resolve a space-separated token-string → vocab-id list ────────────
+      - def:
+          name: tokens_to_ids
+          args: [[token_str, string]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [toks, list<string>, { call: [token_str.split, " "] }]
+            - decl: [n_tok, i32, toks.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [raw, string, { at: [toks, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tok.len, 0] }
+                      then:
+                        - set: [<.tok_ges, { "+": [<.tok_ges, 1] }]
+                        - decl: [key, string, { call: [<.resolve_token, tok] }]
+                        - if:
+                            condition: { eq: [key.len, 0] }
+                            then: [{ set: [<.fehl_atlas, { "+": [<.fehl_atlas, 1] }] }]
+                            else:
+                              - call: [out.push, { call: [<.lok_id, key] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # Kennung im eigenen Vokabular; legt sie bei Bedarf an.
+      - def:
+          name: lok_id
+          args: [[key, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.lok_index.contains, key] }, 1] }
+                then: [{ return: { call: [<.lok_index.get, key] } }]
+            - decl: [neu, i32, <.lok_vokabular.len]
+            - call: [<.lok_vokabular.push, key]
+            - call: [<.lok_index.put, key, neu]
+            - return: neu
+
+      # Beutel → verborgene Schicht, ohne Umweg ueber die Einbettung.
+      - def:
+          name: encode_lokal
+          args: [[ids, list<i32>]]
+          return: tensor
+          body:
+            - decl: [n_ids, i32, ids.len]
+            - decl: [n_f,   f32, n_ids]
+            - decl: [anteil, f32, { "/": [1.0, n_f] }]
+            - decl: [beutel, tensor, { call: [tensor.zeros, 1, <.lok_vokabular.len] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_ids] }
+                body:
+                  - decl: [tid, i32, { at: [ids, idx] }]
+                  - decl: [cur, f32, { call: [beutel.get, tid] }]
+                  - call: [beutel.set, tid, { "+": [cur, anteil] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [roh, tensor, { call: [tensor.matmul, beutel, <.bag_w] }]
+            - decl: [mit_b, tensor, { call: [tensor.add, roh, <.bag_b] }]
+            - return: { call: [tensor.relu, mit_b] }
+
+      # ── Build a bag-id-list from a column string (e.g. "smith_hammer
+      #    forceful").  First word = def-id, rest = modifier tokens
+      #    appended to the bag.  Returns the combined vocab-id list.
+      - def:
+          name: build_col_ids
+          args: [[col_str, string]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [parts, list<string>, { call: [col_str.split, " "] }]
+            - decl: [n_p, i32, parts.len]
+            - if: { condition: { eq: [n_p, 0] }, then: [{ return: out }] }
+            - decl: [first_raw, string, { at: [parts, 0] }]
+            - decl: [def_id, string, { call: [first_raw.trim] }]
+            # Look up the bag for def_id (parsed from `def <id> = ...` lines)
+            - if:
+                condition: { eq: [{ call: [<.bag_ids.contains, def_id] }, 1] }
+                then:
+                  - decl: [ids_str, string, { call: [<.bag_ids.get, def_id] }]
+                  - decl: [id_parts, list<string>, { call: [ids_str.split, " "] }]
+                  - decl: [n_id, i32, id_parts.len]
+                  - decl: [i_idx, i32, 0]
+                  - while:
+                      condition: { lt: [i_idx, n_id] }
+                      body:
+                        - decl: [s_part, string, { at: [id_parts, i_idx] }]
+                        - decl: [tr_str, string, { call: [s_part.trim] }]
+                        - if:
+                            condition: { gt: [tr_str.len, 0] }
+                            then:
+                              - decl: [iv_val, i32, { call: [tr_str.parse_i32] }]
+                              - call: [out.push, iv_val]
+                        - set: [i_idx, { "+": [i_idx, 1] }]
+            # Append any modifier tokens after the def-id (resolved via atlas).
+            # Ist das erste Wort KEINE def-Kennung, gehoert es selbst dazu --
+            # sonst faellt es ersatzlos weg.  In den generierten Zeilen
+            # (Waffe gegen Gegner) war das die erste Marke JEDER Spalte, beim
+            # Verteidiger also meist die Panzerklasse.
+            - decl: [m_idx, i32, 1]
+            - if:
+                condition: { eq: [{ call: [<.bag_ids.contains, def_id] }, 0] }
+                then: [{ set: [m_idx, 0] }]
+            - while:
+                condition: { lt: [m_idx, n_p] }
+                body:
+                  - decl: [m_raw, string, { at: [parts, m_idx] }]
+                  - decl: [m_str, string, { call: [m_raw.trim] }]
+                  - if:
+                      condition: { gt: [m_str.len, 0] }
+                      then:
+                        - set: [<.tok_ges, { "+": [<.tok_ges, 1] }]
+                        - decl: [mk_key, string, { call: [<.resolve_token, m_str] }]
+                        - if:
+                            condition: { eq: [mk_key.len, 0] }
+                            then: [{ set: [<.fehl_atlas, { "+": [<.fehl_atlas, 1] }] }]
+                            else:
+                              - call: [out.push, { call: [<.lok_id, mk_key] }]
+                  - set: [m_idx, { "+": [m_idx, 1] }]
+            - return: out
+
+      # ── Parse combat.txt ───────────────────────────────────────────────────
+      - def:
+          name: parse_corpus
+          args: [[file_path, string]]
+          body:
+            - call: [log.info, "parsing corpus: ${file_path}"]
+            - decl: [text, string, { call: [io.read_file, file_path] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "  empty or missing"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln, i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - decl: [n_def, i32, 0]
+            - decl: [n_score, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  - decl: [maybe_hdr, list<string>, { call: [parse_priority_header, ln_str] }]
+                  - if:
+                      condition: { gt: [maybe_hdr.len, 0] }
+                      then:
+                        - set: [<.current_priority, maybe_hdr]
+                        - call: [log.info, "  applied domain_priority: ${maybe_hdr.len} domains"]
+                  - decl: [is_comment, i32, { call: [ln_str.starts_with, "#"] }]
+                  - if:
+                      condition: { "&&": [{ gt: [ln_str.len, 0] }, { neq: [is_comment, 1] }] }
+                      then:
+                        - decl: [is_def, i32, { call: [ln_str.starts_with, "def "] }]
+                        - if:
+                            condition: { eq: [is_def, 1] }
+                            then:
+                              # `def <id> [annotation] = <token-bag>` — split on " = "
+                              - decl: [eq_parts, list<string>, { call: [ln_str.split, " = "] }]
+                              - if:
+                                  condition: { gt: [eq_parts.len, 1] }
+                                  then:
+                                    - decl: [lhs, string, { at: [eq_parts, 0] }]
+                                    - decl: [rhs, string, { at: [eq_parts, 1] }]
+                                    # lhs = "def <id> [annotation]" — first word after "def" is id
+                                    - decl: [lhs_words, list<string>, { call: [lhs.split, " "] }]
+                                    - if:
+                                        condition: { gt: [lhs_words.len, 1] }
+                                        then:
+                                          - decl: [id_raw, string, { at: [lhs_words, 1] }]
+                                          - decl: [def_id, string, { call: [id_raw.trim] }]
+                                          # Resolve tokens in rhs to vocab ids → space-joined string
+                                          - decl: [ids, list<i32>, { call: [<.tokens_to_ids, rhs] }]
+                                          - decl: [ids_blob, string, ""]
+                                          - decl: [b_idx, i32, 0]
+                                          - while:
+                                              condition: { lt: [b_idx, ids.len] }
+                                              body:
+                                                - decl: [tid, i32, { at: [ids, b_idx] }]
+                                                - if:
+                                                    condition: { gt: [b_idx, 0] }
+                                                    then: [{ set: [ids_blob, "${ids_blob} ${tid}"] }]
+                                                    else: [{ set: [ids_blob, "${tid}"] }]
+                                                - set: [b_idx, { "+": [b_idx, 1] }]
+                                          - call: [<.bag_ids.put, def_id, ids_blob]
+                                          - set: [n_def, { "+": [n_def, 1] }]
+                            else:
+                              # Scoring row: `<att-col> | <def-col> | <score>`
+                              - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+                              - if:
+                                  condition: { ge: [cols.len, 3] }
+                                  then:
+                                    - decl: [att_raw, string, { at: [cols, 0] }]
+                                    - decl: [att_str, string, { call: [att_raw.trim] }]
+                                    - decl: [def_raw, string, { at: [cols, 1] }]
+                                    - decl: [def_str, string, { call: [def_raw.trim] }]
+                                    - decl: [sco_raw, string, { at: [cols, 2] }]
+                                    - decl: [sco_str, string, { call: [sco_raw.trim] }]
+                                    - decl: [att_ids, list<i32>, { call: [<.build_col_ids, att_str] }]
+                                    - decl: [def_ids, list<i32>, { call: [<.build_col_ids, def_str] }]
+                                    - decl: [score_v, f32, { call: [sco_str.parse_f32] }]
+                                    - decl: [wucht_v, f32, -1.0]
+                                    - if:
+                                        condition: { ge: [cols.len, 4] }
+                                        then:
+                                          - decl: [wu_raw, string, { at: [cols, 3] }]
+                                          - decl: [wu_str, string, { call: [wu_raw.trim] }]
+                                          - if: { condition: { gt: [wu_str.len, 0] }, then: [{ set: [wucht_v, { call: [wu_str.parse_f32] }] }] }
+                                    - if:
+                                        condition: { "&&": [{ gt: [att_ids.len, 0] }, { gt: [def_ids.len, 0] }] }
+                                        then:
+                                          - call: [<.train_att_ids.push, att_ids]
+                                          - call: [<.train_def_ids.push, def_ids]
+                                          - call: [<.train_scores.push, score_v]
+                                          - call: [<.teil_liste.push, { call: [teil_von, ln_str] }]
+                                          - call: [<.train_wucht.push, wucht_v]
+                                          - set: [n_score, { "+": [n_score, 1] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+            - call: [log.info, "  def_rows=${n_def} score_rows=${n_score}"]
+            - call: [log.info, "  Tokens ${<.tok_ges} · ohne Domaene ${<.fehl_atlas} · nicht im Vokabular ${<.fehl_vocab}"]
+
+      # ── Initialize trainable weights ──────────────────────────────────────
+      - def:
+          name: init_weights
+          args: []
+          static_off: ["str_cmp"]
+          body:
+            # Erste Schicht: eigenes Vokabular → verborgene Schicht.
+            # Hat sich die REIHENFOLGE des Vokabulars geaendert (neuer Korpus,
+            # gleiche Anzahl), passen alte Gewichte zwar der Form nach, meinen
+            # aber andere Marken.  Darum den abgelegten Wortlaut vergleichen.
+            - decl: [alt_kv, Kv<string:string>, { call: [db.open_kv, cs_vocab_name, {persist: true}] }]
+            - decl: [alt_blob, string, { call: [alt_kv.get, "tokens"] }]
+            - decl: [neu_blob, string, ""]
+            - decl: [vi_idx, i32, 0]
+            - while:
+                condition: { lt: [vi_idx, <.lok_vokabular.len] }
+                body:
+                  - decl: [vk_tok, string, { at: [<.lok_vokabular, vi_idx] }]
+                  - if:
+                      condition: { gt: [vi_idx, 0] }
+                      then: [{ set: [neu_blob, "${neu_blob}|${vk_tok}"] }]
+                      else: [{ set: [neu_blob, vk_tok] }]
+                  - set: [vi_idx, { "+": [vi_idx, 1] }]
+            - decl: [gleich, i32, 1]
+            - if:
+                condition: { "&&": [{ gt: [alt_blob.len, 0] }, { neq: [alt_blob, neu_blob] }] }
+                then:
+                  - set: [gleich, 0]
+                  - call: [log.warn, "Vokabular hat sich geaendert — Koerpergewichte werden neu angelegt"]
+            - if:
+                condition: { eq: [gleich, 1] }
+                then:
+                  - set: [<.bag_w, { call: [head_load_or_randn_2d, cs_body_name, "bag_w", <.lok_vokabular.len, <.hidden_dim, 0.3] }]
+                else:
+                  - set: [<.bag_w, { call: [tensor.randn_ex, 0.0, 0.3, <.lok_vokabular.len, <.hidden_dim] }]
+            - set: [<.bag_b, { call: [head_load_or_zeros_1d, cs_body_name, "bag_b", <.hidden_dim] }]
+            - call: [<.bag_w.set_requires_grad, 1]
+            - call: [<.bag_b.set_requires_grad, 1]
+            # Differenz + Produkt → doppelte Breite
+            - decl: [d_dim, i32, { "*": [<.hidden_dim, 2] }]
+            - decl: [w_tn, tensor, { call: [tensor.load, cs_weights_name, "score_w"] }]
+            # Form pruefen -- sonst traegt der alte 32x1-Tensor aus dem Juni
+            # stillschweigend weiter (derselbe Fehler wie beim skill_head).
+            - if:
+                condition: { neq: [w_tn, null] }
+                then:
+                  - if:
+                      condition: { neq: [{ call: [w_tn.shape, 0] }, d_dim] }
+                      then:
+                        - call: [log.warn, "score_w hat ${{ call: [w_tn.shape, 0] }}x1, gebraucht wird ${d_dim}x1 — neu initialisiert"]
+                        - set: [w_tn, null]
+            - if:
+                condition: { eq: [w_tn, null] }
+                then:
+                  - set: [w_tn, { call: [tensor.randn_ex, 0.0, 0.1, d_dim, 1] }]
+                  - call: [log.info, "init score_w randn (${d_dim}×1)"]
+            - set: [<.score_w, w_tn]
+            - set: [<.wucht_w, { call: [head_load_or_randn_2d, cs_weights_name, "wucht_w", d_dim, 1, 0.1] }]
+            - set: [<.wucht_b, { call: [head_load_or_zeros_1d, cs_weights_name, "wucht_b", 1] }]
+            - call: [<.wucht_w.set_requires_grad, 1]
+            - call: [<.wucht_b.set_requires_grad, 1]
+            - decl: [b_tn, tensor, { call: [tensor.load, cs_weights_name, "score_b"] }]
+            - if:
+                condition: { eq: [b_tn, null] }
+                then: [{ set: [b_tn, { call: [tensor.zeros, 1] }] }]
+            - set: [<.score_b, b_tn]
+            - call: [<.score_w.set_requires_grad, 1]
+            - call: [<.score_b.set_requires_grad, 1]
+
+      # ── Training loop ──────────────────────────────────────────────────────
+      - def:
+          name: train
+          args: []
+          body:
+            - decl: [n_samples, i32, <.train_scores.len]
+            - decl: [d_dim,         i32, <.embedder.d_embed]
+            - call: [log.info, "training: n_samples=${n_samples} d_embed=${d_dim} n_epochs=${<.n_epochs}"]
+            # score_w ist seit dem Backbone hidden_dim hoch, nicht d_embed --
+            # mit d_embed schrieb adam_step 64 Floats in einen 32er-Puffer.
+            - decl: [d_paar, i32, { "*": [<.hidden_dim, 2] }]
+            - decl: [m_w, tensor, { call: [tensor.zeros, d_paar, 1] }]
+            - decl: [v_w, tensor, { call: [tensor.zeros, d_paar, 1] }]
+            - decl: [m_b, tensor, { call: [tensor.zeros, 1] }]
+            - decl: [v_b, tensor, { call: [tensor.zeros, 1] }]
+            - decl: [m_u, tensor, { call: [tensor.zeros, d_paar, 1] }]
+            - decl: [v_u, tensor, { call: [tensor.zeros, d_paar, 1] }]
+            - decl: [m_ub, tensor, { call: [tensor.zeros, 1] }]
+            - decl: [v_ub, tensor, { call: [tensor.zeros, 1] }]
+            - decl: [m_h, tensor, { call: [tensor.zeros, <.lok_vokabular.len, <.hidden_dim] }]
+            - decl: [v_h, tensor, { call: [tensor.zeros, <.lok_vokabular.len, <.hidden_dim] }]
+            - decl: [m_hb, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [v_hb, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - call: [m_w.keep]
+            - call: [v_w.keep]
+            - call: [m_b.keep]
+            - call: [v_b.keep]
+            - call: [m_u.keep]
+            - call: [v_u.keep]
+            - call: [m_ub.keep]
+            - call: [v_ub.keep]
+            - call: [m_h.keep]
+            - call: [v_h.keep]
+            - call: [m_hb.keep]
+            - call: [v_hb.keep]
+            - decl: [global_step, i32, 0]
+            - decl: [epoch, i32, 0]
+            - while:
+                condition: { lt: [epoch, <.n_epochs] }
+                body:
+                  - decl: [total_loss, f32, 0.0]
+                  - decl: [n_trained, i32, 0]
+                  - decl: [s_idx, i32, 0]
+                  - decl: [im_stapel, i32, 0]
+                  - decl: [ep_f, f32, epoch]
+                  - decl: [lr_teiler, f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
+                  - decl: [lr_e, f32, { "/": [<.learn_rate, lr_teiler] }]
+                  - while:
+                      condition: { lt: [s_idx, n_samples] }
+                      body:
+                        - decl: [att_ids, list<i32>, { at: [<.train_att_ids, s_idx] }]
+                        - decl: [def_ids, list<i32>, { at: [<.train_def_ids, s_idx] }]
+                        - decl: [target_v, f32, { at: [<.train_scores, s_idx] }]
+                        - decl: [n_att, i32, att_ids.len]
+                        - decl: [n_def, i32, def_ids.len]
+                        - decl: [ist_test, i32, 0]
+                        - if:
+                            condition: { neq: [{ at: [<.teil_liste, s_idx] }, 0] }
+                            then: [{ set: [ist_test, 1] }]
+                        - if:
+                            condition: { "&&": [{ eq: [ist_test, 0] }, { "&&": [{ gt: [n_att, 0] }, { gt: [n_def, 0] }] }] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              # Beide Beutel durch DENSELBEN Backbone -- der
+                              # mittelt, projiziert auf hidden_dim und relu-t.
+                              - decl: [att_h, tensor, { call: [<.encode_lokal, att_ids] }]
+                              - decl: [def_h, tensor, { call: [<.encode_lokal, def_ids] }]
+                              # Differenz UND Produkt: eine Regel wie "stumpf
+                              # gegen anfaellig-fuer-stumpf" ist ein PRODUKT
+                              # zweier Merkmale.  Mit der Differenz allein kam
+                              # der Kopf ueber 0,35 nicht hinaus (gemessen).
+                              - decl: [diff,    tensor, { call: [tensor.sub, att_h, def_h] }]
+                              - decl: [prod,    tensor, { call: [tensor.mul, att_h, def_h] }]
+                              - decl: [paar,    tensor, { call: [tensor.concat, diff, prod, 1] }]
+                              - decl: [logit_w, tensor, { call: [tensor.matmul, paar, <.score_w] }]
+                              - decl: [score_t, tensor, { call: [tensor.add, logit_w, <.score_b] }]
+                              # target tensor 1×1
+                              - decl: [target_t, tensor, { call: [tensor.zeros, 1, 1] }]
+                              - call: [target_t.set, 0, target_v]
+                              # MSE: (score - target)^2
+                              - decl: [err_tn,  tensor, { call: [tensor.sub, score_t, target_t] }]
+                              - decl: [sq_tn,   tensor, { call: [tensor.mul, err_tn, err_tn] }]
+                              - decl: [loss, tensor, { call: [tensor.sum, sq_tn, -1] }]
+                              # Zweiter Ausgang: die Wucht.  Zeilen ohne vierte
+                              # Spalte tragen -1 und steuern nichts bei.
+                              - decl: [wucht_v, f32, { at: [<.train_wucht, s_idx] }]
+                              - if:
+                                  condition: { ge: [wucht_v, 0.0] }
+                                  then:
+                                    - decl: [wu_lin, tensor, { call: [tensor.matmul, paar, <.wucht_w] }]
+                                    - decl: [wu_t,   tensor, { call: [tensor.add, wu_lin, <.wucht_b] }]
+                                    - decl: [wz_t,   tensor, { call: [tensor.zeros, 1, 1] }]
+                                    - call: [wz_t.set, 0, wucht_v]
+                                    - decl: [wu_err, tensor, { call: [tensor.sub, wu_t, wz_t] }]
+                                    - decl: [wu_sq,  tensor, { call: [tensor.mul, wu_err, wu_err] }]
+                                    - decl: [wu_los, tensor, { call: [tensor.sum, wu_sq, -1] }]
+                                    - set: [loss, { call: [tensor.add, loss, wu_los] }]
+                              - call: [tensor.backward, loss]
+                              - set: [im_stapel, { "+": [im_stapel, 1] }]
+                              - if:
+                                  condition: { gte: [im_stapel, <.stapel] }
+                                  then:
+                                    - set: [global_step, { "+": [global_step, 1] }]
+                                    - call: [tensor.adam_step, <.score_w, m_w, v_w, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.score_b, m_b, v_b, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.wucht_w, m_u, v_u, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.wucht_b, m_ub, v_ub, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.bag_w, m_h, v_h, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.bag_b, m_hb, v_hb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [<.score_w.zero_grad]
+                                    - call: [<.score_b.zero_grad]
+                                    - call: [<.wucht_w.zero_grad]
+                                    - call: [<.wucht_b.zero_grad]
+                                    - call: [<.bag_w.zero_grad]
+                                    - call: [<.bag_b.zero_grad]
+                                    - set: [im_stapel, 0]
+                              - call: [<.embedder.emb.zero_grad]
+                              - decl: [lv_var, f32, { call: [loss.get, 0] }]
+                              - set: [total_loss, { "+": [total_loss, lv_var] }]
+                              - set: [n_trained, { "+": [n_trained, 1] }]
+                        - set: [s_idx, { "+": [s_idx, 1] }]
+                  - if:
+                      condition: { gt: [im_stapel, 0] }
+                      then:
+                        - set: [global_step, { "+": [global_step, 1] }]
+                        - call: [tensor.adam_step, <.score_w, m_w, v_w, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.score_b, m_b, v_b, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.wucht_w, m_u, v_u, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.wucht_b, m_ub, v_ub, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.bag_w, m_h, v_h, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.bag_b, m_hb, v_hb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [<.score_w.zero_grad]
+                        - call: [<.score_b.zero_grad]
+                        - call: [<.wucht_w.zero_grad]
+                        - call: [<.wucht_b.zero_grad]
+                        - call: [<.bag_w.zero_grad]
+                        - call: [<.bag_b.zero_grad]
+                        - set: [im_stapel, 0]
+                  - decl: [n_tf, f32, n_trained]
+                  - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
+                  - if:
+                      condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
+                      then:
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} avg_loss=${avg} samples=${n_trained}"]
+                  # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte die
+                  # Schleife jede N-te Epoche und `run` am Ende UNBEDINGT -- beim
+                  # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
+                  # Abnahme 2,6 %) ueber einen guten (13,7 %), gemessen 21.11.2026.
+                  - decl: [besser, i32, 0]
+                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if:
+                      condition: { eq: [besser, 1] }
+                      then:
+                        - set: [<.beste_verlust, avg]
+                        - set: [<.hat_beste, 1]
+                        - call: [tensor.save, <.score_w, cs_weights_name, "score_w"]
+                        - call: [tensor.save, <.score_b, cs_weights_name, "score_b"]
+                        - call: [tensor.save, <.wucht_w, cs_weights_name, "wucht_w"]
+                        - call: [tensor.save, <.wucht_b, cs_weights_name, "wucht_b"]
+                        - call: [<.speichere_koerper]
+                  - set: [epoch, { "+": [epoch, 1] }]
+
+      # ── Abnahme: RMSE und erklaerte Streuung ──────────────────────────────
+      - def:
+          name: bewerten
+          args: []
+          body:
+            - decl: [n_samples, i32, <.train_scores.len]
+            # Mittelwert als Vergleichsmassstab (ein Modell, das nur raet)
+            - decl: [summe_y, f32, 0.0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_samples] }
+                body:
+                  - set: [summe_y, { "+": [summe_y, { at: [<.train_scores, idx] }] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [n_f, f32, n_samples]
+            - decl: [mittel, f32, { "/": [summe_y, n_f] }]
+            - decl: [summe_wu, f32, 0.0]
+            - decl: [n_wu_ges, i32, 0]
+            - set: [idx, 0]
+            - while:
+                condition: { lt: [idx, n_samples] }
+                body:
+                  - decl: [wu_y, f32, { at: [<.train_wucht, idx] }]
+                  - if:
+                      condition: { ge: [wu_y, 0.0] }
+                      then:
+                        - set: [summe_wu, { "+": [summe_wu, wu_y] }]
+                        - set: [n_wu_ges, { "+": [n_wu_ges, 1] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [wu_nf, f32, n_wu_ges]
+            - decl: [wu_mittel, f32, 0.5]
+            - if: { condition: { gt: [n_wu_ges, 0] }, then: [{ set: [wu_mittel, { "/": [summe_wu, wu_nf] }] }] }
+            - decl: [sse_wu, f32, 0.0]
+            - decl: [sst_wu, f32, 0.0]
+            - decl: [n_wu, i32, 0]
+            - decl: [sse_wt, f32, 0.0]
+            - decl: [sst_wt, f32, 0.0]
+            - decl: [n_wt, i32, 0]
+            - decl: [sse_tr, f32, 0.0]
+            - decl: [sst_tr, f32, 0.0]
+            - decl: [n_tr, i32, 0]
+            - decl: [sse_te, f32, 0.0]
+            - decl: [sst_te, f32, 0.0]
+            - decl: [n_te, i32, 0]
+            - set: [idx, 0]
+            - while:
+                condition: { lt: [idx, n_samples] }
+                body:
+                  - decl: [att_ids, list<i32>, { at: [<.train_att_ids, idx] }]
+                  - decl: [def_ids, list<i32>, { at: [<.train_def_ids, idx] }]
+                  - decl: [ziel, f32, { at: [<.train_scores, idx] }]
+                  - if:
+                      condition: { "&&": [{ gt: [att_ids.len, 0] }, { gt: [def_ids.len, 0] }] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [att_h, tensor, { call: [<.encode_lokal, att_ids] }]
+                        - decl: [def_h, tensor, { call: [<.encode_lokal, def_ids] }]
+                        - decl: [diff, tensor, { call: [tensor.sub, att_h, def_h] }]
+                        - decl: [prod, tensor, { call: [tensor.mul, att_h, def_h] }]
+                        - decl: [paar, tensor, { call: [tensor.concat, diff, prod, 1] }]
+                        - decl: [roh, tensor, { call: [tensor.matmul, paar, <.score_w] }]
+                        - decl: [summe, tensor, { call: [tensor.add, roh, <.score_b] }]
+                        - decl: [wert, f32, { call: [summe.get, 0] }]
+                        - decl: [fehler, f32, { "-": [wert, ziel] }]
+                        - decl: [abweich, f32, { "-": [ziel, mittel] }]
+                        - decl: [wu_soll, f32, { at: [<.train_wucht, idx] }]
+                        - if:
+                            condition: { ge: [wu_soll, 0.0] }
+                            then:
+                              - decl: [wu_lin, tensor, { call: [tensor.matmul, paar, <.wucht_w] }]
+                              - decl: [wu_t, tensor, { call: [tensor.add, wu_lin, <.wucht_b] }]
+                              - decl: [wu_ist, f32, { call: [wu_t.get, 0] }]
+                              - decl: [wu_f, f32, { "-": [wu_ist, wu_soll] }]
+                              - decl: [wu_a, f32, { "-": [wu_soll, wu_mittel] }]
+                              - decl: [wu_test, i32, 0]
+                              - if:
+                                  condition: { neq: [{ at: [<.teil_liste, idx] }, 0] }
+                                  then: [{ set: [wu_test, 1] }]
+                              - if:
+                                  condition: { eq: [wu_test, 1] }
+                                  then:
+                                    - set: [sse_wt, { "+": [sse_wt, { "*": [wu_f, wu_f] }] }]
+                                    - set: [sst_wt, { "+": [sst_wt, { "*": [wu_a, wu_a] }] }]
+                                    - set: [n_wt, { "+": [n_wt, 1] }]
+                                  else:
+                                    - set: [sse_wu, { "+": [sse_wu, { "*": [wu_f, wu_f] }] }]
+                                    - set: [sst_wu, { "+": [sst_wu, { "*": [wu_a, wu_a] }] }]
+                                    - set: [n_wu, { "+": [n_wu, 1] }]
+                        - decl: [ist_test, i32, 0]
+                        - if:
+                            condition: { neq: [{ at: [<.teil_liste, idx] }, 0] }
+                            then: [{ set: [ist_test, 1] }]
+                        - if:
+                            condition: { eq: [ist_test, 1] }
+                            then:
+                              - set: [sse_te, { "+": [sse_te, { "*": [fehler, fehler] }] }]
+                              - set: [sst_te, { "+": [sst_te, { "*": [abweich, abweich] }] }]
+                              - set: [n_te, { "+": [n_te, 1] }]
+                            else:
+                              - set: [sse_tr, { "+": [sse_tr, { "*": [fehler, fehler] }] }]
+                              - set: [sst_tr, { "+": [sst_tr, { "*": [abweich, abweich] }] }]
+                              - set: [n_tr, { "+": [n_tr, 1] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { gt: [n_tr, 0] }
+                then:
+                  - decl: [n_trf, f32, n_tr]
+                  - decl: [rmse_tr, f32, { call: [math.sqrt, { "/": [sse_tr, n_trf] }] }]
+                  - decl: [r2_tr, f32, { "-": [1.0, { "/": [sse_tr, sst_tr] }] }]
+                  - call: [log.info, "Training: ${n_tr} Zeilen · RMSE ${rmse_tr} · erklaerte Streuung ${r2_tr}"]
+            - if:
+                condition: { gt: [n_te, 0] }
+                then:
+                  - decl: [n_tef, f32, n_te]
+                  - decl: [rmse_te, f32, { call: [math.sqrt, { "/": [sse_te, n_tef] }] }]
+                  - decl: [r2_te, f32, { "-": [1.0, { "/": [sse_te, sst_te] }] }]
+                  - call: [log.info, "Abnahme:  ${n_te} Zeilen · RMSE ${rmse_te} · erklaerte Streuung ${r2_te}"]
+            - if:
+                condition: { gt: [n_wu, 0] }
+                then:
+                  - decl: [n_wuf, f32, n_wu]
+                  - decl: [rmse_wu, f32, { call: [math.sqrt, { "/": [sse_wu, n_wuf] }] }]
+                  - decl: [r2_wu, f32, { "-": [1.0, { "/": [sse_wu, sst_wu] }] }]
+                  - call: [log.info, "Wucht (Training): ${n_wu} Zeilen · RMSE ${rmse_wu} · erklaerte Streuung ${r2_wu}"]
+            - if:
+                condition: { gt: [n_wt, 0] }
+                then:
+                  - decl: [n_wtf, f32, n_wt]
+                  - decl: [rmse_wt, f32, { call: [math.sqrt, { "/": [sse_wt, n_wtf] }] }]
+                  - decl: [r2_wt, f32, { "-": [1.0, { "/": [sse_wt, sst_wt] }] }]
+                  - call: [log.info, "Wucht (Abnahme):  ${n_wt} Zeilen · RMSE ${rmse_wt} · erklaerte Streuung ${r2_wt}"]
+
+      - def:
+          name: speichere_koerper
+          args: []
+          body:
+            - call: [tensor.save, <.bag_w, cs_body_name, "bag_w"]
+            - call: [tensor.save, <.bag_b, cs_body_name, "bag_b"]
+            - decl: [kv_var, Kv<string:string>, { call: [db.open_kv, cs_vocab_name, {persist: true}] }]
+            - decl: [blob, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.lok_vokabular.len] }
+                body:
+                  - decl: [k_name, string, { at: [<.lok_vokabular, idx] }]
+                  - if:
+                      condition: { gt: [idx, 0] }
+                      then: [{ set: [blob, "${blob}|${k_name}"] }]
+                      else: [{ set: [blob, k_name] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [kv_var.set, "tokens", blob]
+            # Dieser Kopf hat sein EIGENES Vokabular (nicht die gemeinsame
+            # Einbettung) -- seine Identitaet ist dieser Blob, darum keine
+            # `grundlage` (Spec modell_manifest_2026-11-20.md).
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, { call: [manifest_fp, blob] }]
+            - set: [satz.n_marken,   <.lok_vokabular.len]
+            - set: [satz.d_wert,     <.hidden_dim]
+            - set: [satz.korpus,     { call: [manifest_fp_datei, "data/combat.txt"] }]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    "train_combat_score_head"]
+            - call: [manifest_ablegen, cs_weights_name, satz]
+            - call: [log.info, "eigenes Vokabular: ${<.lok_vokabular.len} Marken → '${cs_vocab_name}'"]
+
+      - def:
+          name: run
+          args: []
+          body:
+            - call: [log.info, "CombatScoreHead training starting…"]
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_LR"] }, 1] }
+                then:
+                  - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
+                  - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_STAPEL"] }, 1] }
+                then:
+                  - decl: [s_txt, string, { call: [umg.get, "DC_STAPEL"] }]
+                  - set: [<.stapel, { call: [s_txt.parse_i32] }]
+            # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
+            # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
+            - set: [<.embedder, { new: TagEmbedding }]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "vocab load failed"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            - call: [log.info, "foundation: ${<.embedder.n_tokens} tokens × d=${<.embedder.d_embed}"]
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+            - call: [<.parse_corpus, "data/combat.txt"]
+            # Die Reihenfolge des Korpus-Headers gehoert zu den Gewichten.
+            - call: [priority_save, cs_priority_name, <.current_priority]
+            - call: [<.init_weights]
+            - call: [<.train]
+            - call: [<.bewerten]
+            # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
+            # Koerper MUSS mit: ohne das lud die Inferenz den Backbone aus der
+            # Epochen-Sicherung (50) gegen den Kopf der letzten Epoche.
+            - call: [<.speichere_koerper]
+            - call: [log.info, "CombatScoreHead training done. weights → '${cs_weights_name}'"]
+

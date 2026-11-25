@@ -1,0 +1,62 @@
+# Korpus schreiben: Kopfzeilen, die Domaenen-Reihenfolge, dann die Zeilen.
+#
+# Die Kopfzeile `# @domain_priority:` ist kein Beiwerk -- die Trainer lesen
+# daraus, in welcher Ordnung ein blankes Wort zu einem Atlas-Schluessel
+# aufgeloest wird (corpus_loader `parse_priority_header`).  Fehlt sie, loest
+# der Korpus in fremder Ordnung auf.
+#
+# Zeile fuer Zeile geschrieben, nicht als EINE Zeichenkette: bei 15 000
+# Zeilen waere das Zusammenkleben quadratisch.
+
+- def:
+    name: domaenen_zeile
+    args: [[domaenen, list<string>]]
+    return: string
+    body:
+      - decl: [raus, string, ""]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, domaenen.len] }
+          body:
+            - decl: [eine, string, { at: [domaenen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { gt: [eine.len, 0] }
+                then:
+                  - if: { condition: { eq: [raus.len, 0] }, then: [{ set: [raus, eine] }], else: [{ set: [raus, "${raus}, ${eine}"] }] }
+      - return: "# @domain_priority: ${raus}"
+
+- def:
+    name: korpus_schreiben
+    args: [[pfad, string], [kopf, list<string>], [domaenen, list<string>], [zeilen, list<string>]]
+    return: i32
+    body:
+      - decl: [datei, file_handle, { call: [io.open, pfad, "w"] }]
+      - if:
+          condition: { eq: [datei, null] }
+          then:
+            - call: [log.error, "korpusgen: '${pfad}' nicht schreibbar"]
+            - return: 0
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, kopf.len] }
+          body:
+            - decl: [eine, string, { at: [kopf, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - call: [io.write, datei, "# ${eine}\n"]
+      - if:
+          condition: { gt: [domaenen.len, 0] }
+          then:
+            - decl: [prio, string, { call: [domaenen_zeile, domaenen] }]
+            - call: [io.write, datei, "${prio}\n"]
+      - call: [io.write, datei, "\n"]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, zeilen.len] }
+          body:
+            - decl: [zeile, string, { at: [zeilen, pos] }]
+            - set: [pos, { "+": [pos, 1] }]
+            - call: [io.write, datei, "${zeile}\n"]
+      - call: [io.close, datei]
+      - call: [log.info, "korpusgen: ${zeilen.len} Zeilen → ${pfad}"]
+      - return: zeilen.len

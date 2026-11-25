@@ -1,0 +1,93 @@
+# Spec §9, Zeile `transformer_determinismus`: gleiche Eingabe + gleicher Seed,
+# 100 Laeufe, alle vier Aufgaben -- 100x dasselbe.
+#
+# Die Probe stand seit dem ersten Entwurf in der Tabelle und fehlte.  Darauf
+# ruht aber der ganze Speicherentwurf: der Server legt ein entdecktes Rezept
+# NICHT als Blob ab, sondern nur (aufgabe, beutel, seed, modellversion).
+# Stimmt die Zusage nicht, ist jede gespeicherte Entdeckung beim naechsten
+# Abruf eine andere.
+#
+# Zwischen zwei Laeufen derselben Saat wird ABSICHTLICH etwas anderes erzeugt:
+# so faellt auf, wenn Zustand aus einem Durchgang in den naechsten leckt --
+# und davon traegt der Erzeuger seit §7a/§7b einiges (<.erlaubt, <.nur_marke,
+# <.mask_jetzt, <.temperatur).
+- import: "prophecy/sources/streifzug.aiml"
+
+- def:
+    name: pruefe
+    args: [[erz, ref<Erzeuger>], [beutel, string], [aufgabe, string], [stoer, string]]
+    return: i32
+    body:
+      - decl: [erst, string, { call: [erz.lesbar, { call: [erz.erzeuge, aufgabe, beutel, 7] }] }]
+      - decl: [abweich, i32, 0]
+      - decl: [lauf, i32, 0]
+      - while:
+          condition: { lt: [lauf, 100] }
+          body:
+            - set: [lauf, { "+": [lauf, 1] }]
+            # Stoerung: andere Aufgabe, andere Saat, anderer Beutel.
+            - call: [erz.erzeuge, stoer, beutel, { cast: [lauf, i64] }]
+            - decl: [txt, string, { call: [erz.lesbar, { call: [erz.erzeuge, aufgabe, beutel, 7] }] }]
+            - if:
+                condition: { neq: [txt, erst] }
+                then:
+                  - set: [abweich, { "+": [abweich, 1] }]
+                  - if:
+                      condition: { eq: [abweich, 1] }
+                      then:
+                        - call: [log.error, "  Lauf ${lauf} weicht ab"]
+                        - call: [log.error, "    erwartet: ${erst}"]
+                        - call: [log.error, "    bekommen: ${txt}"]
+      - if:
+          condition: { eq: [abweich, 0] }
+          then: [{ call: [log.info, "  ${aufgabe}: 100 von 100 gleich"] }]
+          else: [{ call: [log.error, "  ${aufgabe}: ${abweich} von 100 abweichend"] }]
+      - return: abweich
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [stf, ptr<Streifzug>, { new: Streifzug }]
+      - decl: [ok_s, i32, { call: [stf.init, "assets/realms/realm_example.json", "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { neq: [ok_s, 1] }
+          then:
+            - call: [log.error, "determinismus: Streifzug nicht bereit"]
+            - return: 1
+      - decl: [z_beutel, string, { call: [stf.zonen_beutel, 0, "workout", "resource_lore"] }]
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "determinismus: nicht bereit"]
+            - return: 1
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+
+      - call: [log.info, "── Determinismus (Spec §9) ──"]
+      - decl: [bad, i32, 0]
+      - set: [bad, { "+": [bad, { call: [pruefe, erz, "gem rune-stylus magic_aptitude elemental stone essence", "<a:rezept>", "<a:kampf>"] }] }]
+      - set: [bad, { "+": [bad, { call: [pruefe, erz, z_beutel, "<a:entdeckung>", "<a:rezept>"] }] }]
+      - set: [bad, { "+": [bad, { call: [pruefe, erz, "resource_lore workout aether", "<a:fertigkeit>", "<a:entdeckung>"] }] }]
+      - set: [bad, { "+": [bad, { call: [pruefe, erz, "workout beast_attunement aggressive damage_multiplier", "<a:kampf>", "<a:fertigkeit>"] }] }]
+      # Dieselbe Saat, aber die Aufgabe VORHER anders eingestellt: faellt die
+      # Ziehung je Aufgabe aus (§5), kommt hier etwas anderes heraus.
+      - decl: [vor, string, { call: [erz.lesbar, { call: [erz.erzeuge, "<a:rezept>", "gem rune-stylus magic_aptitude elemental stone essence", 7] }] }]
+      - call: [erz.ziehung_je, "<a:kampf>", 0.3, 2]
+      - decl: [nach, string, { call: [erz.lesbar, { call: [erz.erzeuge, "<a:rezept>", "gem rune-stylus magic_aptitude elemental stone essence", 7] }] }]
+      - if:
+          condition: { neq: [vor, nach] }
+          then:
+            - call: [log.error, "Ziehung einer FREMDEN Aufgabe aenderte das Rezept"]
+            - set: [bad, { "+": [bad, 1] }]
+          else: [{ call: [log.info, "  Ziehung je Aufgabe bleibt getrennt"] }]
+      - if:
+          condition: { gt: [bad, 0] }
+          then:
+            - call: [log.error, "determinismus: ${bad} Abweichungen — der Seed traegt nicht"]
+            - return: 1
+      - call: [log.info, "determinismus: gleiche Eingabe + Seed = gleiche Folge"]
+      - return: 0

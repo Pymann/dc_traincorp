@@ -1,0 +1,20 @@
+cape
+cloak
+mantle
+shroud
+cowl
+gown
+surcoat
+tabard
+longcloak
+capelet
+mantua
+shawl
+sash
+half_cape
+
+# tech / data-realm
+optical_cloak
+holo_shroud
+signal_cape
+data_mantle

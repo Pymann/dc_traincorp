@@ -1,0 +1,14 @@
+# Entity-Type Domain (cross-cutting, single per Entity-Instance).
+# Atlas-Key: tag:cross:entity_type:<name>
+# Stack-Kind: single (genau 1 Entity-Type pro discover-row).
+#
+# Output-Schicht des world_entity_head (siehe Foundation-Doc).
+# 7 mögliche Outputs.
+
+harvestable
+growable
+npc
+enemy
+portal
+locked
+nothing

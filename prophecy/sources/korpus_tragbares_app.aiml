@@ -1,0 +1,311 @@
+# Die duennen Ausgabetypen auffuellen -- und `quantum` endlich verwenden.
+# Spec: doc/architecture/korpus_kochen_2026-11-19.md
+#
+# ACHTUNG (24.11.2026): dieser Erzeuger schreibt WARENGRUPPEN in die fuenfte
+# Spalte (`food x3, liquid x1`).  Rezepte nennen seit dem 24.11. Stoffe.  Wer
+# ihn laufen laesst, muss danach `korpusgen ... -- stoffe` und dann `rezepte`
+# laufen lassen; `alles` macht es in der richtigen Reihenfolge
+# (doc/architecture/rezept_stoffe_2026-11-24.md).
+#
+# Gemessen vor diesem Lauf: bracer 1 Rezept, trouser 1, helmet 2, boots 2,
+# gloves 3, cape 4, device 4, rune 6.  Fuer eine Armschiene kannte das Modell
+# EIN Beispiel; daraus kann es nicht verschieden antworten.  `quantum` hatte
+# 0 Rezepte, also waren 33 Stoffe unbenutzbar.
+#
+# Jedes Rezept hier hat ZWEI oder DREI Materialarten (Punkt 5): 75 der 151
+# alten Rezepte brauchten nur einen Stoff, und das macht Handwerk flach.
+#
+# Die Werkbank ist das starke Signal, die Grundaktion ein schwaches -- acht
+# Eingaben je Rezept mit wechselnder Taetigkeit, wie bei den Gerichten.
+- import: "prophecy/sources/zufall.aiml"
+
+- decl: [tr_korpus, string, "itemgen/data/items_augmented.txt"]
+- decl: [tr_auf,    string, "# ── TRAGBARES: erzeugt von korpus_tragbares_app ──"]
+- decl: [tr_zu,     string, "# ── TRAGBARES: Ende ──"]
+
+# Je Typ: Werkbank, Marke und drei Stoffmischungen.  Handgewaehlt, weil eine
+# Lederhose aus Metall niemandem hilft -- aber nur DREI Mischungen je Typ,
+# damit die Vielfalt aus den Namen kommt und nicht aus Zufall.
+- def:
+    name: bank_fuer_typ
+    static_off: ["str_cmp", "same_arg"]
+    args: [[typ, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [typ, "cape"] },       then: [{ return: "loom, weaver-bench" }] }
+      - if: { condition: { eq: [typ, "trouser"] },    then: [{ return: "loom, tanning-rack" }] }
+      - if: { condition: { eq: [typ, "gloves"] },     then: [{ return: "tanning-rack, loom" }] }
+      - if: { condition: { eq: [typ, "boots"] },      then: [{ return: "tanning-rack, woodworker-bench" }] }
+      - if: { condition: { eq: [typ, "bracer"] },     then: [{ return: "forge-bench, tanning-rack" }] }
+      - if: { condition: { eq: [typ, "helmet"] },     then: [{ return: "forge-bench, anvil" }] }
+      - if: { condition: { eq: [typ, "armor"] },      then: [{ return: "forge-bench, anvil" }] }
+      - if: { condition: { eq: [typ, "device"] },     then: [{ return: "calibrator, soldering-iron" }] }
+      - if: { condition: { eq: [typ, "rune"] },       then: [{ return: "rune-stylus, enchanter-table" }] }
+      - if: { condition: { eq: [typ, "socketable"] }, then: [{ return: "jeweller-bench, enchanter-table" }] }
+      - return: "forge_bench"
+
+- def:
+    name: marke_fuer_typ
+    static_off: ["str_cmp", "same_arg"]
+    args: [[typ, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [typ, "cape"] },       then: [{ return: "flexible" }] }
+      - if: { condition: { eq: [typ, "trouser"] },    then: [{ return: "fiber_craft" }] }
+      - if: { condition: { eq: [typ, "gloves"] },     then: [{ return: "flexible" }] }
+      - if: { condition: { eq: [typ, "boots"] },      then: [{ return: "balance" }] }
+      - if: { condition: { eq: [typ, "bracer"] },     then: [{ return: "sturdy" }] }
+      - if: { condition: { eq: [typ, "helmet"] },     then: [{ return: "sturdy" }] }
+      - if: { condition: { eq: [typ, "armor"] },      then: [{ return: "sturdy" }] }
+      - if: { condition: { eq: [typ, "device"] },     then: [{ return: "precision" }] }
+      - if: { condition: { eq: [typ, "rune"] },       then: [{ return: "channel" }] }
+      - if: { condition: { eq: [typ, "socketable"] }, then: [{ return: "polished" }] }
+      - return: "sturdy"
+
+# Drei Mischungen je Typ, nach `wahl` (0..2) -- immer zwei oder drei Arten.
+- def:
+    name: stoffe_fuer_typ
+    static_off: ["str_cmp", "same_arg"]
+    args: [[typ, string], [wahl, i32]]
+    return: string
+    body:
+      - decl: [pos, i32, { "%": [wahl, 3] }]
+      - if:
+          condition: { eq: [typ, "cape"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "fiber x3, animal x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "fiber x2, herb x1, essence x1" }] }
+            - return: "fiber x2, animal x2"
+      - if:
+          condition: { eq: [typ, "trouser"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "fiber x2, animal x2" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "animal x3, fiber x1" }] }
+            - return: "fiber x3, mineral x1"
+      - if:
+          condition: { eq: [typ, "gloves"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "animal x2, fiber x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "fiber x2, metal x1" }] }
+            - return: "animal x2, essence x1"
+      - if:
+          condition: { eq: [typ, "boots"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "animal x3, fiber x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "animal x2, wood x1" }] }
+            - return: "animal x2, metal x1, fiber x1"
+      - if:
+          condition: { eq: [typ, "bracer"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "metal x2, animal x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "metal x2, fiber x1" }] }
+            - return: "animal x2, metal x1, stone x1"
+      - if:
+          condition: { eq: [typ, "helmet"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "metal x3, animal x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "metal x2, fiber x2" }] }
+            - return: "metal x2, stone x1, animal x1"
+      - if:
+          condition: { eq: [typ, "armor"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "metal x3, fiber x2" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "animal x3, metal x2" }] }
+            - return: "metal x2, mineral x2, animal x1"
+      - if:
+          condition: { eq: [typ, "device"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "tech x2, quantum x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "tech x2, metal x1, quantum x1" }] }
+            - return: "quantum x2, tech x1, gem x1"
+      - if:
+          condition: { eq: [typ, "rune"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "stone x2, essence x2" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "mineral x2, essence x1, quantum x1" }] }
+            - return: "gem x2, essence x1, stone x1"
+      - if:
+          condition: { eq: [typ, "socketable"] }
+          then:
+            - if: { condition: { eq: [pos, 0] }, then: [{ return: "gem x2, mineral x1" }] }
+            - if: { condition: { eq: [pos, 1] }, then: [{ return: "gem x2, quantum x1" }] }
+            - return: "mineral x2, gem x1, essence x1"
+      - return: "metal x2, fiber x1"
+
+# Die Eimer einer Mischung ohne Mengen -- eine Eingabe nennt Arten, keine Zahlen.
+- def:
+    name: eimer_aus
+    args: [[arten, string]]
+    return: string
+    body:
+      - decl: [aus, string, ""]
+      - decl: [teile, list<string>, { call: [arten.split, ","] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, teile.len] }
+          body:
+            - decl: [roh, string, { at: [teile, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [stueck, string, { call: [roh.trim] }]
+            - decl: [worte, list<string>, { call: [stueck.split, " "] }]
+            - if:
+                condition: { gt: [worte.len, 0] }
+                then:
+                  - decl: [eimer_nm, string, { at: [worte, 0] }]
+                  - if:
+                      condition: { eq: [aus.len, 0] }
+                      then: [{ set: [aus, eimer_nm] }]
+                      else: [{ set: [aus, "${aus} ${eimer_nm}"] }]
+      - return: aus
+
+# Acht Eingaben je Rezept.  Die Werkbank steht in allen, die Taetigkeit
+# wechselt, und zwei Eingaben nennen keine Materialart.
+- def:
+    name: tr_eingabe
+    args: [[nummer, i32], [eimer, string], [bank, string], [marke, string]]
+    return: string
+    body:
+      - decl: [taten, list<string>, ["workout", "study", "meditate", "breathe", "sing", "sleep"]]
+      - decl: [fert,  list<string>, ["resource_lore", "rune_sense", "focus_breath", "terrain_sense", "navigation", "magic_aptitude"]]
+      - decl: [tat, string, { at: [taten, { "%": [nummer, taten.len] }] }]
+      - decl: [fkt, string, { at: [fert,  { "%": [{ "+": [nummer, 3] }, fert.len] }] }]
+      # Nur die ERSTE Werkbank in die Eingabe -- die zweite ist Ausweichort.
+      - decl: [bteile, list<string>, { call: [bank.split, ","] }]
+      - decl: [b_roh, string, { at: [bteile, 0] }]
+      - decl: [bank1, string, { call: [b_roh.trim] }]
+      - if:
+          condition: { ge: [nummer, 6] }
+          then: [{ return: "${bank1} ${tat} ${fkt} ${marke}" }]
+      - if:
+          condition: { eq: [{ "%": [nummer, 2] }, 0] }
+          then: [{ return: "${bank1} ${eimer} ${tat} ${marke}" }]
+      - return: "${eimer} ${bank1} ${fkt} ${marke} ${tat}"
+
+- def:
+    name: ohne_tr_block
+    args: [[text, string]]
+    return: string
+    body:
+      - decl: [pos, i32, { call: [text.index_of, tr_auf] }]
+      - if: { condition: { lt: [pos, 0] }, then: [{ return: text }] }
+      - return: { call: [text.substr, 0, pos] }
+
+# Alle Ausgaben, die der Korpus schon vergibt -- ein Name soll nicht zweimal
+# ein Rezept haben.  `container` 3x und `choker` 3x waren genau das.
+- def:
+    name: belegte_ausgaben
+    args: [[text, string], [raus, map<string:i32>]]
+    body:
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, zeilen.len] }
+          body:
+            - decl: [zle, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { eq: [{ call: [zle.starts_with, "recipe |"] }, 1] }
+                then:
+                  - decl: [spl, list<string>, { call: [zle.split, "|"] }]
+                  - if:
+                      condition: { ge: [spl.len, 7] }
+                      then:
+                        - decl: [roh_out, string, { at: [spl, 2] }]
+                        - decl: [out_tr, string, { call: [roh_out.trim] }]
+                        - decl: [ovp, list<string>, { call: [out_tr.split, " x"] }]
+                        - if:
+                            condition: { gt: [ovp.len, 0] }
+                            then:
+                              - decl: [out_nm, string, { at: [ovp, 0] }]
+                              - call: [raus.put, out_nm, 1]
+
+# Ein Typ: so viele Rezepte schreiben, bis `ziel` erreicht ist.
+- def:
+    name: typ_auffuellen
+    static_off: ["same_arg"]
+    args: [[datei, file_handle], [typ, string], [ziel, i32], [belegt, map<string:i32>]]
+    return: i32
+    body:
+      - decl: [pfad, string, "prophecy/data/names/items/${typ}.txt"]
+      - decl: [text, string, { call: [io.read_file, pfad] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.warn, "tragbares: ${pfad} fehlt"]
+            - return: 0
+      - decl: [bank,  string, { call: [bank_fuer_typ, typ] }]
+      - decl: [marke, string, { call: [marke_fuer_typ, typ] }]
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [gemacht, i32, 0]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { "&&": [{ lt: [idx, zeilen.len] }, { lt: [gemacht, ziel] }] }
+          body:
+            - decl: [roh_nm, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [name, string, { call: [roh_nm.trim] }]
+            - decl: [kopf, i32, { call: [name.starts_with, "#"] }]
+            - decl: [schon, i32, { call: [belegt.contains, name] }]
+            - if:
+                condition: { "&&": [{ gt: [name.len, 2] }, { "&&": [{ eq: [kopf, 0] }, { eq: [schon, 0] }] }] }
+                then:
+                  - call: [belegt.put, name, 1]
+                  - decl: [arten, string, { call: [stoffe_fuer_typ, typ, gemacht] }]
+                  - decl: [eimer, string, { call: [eimer_aus, arten] }]
+                  - decl: [rid, string, "recipe-bench-${typ}-${name}"]
+                  - call: [io.write, datei, "recipe | ${rid} | ${name} x1 | ${marke} | ${arten} | ${bank} | ${typ}\n"]
+                  - decl: [bdx, i32, 0]
+                  - while:
+                      condition: { lt: [bdx, 8] }
+                      body:
+                        - decl: [beutel, string, { call: [tr_eingabe, bdx, eimer, bank, marke] }]
+                        - decl: [fsp_l, list<string>, ["resource_lore", "rune_sense", "focus_breath", "terrain_sense"]]
+                        - decl: [fsp, string, { at: [fsp_l, { "%": [bdx, fsp_l.len] }] }]
+                        - call: [io.write, datei, "sample | ${beutel} | ${rid} | ${fsp}\n"]
+                        - set: [bdx, { "+": [bdx, 1] }]
+                  - set: [gemacht, { "+": [gemacht, 1] }]
+      - call: [log.info, "tragbares: ${typ} +${gemacht}"]
+      - return: gemacht
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [korpus, string, { call: [io.read_file, tr_korpus] }]
+      - if:
+          condition: { eq: [korpus.len, 0] }
+          then:
+            - call: [log.error, "tragbares: Korpus fehlt"]
+            - return: 1
+      - decl: [rumpf, string, { call: [ohne_tr_block, korpus] }]
+      - decl: [belegt, map<string:i32>]
+      - call: [belegte_ausgaben, rumpf, belegt]
+      - call: [log.info, "tragbares: ${belegt.len} Ausgaben sind schon vergeben"]
+      - decl: [datei, file_handle, { call: [io.open, tr_korpus, "w"] }]
+      - if:
+          condition: { eq: [datei, null] }
+          then:
+            - call: [log.error, "tragbares: Korpus nicht schreibbar"]
+            - return: 1
+      - call: [io.write, datei, rumpf]
+      - call: [io.write, datei, "${tr_auf}\n"]
+      - call: [io.write, datei, "# Duenne Ausgabetypen aufgefuellt, jedes Rezept mit zwei oder drei\n"]
+      - call: [io.write, datei, "# Materialarten; `quantum` wird in device/rune/socketable verwendet.\n"]
+      - decl: [summe, i32, 0]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "bracer",     8, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "trouser",    8, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "helmet",     7, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "boots",      7, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "gloves",     6, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "cape",       6, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "device",     6, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "rune",       4, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "socketable", 4, belegt] }] }]
+      - set: [summe, { "+": [summe, { call: [typ_auffuellen, datei, "armor",      4, belegt] }] }]
+      - call: [io.write, datei, "${tr_zu}\n"]
+      - call: [io.close, datei]
+      - decl: [eingaben, i32, { "*": [summe, 8] }]
+      - call: [log.info, "tragbares: ${summe} Rezepte und ${eingaben} Eingaben geschrieben"]
+      - if: { condition: { lt: [summe, 20] }, then: [{ return: 1 }] }
+      - return: 0

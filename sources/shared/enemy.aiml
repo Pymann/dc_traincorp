@@ -1,0 +1,24 @@
+# Shared enemy model — feindliches Welt-Objekt das in einer Zone spawnt.
+#
+# Im Unterschied zu `Opponent` (welches ein kurzlebiger Combat-Snapshot ist,
+# der auch DataCreatures oder NPCs referenziert) ist Enemy ein dauerhaftes
+# Welt-Wesen mit fester Identität, Drops und Spawn-Zone.  Combat-Engagement
+# füllt zur Laufzeit dann eine Opponent-Struct mit source_model="Enemy".
+
+- import: "sources/shared/character_attributes.aiml"
+- import: "sources/shared/counted_item.aiml"
+
+- model:
+    name: Enemy
+    fields:
+      - [enemy_id,           string]
+      - [name,               string]
+      - [realm_id,           string]
+      - [zone_id,            string]
+      - [enemy_kind,         string]   # "beast", "wraith", "construct", "boss", "hazard", …
+      - [level,              i32, 0]
+      - [attributes,         CharacterAttributes]
+      - [drop_items,         list<CountedItem>]
+      - [threat_rating,      i32, 0]
+      - [enemy_tags,         list<string>]
+      - [description,        string]

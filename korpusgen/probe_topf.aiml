@@ -1,0 +1,35 @@
+# JIT-Probe: lesen die Toepfe, was in den Daten steht?
+- import: "korpusgen/sources/topf.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [starter, list<string>, { call: [topf_lesen, "prophecy/data/names/skills/starter_skills.txt"] }]
+      - call: [log.info, "Starter: ${starter.len}"]
+      - decl: [handwerk, list<Satz>, { call: [cluster_lesen, "prophecy/data/clusters/craft_clusters.txt"] }]
+      - call: [log.info, "Handwerks-Cluster: ${handwerk.len}"]
+      - decl: [welt, list<Satz>, { call: [cluster_lesen, "prophecy/data/clusters/world_clusters.txt"] }]
+      - call: [log.info, "Welt-Cluster: ${welt.len}"]
+      - if:
+          condition: { gt: [handwerk.len, 0] }
+          then:
+            - decl: [eins, ref<Satz>, { at: [handwerk, 0] }]
+            - call: [log.info, "erster: '${eins.kennung}' mit ${eins.felder.len} Feldern"]
+            - decl: [arten, list<string>, { call: [satz_liste, eins, "output_types"] }]
+            - decl: [fert, list<string>, { call: [satz_liste, eins, "skills"] }]
+            - decl: [erste_fert, string, { at: [fert, 0] }]
+            - call: [log.info, "  Ausgabearten ${arten.len}, Fertigkeiten ${fert.len}: ${erste_fert}"]
+      - decl: [kampf, list<Satz>, { call: [metadaten_lesen, "prophecy/data/skills/combat_skill_metadata.yml"] }]
+      - call: [log.info, "Kampf-Fertigkeiten: ${kampf.len}"]
+      - if:
+          condition: { gt: [kampf.len, 0] }
+          then:
+            - decl: [met, ref<Satz>, { at: [kampf, 0] }]
+            - decl: [marken, list<string>, { call: [satz_liste, met, "skill_tags"] }]
+            - decl: [kat, string, { call: [satz_feld, met, "category"] }]
+            - call: [log.info, "  '${met.kennung}': Kategorie '${kat}', ${marken.len} Marken"]
+      - decl: [entd, list<Satz>, { call: [metadaten_lesen, "prophecy/data/skills/discover_skill_metadata.yml"] }]
+      - call: [log.info, "Entdeckbare Fertigkeiten: ${entd.len}"]
+      - return: 0

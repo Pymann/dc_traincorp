@@ -1,0 +1,29 @@
+# Remedy item names (item_type=20)
+# Heilende Items — match-en gegen disease.kind + disease.tags via cures_kinds
+# bzw. cures_tags Felder.  Siehe disease_and_healing.md.
+
+antitoxin_vial
+universal_antidote
+plague_salve
+fever_root_tea
+bone_setting_clay
+binding_bandage
+soothing_balm
+restorative_tincture
+curse_breaker_oil
+mind_clearing_incense
+hex_purge_water
+warming_ember_paste
+cooling_jelly
+radiation_sponge
+spore_purge_extract
+deep_sleep_draught
+focus_restorative
+nerve_calming_tonic
+blood_clotting_powder
+parasite_purge_brew
+gene_stabilizer_serum
+neural_realignment_capsule
+broad_spectrum_cure_all
+field_medic_kit
+shaman_blessing_charm

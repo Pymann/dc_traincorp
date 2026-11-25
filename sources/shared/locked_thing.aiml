@@ -1,0 +1,34 @@
+# Shared "locked thing" world-object — abgeschlossene Truhe / Tür / Behälter,
+# der einen bestimmten Schlüssel-Item-ID braucht um geöffnet zu werden.
+#
+# Beim Unlock-Action wird `state` von "locked" auf "unlocked" gewechselt, der
+# Schlüssel-Item bleibt im Inventar (kein Consume) — das Schloss "merkt sich"
+# dass es offen ist (per-Creature-Discovery + per-Zone-State, je nach Use-Case).
+# Yield-Items kommen erst beim *Loot*-Action raus, nicht beim Unlock.
+
+- import: "sources/shared/counted_item.aiml"
+- import: "sources/shared/schloss_anforderung.aiml"
+
+- model:
+    name: LockedThing
+    fields:
+      - [lock_id,             string]
+      - [name,                string]
+      - [realm_id,            string]
+      - [zone_id,             string]
+      - [location_id,         string]    # leer = an offener Stelle in der Zone
+      - [lock_kind,           string]    # "chest", "door", "vault", "rune_seal", …
+      - [required_key_item_id, string]
+      - [yield_items,         list<CountedItem>]
+      # SchlossZustand (schloss_anforderung.aiml): Verschlossen/Offen/
+      # Ausgeraeumt.  Vorher ein String -- festes Vokabular gehoert in eine
+      # Aufzaehlung, sonst steht dasselbe Wort an mehreren Stellen und jeder
+      # Vergleich ist ein Stringvergleich.
+      - [zustand,             i32, SchlossZustand.Verschlossen]
+      - [lock_tags,           list<string>]
+      - [description,         string]
+      # Angehaengt am 15.11.2026: was zum Oeffnen verlangt wird.  Mehrere
+      # zugleich moeglich, gemischte Arten.  `required_key_item_id` bleibt
+      # gefuellt, wenn eine Schluessel-Anforderung dabei ist -- der alte
+      # Client liest noch dieses Feld.
+      - [anforderungen,       list<SchlossAnforderung>]

@@ -1,0 +1,16 @@
+boots
+shoes
+sandals
+slippers
+greaves
+sabatons
+sollerets
+clogs
+gaiters
+moccasins
+
+# tech / data-realm
+mag_boots
+grav_boots
+jump_pads
+treadshoes

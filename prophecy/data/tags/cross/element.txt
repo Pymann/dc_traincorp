@@ -1,0 +1,12 @@
+# Element-Tag Domain (cross-cutting, single per Item-Instance/Skill/Disease).
+# Atlas-Key: tag:element:<name>
+# Stack-Kind: single (max 1 Element pro Instanz).
+#
+# Die 5 kanonischen Elemente in DataCreatures.  Hartkodiert im Code an
+# vielen Stellen (sources/shared/elements/*.aiml, primary_element field).
+
+fire
+water
+earth
+air
+aether

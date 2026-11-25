@@ -1,0 +1,99 @@
+# Die Abnahme des Zielbildes: wie viele VERSCHIEDENE GUELTIGE Rezepte?
+#
+# Gemessen je Beutel ueber viele Seeds:
+#   - Annahmequote    -- wie oft stimmt die Regel (§7) einem Vorschlag zu
+#   - Vielfalt        -- wie viele verschiedene GUELTIGE Rezepte
+#   - Ablehnungsgrund -- woran es scheitert, nach Haeufigkeit
+#
+# Zwei Beutel, und der Unterschied ist der Kern:
+#   trainiert   -- steht so im Korpus (Wiedergabe)
+#   ungesehen   -- jedes Tag kommt vor, die KOMBINATION nie (Neuschoepfung)
+- import: "prophecy/sources/erzeuger.aiml"
+
+- def:
+    name: messe_beutel
+    args: [[erz, ref<Erzeuger>], [beutel, string], [marke, string], [n_seeds, i32]]
+    return: i32
+    body:
+      - decl: [gueltig, i32, 0]
+      - decl: [gesehen, map<string:i32>]
+      - decl: [verschieden, i32, 0]
+      - decl: [gruende, map<string:i32>]
+      - decl: [g_reihe, list<string>]
+      - decl: [saat, i32, 1]
+      - while:
+          condition: { le: [saat, n_seeds] }
+          body:
+            - decl: [fls, list<i32>, { call: [erz.erzeuge, "<a:rezept>", beutel, { cast: [saat, i64] }] }]
+            - decl: [bad, i32, { call: [erz.pruefe_vorschlag, fls, "<a:rezept>"] }]
+            - if:
+                condition: { eq: [bad, 0] }
+                then:
+                  - set: [gueltig, { "+": [gueltig, 1] }]
+                  - decl: [txt, string, { call: [erz.lesbar, fls] }]
+                  - if:
+                      condition: { eq: [{ call: [gesehen.contains, txt] }, 0] }
+                      then:
+                        - call: [gesehen.put, txt, 1]
+                        - set: [verschieden, { "+": [verschieden, 1] }]
+                        - if:
+                            condition: { le: [verschieden, 4] }
+                            then: [{ call: [log.info, "  ${marke} gueltig ${verschieden}: ${txt}"] }]
+                else:
+                  - decl: [grd, string, erz.grund]
+                  - if:
+                      condition: { eq: [{ call: [gruende.contains, grd] }, 0] }
+                      then:
+                        - call: [gruende.put, grd, 1]
+                        - call: [g_reihe.push, grd]
+                      else: [{ call: [gruende.put, grd, { "+": [{ call: [gruende.get, grd] }, 1] }] }]
+            - set: [saat, { "+": [saat, 1] }]
+      - decl: [a_pro, i32, { "/": [{ "*": [gueltig, 100] }, n_seeds] }]
+      - call: [log.info, "${marke}: ${gueltig} von ${n_seeds} gueltig (${a_pro} %), ${verschieden} verschiedene"]
+      - decl: [gdx, i32, 0]
+      - while:
+          condition: { "&&": [{ lt: [gdx, g_reihe.len] }, { lt: [gdx, 5] }] }
+          body:
+            - decl: [gnm, string, { at: [g_reihe, gdx] }]
+            - decl: [gzl, i32, { call: [gruende.get, gnm] }]
+            - call: [log.info, "  ${marke} abgelehnt ${gzl}x: ${gnm}"]
+            - set: [gdx, { "+": [gdx, 1] }]
+      - return: verschieden
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "gueltig: nicht bereit"]
+            - return: 1
+      - decl: [prio, list<string>, { call: [erz.fge.prio_lesen, "itemgen/data/items_augmented.txt"] }]
+      - call: [erz.prio_setzen, prio]
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+
+      - decl: [tr_beutel, string, "gem rune-stylus magic_aptitude elemental stone essence"]
+      - decl: [un_beutel, string, "metal wood animal hammer tough"]
+      - decl: [v_tr, i32, { call: [messe_beutel, erz, tr_beutel, "trainiert", 200] }]
+      - decl: [v_un, i32, { call: [messe_beutel, erz, un_beutel, "ungesehen", 200] }]
+
+      # erzeuge_gueltig: zieht es mit seed+1 nach, und welcher Seed wird es?
+      - decl: [fls, list<i32>, { call: [erz.erzeuge_gueltig, "<a:rezept>", un_beutel, 7000] }]
+      - if:
+          condition: { gt: [fls.len, 0] }
+          then:
+            - decl: [txt, string, { call: [erz.lesbar, fls] }]
+            - call: [log.info, "nachziehen: angenommen bei Seed ${erz.letzter_seed} nach ${erz.versuche} Versuchen"]
+            - call: [log.info, "nachziehen: ${txt}"]
+          else: [{ call: [log.warn, "nachziehen: 16 Versuche ohne gueltigen Vorschlag"] }]
+      - if:
+          condition: { "&&": [{ eq: [v_tr, 0] }, { eq: [v_un, 0] }] }
+          then:
+            - call: [log.error, "gueltig: kein einziger gueltiger Vorschlag"]
+            - return: 1
+      - return: 0

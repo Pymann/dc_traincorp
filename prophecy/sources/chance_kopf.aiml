@@ -1,0 +1,335 @@
+# Requires: library
+# Die Trefferchance aus dem Transformer -- als ENCODER, nicht als Erzeuger.
+# Spec: doc/architecture/kampf_chance_transformer_2026-11-15.md
+#
+# Harte Bedingung (User): deterministisch, ohne Seed.  Darum wird hier nichts
+# gezogen -- keine Temperatur, kein top_k, kein `Zufall`.  Die Folge geht
+# EINMAL durch den Transformer, die letzte verborgene Lage durch einen
+# linearen Kopf, fertig.  Gleiche Eingabe, bitgleiche Zahl.
+#
+# Die Transformer-Gewichte bleiben eingefroren: nur `kopf_w`/`kopf_b` lernen,
+# und die liegen in einem EIGENEN Speicher.  Ein misslungenes Training kann
+# darum nichts ueberschreiben, was heute laeuft.
+#
+# Marken: `<a:kampf>` als Aufgabenmarke und `<bag>` als Trennung zwischen
+# Angreifer und Gegner -- beide gibt es schon.  Eine NEUE Marke haette
+# `n_marken` vergroessert und damit JEDE Token-Nummer verschoben; das
+# vorhandene Modell waere unbrauchbar geworden.
+- import: "prophecy/sources/transformer.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/folge.aiml"
+
+- decl: [chance_kopf_speicher, string, "prophecy_chance_head"]
+# Der Encoder dieses Kopfes ist NICHT der laufende Transformer.  `CS_ENCODER=1`
+# trainiert ihn mit und sichert ihn hierhin; die Kopfgewichte passen danach zu
+# DIESEN Gewichten.  Wer sie auf dem allgemeinen Transformer rechnet, liest
+# gelernte Spalten gegen eine fremde Darstellung -- gemessen 20.11.2026:
+# erklaerte Streuung 0,00 statt 0,70 (Spec kampf_chance_transformer §(1)).
+- decl: [chance_encoder_speicher, string, "prophecy_kampf_transformer"]
+
+- class:
+    name: ChanceKopf
+    members:
+      - [fge,      Folge]
+      - [mdl,      RezeptModell]
+      # Zwei Schichten: Merkmal -> relu(verborgen) -> Zahl.  Der Vorspann
+      # steckt je Schicht als konstante Spalte in der Eingabe, darum kein
+      # eigener Bias-Tensor (tensor.add broadcastet (n,1)+(1) nicht).
+      - [kopf_w,   tensor]      # Merkmal x verborgen
+      - [kopf_w2,  tensor]      # (verborgen+1) x 1
+      - [verborgen_dim, i32, 64, { access: public }]
+      - [bereit,   i32, 0, { access: public }]
+      - [n_wort,   i32, 0, { access: public }]
+      - [max_len,  i32, 48, { access: public }]
+      - [letzte_laenge, i32, 0, { access: public }]
+      # Wie viele Marken die letzte Folge verworfen hat.  Eine Zahl, die auf
+      # einer gekuerzten Eingabe entstand, darf nicht aussehen wie eine auf
+      # der vollstaendigen (Spec kampf_chance_transformer, Abschnitt
+      # "Das Tokenbudget").
+      - [gekuerzt_atk, i32, 0, { access: public }]
+      - [gekuerzt_def, i32, 0, { access: public }]
+      # 1, wenn der abgelegte Satz dem geladenen Wortschatz widerspricht --
+      # dann hat die Quelle ein Veto (Spec modell_manifest_2026-11-20.md).
+      - [unvereinbar, i32, 0, { access: public }]
+    methods:
+      - def:
+          name: init
+          access: public
+          args: []
+          return: i32
+          body:
+            - if: { condition: { eq: [<.bereit, 1] }, then: [{ return: 1 }] }
+            - decl: [ok_f, i32, { call: [<.fge.init] }]
+            - if: { condition: { neq: [ok_f, 1] }, then: [{ return: 0 }] }
+            # Ohne die Reihenfolge der Korpus-Kopfzeile loest `tok` KEINE
+            # Marke auf -- gemessen: die Probefolge hatte 2 Token statt 12,
+            # also nur die beiden Marken, und alle Merkmale waren gleich.
+            - decl: [prio, list<string>, { call: [<.fge.prio_lesen, "data/combat.txt"] }]
+            - call: [<.fge.prio_setzen, prio]
+            - call: [log.info, "ChanceKopf: Domaenenreihenfolge ${prio.len} aus data/combat.txt"]
+            - set: [<.n_wort, { call: [<.fge.gesamt_tokens] }]
+            # Eigener Encoder, wenn er gelernt wurde -- sonst der allgemeine.
+            - decl: [eig, tensor, { call: [tensor.load, chance_encoder_speicher, "emb"] }]
+            - if:
+                condition: { neq: [eig, null] }
+                then:
+                  - set: [<.mdl.speicher, chance_encoder_speicher]
+                  - call: [log.info, "ChanceKopf: eigener Encoder '${chance_encoder_speicher}'"]
+                else:
+                  - call: [log.warn, "ChanceKopf: kein eigener Encoder — die Kopfgewichte rechnen dann gegen eine fremde Darstellung (CS_ENCODER=1 nachziehen)"]
+            - call: [<.mdl.init, <.n_wort]
+            - decl: [gew_w, tensor, { call: [tensor.load, chance_kopf_speicher, "kopf_w"] }]
+            - if:
+                condition: { eq: [gew_w, null] }
+                then: [{ set: [<.kopf_w, { call: [tensor.randn_ex, 0.0, 0.1, { "+": [{ "*": [2, <.mdl.d_modell] }, 1] }, <.verborgen_dim] }] }]
+                else: [{ set: [<.kopf_w, gew_w] }]
+            - decl: [gew_2, tensor, { call: [tensor.load, chance_kopf_speicher, "kopf_w2"] }]
+            - if:
+                condition: { eq: [gew_2, null] }
+                then: [{ set: [<.kopf_w2, { call: [tensor.randn_ex, 0.0, 0.1, { "+": [<.verborgen_dim, 1] }, 1] }] }]
+                else: [{ set: [<.kopf_w2, gew_2] }]
+            # LEBENSDAUER: ein Tensor ohne Gradient wird beim naechsten
+            # `begin_graph` freigegeben -- die geladenen Gewichte waren danach
+            # Muell, und ab dem DRITTEN Aufruf kam 0 heraus (gemessen
+            # 15.11.2026: zwei gute Werte, dann nur noch Nullen).  Als
+            # Parameter markiert ueberleben sie jeden Graphen.
+            - call: [<.kopf_w.set_requires_grad, 1]
+            - call: [<.kopf_w2.set_requires_grad, 1]
+            # Gehoeren die Kopfgewichte zu DIESEM Wortschatz?  Die Form allein
+            # sagt es nicht: gleich viele andere Marken kaemen durch.
+            - decl: [soll, ManifestSatz]
+            - set: [soll.wortschatz, { call: [<.fge.wortschatz_fp] }]
+            - set: [soll.n_marken,   <.n_wort]
+            - set: [soll.d_wert,     <.mdl.d_modell]
+            - set: [soll.grundlage,  { call: [<.fge.wortschatz_fp] }]
+            - decl: [code, i32, { call: [manifest_pruefen, { call: [manifest_lade, chance_kopf_speicher] }, soll] }]
+            - if:
+                condition: { eq: [code, 2] }
+                then:
+                  - set: [<.unvereinbar, 1]
+                  - call: [log.error, "[manifest] '${chance_kopf_speicher}' gehoert nicht zu diesem Wortschatz (${<.n_wort} Tokens) — der Kampf bleibt beim alten Weg."]
+            - if:
+                condition: { eq: [code, 1] }
+                then: [{ call: [log.error, "[manifest] '${chance_kopf_speicher}' hat keinen Satz — Herkunft nicht nachgewiesen."] }]
+            - set: [<.bereit, 1]
+            - return: 1
+
+      # Wurde der Encoder beim Laden verworfen?  Dann passen die Kopfgewichte
+      # nicht mehr zu ihm, und jede Zahl ist Rauschen.
+      - def:
+          name: encoder_blind
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: <.mdl.zufaellig
+
+      # Hat der eigene Speicher schon gelernte Gewichte?  Ohne die ist der
+      # Kopf zwar rechenfaehig, aber ahnungslos -- das Spiel soll dann beim
+      # alten Weg bleiben.
+      - def:
+          name: gelernt
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [gew, tensor, { call: [tensor.load, chance_kopf_speicher, "kopf_w"] }]
+            - if: { condition: { eq: [gew, null] }, then: [{ return: 0 }] }
+            - return: 1
+
+      # Beutel + Trennung + Gegnerbeutel als Token-Nummern.
+      #
+      # Der Gegner hat einen RESERVIERTEN Platz.  Bis zum 20.11.2026 wurde der
+      # Angreifer zuerst gefuellt und der Trenner ungeprueft geschoben: bei 60
+      # Angreifermarken standen 49 Stellen in einer 48er Folge, der Gegner kam
+      # gar nicht mehr vor, und zwei verschiedene Gegner ergaben dieselbe
+      # Folge (Gate-Lauf, Spec kampf_chance_transformer).
+      - def:
+          name: ids_von
+          access: public
+          args: [[atk, string], [def_s, string]]
+          return: list<i32>
+          body:
+            - decl: [raus, list<i32>]
+            - set: [<.gekuerzt_atk, 0]
+            - set: [<.gekuerzt_def, 0]
+            - decl: [atk_teile, list<string>, { call: [atk.split, " "] }]
+            - decl: [def_teile, list<string>, { call: [def_s.split, " "] }]
+            # Zwei Stellen gehen an die Marken (Anfang und Trenner).
+            - decl: [frei, i32, { "-": [<.max_len, 2] }]
+            - if: { condition: { lt: [frei, 2] }, then: [{ set: [frei, 2] }] }
+            - decl: [atk_platz, i32, atk_teile.len]
+            - decl: [def_platz, i32, def_teile.len]
+            - if:
+                condition: { gt: [{ "+": [atk_teile.len, def_teile.len] }, frei] }
+                then:
+                  - decl: [haelfte, i32, { "/": [frei, 2] }]
+                  - set: [def_platz, def_teile.len]
+                  - if: { condition: { gt: [def_platz, haelfte] }, then: [{ set: [def_platz, haelfte] }] }
+                  - set: [atk_platz, { "-": [frei, def_platz] }]
+            - decl: [auf, i32, { call: [<.fge.marke, "<a:kampf>"] }]
+            - if: { condition: { ge: [auf, 0] }, then: [{ call: [raus.push, auf] }] }
+            - set: [<.gekuerzt_atk, { call: [<.anhaengen_bis, raus, atk_teile, atk_platz] }]
+            - decl: [trenn, i32, { call: [<.fge.marke, "<bag>"] }]
+            - if: { condition: { ge: [trenn, 0] }, then: [{ call: [raus.push, trenn] }] }
+            - set: [<.gekuerzt_def, { call: [<.anhaengen_bis, raus, def_teile, def_platz] }]
+            - if:
+                condition: { gt: [{ "+": [<.gekuerzt_atk, <.gekuerzt_def] }, 0] }
+                then: [{ call: [log.warn, "chance: Eingabe gekuerzt — Angreifer ${<.gekuerzt_atk}, Gegner ${<.gekuerzt_def} Marken verworfen (Budget ${<.max_len})"] }]
+            - return: raus
+
+      # Haengt hoechstens `platz` Marken aus `teile` an und gibt zurueck, wie
+      # viele verworfen wurden.  Die harte Grenze `max_len` gilt zusaetzlich.
+      - def:
+          name: anhaengen_bis
+          access: public
+          args: [[ziel, list<i32>], [teile, list<string>], [platz, i32]]
+          return: i32
+          body:
+            - decl: [genommen, i32, 0]
+            - decl: [verworfen, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - decl: [roh, string, { at: [teile, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [tid, i32, { call: [<.fge.tok, roh] }]
+                  # Unaufloesbare Marken kosten keinen Platz -- aiml hat kein
+                  # `continue`, darum die Verschachtelung.
+                  - if:
+                      condition: { ge: [tid, 0] }
+                      then:
+                        - if:
+                            condition: { "||": [{ ge: [genommen, platz] }, { ge: [ziel.len, <.max_len] }] }
+                            then:
+                              - set: [verworfen, { "+": [verworfen, 1] }]
+                            else:
+                              - call: [ziel.push, tid]
+                              - set: [genommen, { "+": [genommen, 1] }]
+            - return: verworfen
+
+
+      # Die letzte verborgene Lage der Folge -> eine Zahl in [0,1].
+      # Reine Matrixrechnung: kein Ziehen, kein Seed.
+      - def:
+          name: chance
+          access: public
+          args: [[atk, string], [def_s, string]]
+          return: f32
+          body:
+            - if: { condition: { neq: [<.bereit, 1] }, then: [{ return: 0.5 }] }
+            - decl: [ids, list<i32>, { call: [<.ids_von, atk, def_s] }]
+            - set: [<.letzte_laenge, ids.len]
+            - if: { condition: { lt: [ids.len, 2] }, then: [{ return: 0.5 }] }
+            - call: [tensor.begin_graph]
+            - decl: [letzte, tensor, { call: [<.merkmal_ids, ids] }]
+            - decl: [wert, f32, { call: [<.rechnen, letzte] }]
+            # Linear wie der alte Kopf -- Training und Inferenz haben dieselbe
+            # Form, geklemmt wird nur am Rand.
+            - return: { call: [math.clamp, wert, 0.0, 1.0] }
+
+      # Das Merkmal einer Paarung: die verborgene Lage an der LETZTEN Stelle.
+      # Sie hat (kausale Maske) alles davor gesehen -- den ganzen Angreifer
+      # und den ganzen Gegner.  Der Trainer rechnet sie EINMAL aus und lernt
+      # danach nur noch den linearen Kopf darauf; der Transformer bleibt
+      # eingefroren.
+      # Der Kopf selbst -- dieselbe Rechnung wie im Trainer.
+      - def:
+          name: rechnen
+          access: public
+          args: [[merkmal_t, tensor]]
+          return: f32
+          body:
+            - decl: [vor, tensor, { call: [tensor.matmul, merkmal_t, <.kopf_w] }]
+            - decl: [aktiv, tensor, { call: [tensor.relu, vor] }]
+            - decl: [eins, tensor, { call: [tensor.ones, 1, 1] }]
+            - decl: [mit_eins, tensor, { call: [tensor.concat, aktiv, eins, 1] }]
+            - decl: [raus, tensor, { call: [tensor.matmul, mit_eins, <.kopf_w2] }]
+            - return: { call: [raus.get, 0] }
+
+      # Durchgriffe fuer das Encoder-Training.  Der Kopf bleibt der
+      # Eigentuemer des Modells; der Trainer sagt nur, wann ein Schritt faellt
+      # und wohin gesichert wird.
+      - def:
+          name: encoder_speicher_setzen
+          access: public
+          args: [[name_neu, string]]
+          body:
+            - set: [<.mdl.speicher, name_neu]
+            - call: [log.info, "ChanceKopf: Encoder-Gewichte gehen nach '${name_neu}'"]
+
+      - def:
+          name: encoder_schritt
+          access: public
+          args: [[lrn, f32]]
+          body:
+            - call: [<.mdl.schritt, lrn]
+
+      - def:
+          name: encoder_sichern
+          access: public
+          args: []
+          body:
+            - call: [<.mdl.sichern]
+
+      - def:
+          name: merkmal_ids
+          access: public
+          args: [[ids, list<i32>]]
+          return: tensor
+          body:
+            - decl: [ids_t, tensor, { call: [tensor.zeros, ids.len] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, ids.len] }
+                body:
+                  - call: [ids_t.set, idx, { cast: [{ at: [ids, idx] }, f32] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [lage, tensor, { call: [<.mdl.verborgen, ids_t, ids.len] }]
+            # MITTEL ueber alle Stellen, nicht nur die letzte: die letzte
+            # Stelle ist die letzte Gegnermarke, ihr Zustand wird von dieser
+            # einen Marke beherrscht.  Gemittelt steht der ganze Satz drin --
+            # Angreifer und Gegner.  Gerechnet als Zeilenvektor mal Matrix
+            # (tensor.mean stuerzt, matmul ist geprueft).
+            - decl: [teil, f32, { "/": [1.0, { cast: [ids.len, f32] }] }]
+            - decl: [mittler, tensor, { call: [tensor.zeros, 1, ids.len] }]
+            - decl: [mdx, i32, 0]
+            - while:
+                condition: { lt: [mdx, ids.len] }
+                body:
+                  - call: [mittler.set, mdx, teil]
+                  - set: [mdx, { "+": [mdx, 1] }]
+            - decl: [mittel, tensor, { call: [tensor.matmul, mittler, lage] }]
+            - decl: [letzte, tensor, { call: [tensor.slice, lage, 0, { "-": [ids.len, 1] }, 1] }]
+            - decl: [beides, tensor, { call: [tensor.concat, mittel, letzte, 1] }]
+            - decl: [eins, tensor, { call: [tensor.ones, 1, 1] }]
+            - return: { call: [tensor.concat, beides, eins, 1] }
+
+      - def:
+          name: merkmal
+          access: public
+          args: [[atk, string], [def_s, string]]
+          return: tensor
+          body:
+            - decl: [ids, list<i32>, { call: [<.ids_von, atk, def_s] }]
+            - set: [<.letzte_laenge, ids.len]
+            - if: { condition: { lt: [ids.len, 2] }, then: [{ return: null }] }
+            - return: { call: [<.merkmal_ids, ids] }
+
+      # Breite des Merkmals EINSCHLIESSLICH der konstanten Spalte.
+      - def:
+          name: breite
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: { "+": [{ "*": [2, <.mdl.d_modell] }, 1] }
+
+      - def:
+          name: kopf_setzen
+          access: public
+          args: [[gew, tensor], [gew2, tensor]]
+          body:
+            - set: [<.kopf_w, gew]
+            - set: [<.kopf_w2, gew2]

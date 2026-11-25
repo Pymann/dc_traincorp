@@ -1,0 +1,204 @@
+# Prophecy TagEmbedding — Foundation-Layer für alle generativen Heads.
+#
+# Architektur:
+#   emb : n_tokens × d_embed              shared embedding-tabelle
+#   dec : d_embed  × n_tokens             reconstruction decoder (used during pretrain only)
+#
+# Vocab kommt aus prophecy_vocab.kvwal (geschrieben vom Atlas-Builder).
+# Weights leben in prophecy_embedding_weights.kvwal.
+#
+# Heads (SingleBagHead, MultiBagHead) referenzieren `emb` als shared
+# parameter; das `dec` braucht nur der Pretrain-Step.
+
+- import: "prophecy/sources/model.aiml"
+- import: "prophecy/sources/manifest.aiml"
+
+# ── Pure helpers ─────────────────────────────────────────────────────────────
+- def:
+    name: emb_split_blob
+    args: [[blob, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - if: { condition: { eq: [blob.len, 0] }, then: [{ return: out }] }
+      - decl: [parts, list<string>, { call: [blob.split, "|"] }]
+      - decl: [count, i32, parts.len]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, count] }
+          body:
+            - decl: [pt_str, string, { at: [parts, idx] }]
+            - if:
+                condition: { gt: [pt_str.len, 0] }
+                then: [{ call: [out.push, pt_str] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: out
+
+# ── TagEmbedding class ───────────────────────────────────────────────────────
+- class:
+    name: TagEmbedding
+    members:
+      # Persistenz-Namen
+      - [weights_name,  string, "prophecy_embedding_weights"]
+      - [vocab_name,    string, "prophecy_vocab"]
+      # Vocab
+      - [vocab,         list<string>]            # atlas-keys (idx → key)
+      - [vocab_index,   map<string:i32>]         # key → idx
+      - [n_tokens,      i32, 0]
+      # Hyperparameter
+      - [d_embed,       i32, 32]
+      # Parameter
+      - [emb,           tensor]                  # n_tokens × d_embed
+      - [dec,           tensor]                  # d_embed × n_tokens
+      # 1, sobald eine Tabelle zufaellig angelegt wurde: alle Koepfe darauf
+      # rechnen dann gegen Rauschen (siehe ki_modelle_im_spiel, 20.11.)
+      - [zufaellig,     i32, 0, { access: public }]
+      # Der Blob, aus dem der Wortschatz gelesen wurde, und sein Abdruck.
+      # Die Form allein ist keine Identitaet: gleich viele Marken, andere
+      # Marken -- und jede zeigt auf eine fremde Zeile (Spec
+      # modell_manifest_2026-11-20.md).
+      - [vokabular_blob, string, "", { access: public }]
+      - [wortschatz_fp,  string, "", { access: public }]
+      # 1, wenn der abgelegte Satz dem geladenen Wortschatz WIDERSPRICHT.
+      - [unvereinbar,    i32, 0, { access: public }]
+      # Spur fuers Manifest: wer geschrieben hat, und worauf.
+      - [trainer_name,   string, "pretrain", { access: public }]
+      - [korpus_fp,      string, "", { access: public }]
+
+    methods:
+      # ── Vocab laden aus prophecy_vocab.kvwal ──────────────────────────────
+      - def:
+          name: load_vocab
+          args: []
+          return: i32
+          body:
+            - decl: [kv_var, Kv<string:string>, { call: [db.open_kv, <.vocab_name, {persist: true}] }]
+            - decl: [has_blob, i32, { call: [kv_var.has, "vocab"] }]
+            - if:
+                condition: { neq: [has_blob, 1] }
+                then:
+                  - call: [log.warn, "no vocab blob in '${<.vocab_name}' — run prophecy_build first"]
+                  - return: 0
+            - decl: [blob, string, { call: [kv_var.get, "vocab"] }]
+            - set: [<.vokabular_blob, blob]
+            - set: [<.wortschatz_fp, { call: [manifest_fp, blob] }]
+            - decl: [keys, list<string>, { call: [emb_split_blob, blob] }]
+            - decl: [n_keys,    i32,           keys.len]
+            - decl: [idx,  i32,           0]
+            - while:
+                condition: { lt: [idx, n_keys] }
+                body:
+                  - decl: [key, string, { at: [keys, idx] }]
+                  - call: [<.vocab.push, key]
+                  - call: [<.vocab_index.put, key, idx]
+                  - set: [idx, { "+": [idx, 1] }]
+            - set: [<.n_tokens, n_keys]
+            - call: [log.info, "loaded vocab: ${n_keys} tokens from '${<.vocab_name}' (Abdruck ${<.wortschatz_fp})"]
+            - return: 1
+
+      # ── Lookup ─────────────────────────────────────────────────────────────
+      - def:
+          name: lookup
+          args: [[key, string]]
+          return: i32
+          body:
+            - if:
+                condition: { neq: [{ call: [<.vocab_index.contains, key] }, 0] }
+                then: [{ return: { call: [<.vocab_index.get, key] } }]
+            - return: -1
+
+      # ── Init-or-Load tensor weights ───────────────────────────────────────
+      - def:
+          name: load_or_randn_2d
+          args: [[key, string], [dim_0, i32], [dim_1, i32], [stddev, f32]]
+          return: tensor
+          body:
+            - decl: [tns, tensor, { call: [tensor.load, <.weights_name, key] }]
+            # Die Masse wurden bis zum 14.11.2026 NUR beim Neuanlegen benutzt:
+            # existierte ein Tensor, kam er ungeprueft zurueck.  Nach einem
+            # Atlas-Neubau (Wortschatz 5088 -> 5374) wurde damit eine
+            # 5088-zeilige Matrix als 5374-zeilige weiterbenutzt -- das
+            # Grundtraining hielt seinen Verlust ueber alle 30 Epochen
+            # bewegungslos bei 3726.25 und der Rezept-Kopf fiel von 19 % auf
+            # 0 %.  Zwei Dinge, die zueinander passen muessen, und nichts
+            # pruefte es.
+            - if:
+                condition: { neq: [tns, null] }
+                then:
+                  - decl: [ist_0, i32, { call: [tns.shape, 0] }]
+                  - decl: [ist_1, i32, { call: [tns.shape, 1] }]
+                  - if:
+                      condition: { "||": [{ neq: [ist_0, dim_0] }, { neq: [ist_1, dim_1] }] }
+                      then:
+                        - call: [log.error, "${key}: abgelegt ${ist_0}×${ist_1}, gebraucht ${dim_0}×${dim_1} — der Wortschatz hat sich geaendert, Gewichte werden VERWORFEN. Erst ./prophecy_pretrain, dann die Koepfe."]
+                        - set: [tns, null]
+                        - set: [<.zufaellig, 1]
+            - if:
+                condition: { eq: [tns, null] }
+                then:
+                  - set: [tns, { call: [tensor.randn_ex, 0.0, stddev, dim_0, dim_1] }]
+                  - set: [<.zufaellig, 1]
+                  - call: [log.info, "init ${key} randn (${dim_0}×${dim_1}) stddev=${stddev}"]
+                else:
+                  - call: [log.info, "loaded ${key} from '${<.weights_name}' (${dim_0}×${dim_1})"]
+            - return: tns
+
+      - def:
+          name: init_model
+          args: []
+          body:
+            - if:
+                condition: { lt: [<.n_tokens, 1] }
+                then:
+                  - call: [log.error, "init_model called before load_vocab (n_tokens=0)"]
+                  - return: 0
+            - set: [<.emb, { call: [<.load_or_randn_2d, "emb", <.n_tokens, <.d_embed, 0.1] }]
+            - set: [<.dec, { call: [<.load_or_randn_2d, "dec", <.d_embed, <.n_tokens, 0.1] }]
+            - call: [<.emb.set_requires_grad, 1]
+            - call: [<.dec.set_requires_grad, 1]
+            - call: [<.manifest_pruefung]
+
+      # Gehoeren die geladenen Gewichte zu DIESEM Wortschatz?  Die Formpruefung
+      # in load_or_randn_2d sieht nur n×d; gleich viele andere Marken kommen
+      # durch.  Widerspruch heisst hier: `unvereinbar`, und wer rechnet, hat zu
+      # entscheiden (Trainer: Abbruch, Server: Kopf nicht benutzen).
+      - def:
+          name: manifest_pruefung
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [soll, ManifestSatz]
+            - set: [soll.wortschatz, <.wortschatz_fp]
+            - set: [soll.n_marken,   <.n_tokens]
+            - set: [soll.d_wert,     <.d_embed]
+            - decl: [code, i32, { call: [manifest_pruefen, { call: [manifest_lade, <.weights_name] }, soll] }]
+            - if:
+                condition: { eq: [code, 2] }
+                then:
+                  - set: [<.unvereinbar, 1]
+                  - call: [log.error, "[manifest] '${<.weights_name}' gehoert NICHT zu diesem Wortschatz (${<.n_tokens} Marken, Abdruck ${<.wortschatz_fp}) — abgelegt: ${{ call: [manifest_lade, <.weights_name] }}. Erst ./prophecy_pretrain, dann die Koepfe."]
+            - if:
+                condition: { eq: [code, 1] }
+                then: [{ call: [log.error, "[manifest] '${<.weights_name}' hat keinen Satz — die Herkunft der Gewichte ist nicht nachgewiesen. Das naechste Training schreibt einen."] }]
+            - return: code
+
+      # ── Save weights ──────────────────────────────────────────────────────
+      - def:
+          name: save_weights
+          args: []
+          body:
+            - call: [tensor.save, <.emb, <.weights_name, "emb"]
+            - call: [tensor.save, <.dec, <.weights_name, "dec"]
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, <.wortschatz_fp]
+            - set: [satz.n_marken,   <.n_tokens]
+            - set: [satz.d_wert,     <.d_embed]
+            # Die Einbettung ist ihre eigene Grundlage.
+            - set: [satz.grundlage,  <.wortschatz_fp]
+            - set: [satz.korpus,     <.korpus_fp]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    <.trainer_name]
+            - call: [manifest_ablegen, <.weights_name, satz]
+            - set: [<.unvereinbar, 0]
+            - call: [log.info, "saved tensors → '${<.weights_name}'"]

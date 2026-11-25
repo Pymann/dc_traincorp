@@ -1,0 +1,108 @@
+# Handwerks-Cluster: Fertigkeit <-> Rezeptstil <-> Ausgabeart.
+# Einmalig aus scripts/clusters.py uebernommen (20.11.2026) -- ab jetzt
+# ist DIESE Datei die Quelle; der Erzeuger liest sie (korpusgen, aiml).
+# Form: `cluster <name>`, danach `  <feld>: a, b, c` -- schlanker Leser,
+# kein yaml.
+
+cluster rune_craft
+  output_types: rune, socketable, amulet, ring
+  skills: rune_sense, magic_aptitude, crystal_affinity
+  tools: rune_stylus, enchanter_table, runesmith_table
+  core_materials: crystal_rock, aether_dust, chalkstone, fire_essence, runestone, runebone
+  material_kinds: gem, essence, stone
+  process_tags: rune_craft, arcane, elemental, channel, precision, etched
+  world_affinity: ancient_ruins, magical_glade, underground
+
+cluster metal_smithing
+  output_types: weapon, armor, helmet, bracer, tool
+  skills: smith_touch, resource_lore
+  tools: anvil, forge_bench, smithy
+  core_materials: iron, iron_ore, steel, copper, silver, bronze, oak, leather
+  material_kinds: metal, mineral
+  process_tags: iron_craft, blunt, heavy, sharp, forged
+  world_affinity: mountain, underground, volcanic
+
+cluster wood_craft
+  output_types: weapon, tool, utility, cape
+  skills: woodworker_touch, resource_lore
+  tools: woodworker_bench
+  core_materials: oak, pine, ash, ashwood, ironwood, willow, bamboo, leather, bark
+  material_kinds: wood, fiber
+  process_tags: wood_craft, balance, precision, carved
+  world_affinity: forest, mountain
+
+cluster leather_craft
+  output_types: boots, gloves, armor, utility
+  skills: weaver_touch, resource_lore
+  tools: weaver_bench, tanning_rack
+  core_materials: leather, hide, fur, sinew, tooth, claw
+  material_kinds: animal, fiber
+  process_tags: leather_craft, flexible, soft, tough
+  world_affinity: forest, mountain, arctic
+
+cluster fiber_weave
+  output_types: cape, trouser, armor, utility, amulet
+  skills: weaver_touch
+  tools: weaver_bench, loom
+  core_materials: silk, wool, linen, cotton, hemp, spider_silk, nettle_fiber, moon_silk
+  material_kinds: fiber
+  process_tags: fiber_craft, fine, flexible, delicate
+  world_affinity: forest, swamp, magical_glade
+
+cluster gem_craft
+  output_types: amulet, ring, socketable, rune
+  skills: crystal_affinity, rune_sense, resource_lore
+  tools: jeweller_bench, enchanter_table
+  core_materials: crystal_rock, agate, amber, raw_gem, moonglass, ruby, sapphire, quartz
+  material_kinds: gem, mineral
+  process_tags: gem_craft, luminous, precision, polished
+  world_affinity: underground, magical_glade, mountain
+
+cluster fire_channel
+  output_types: weapon, rune, utility
+  skills: fire_channel, magic_aptitude
+  tools: enchanter_table, forge_bench
+  core_materials: fire_essence, ember, obsidian, ember_crystal, fire_opal
+  material_kinds: essence, stone, mineral
+  process_tags: fire_craft, elemental, channel, burning
+  world_affinity: volcanic, magical_glade
+
+cluster alchemy
+  output_types: utility, remedy
+  skills: resource_lore, magic_aptitude
+  tools: alchemy_station, cooking_pot
+  core_materials: herb, fungus, spirit_essence, sage, honey, moss, sap, fern
+  material_kinds: herb, fungus, liquid, essence
+  process_tags: alchemy, brewed, distilled, potent
+  world_affinity: forest, swamp, magical_glade
+
+cluster tech_craft
+  output_types: device, utility, tool
+  skills: resource_lore
+  tools: soldering_iron, calibrator, debugger_rod
+  core_materials: circuit, wire, servo_brass, data_crystal, power_cell, alloy_plating
+  material_kinds: tech, metal
+  process_tags: tech_craft, precision, wired, calibrated
+  world_affinity: industrial
+
+cluster bone_craft
+  output_types: weapon, tool, amulet, rune
+  skills: resource_lore, rune_sense
+  tools: bone_bench
+  core_materials: bone, horn, ivory, tooth, fang, skull_fragment, bone_ash, runebone
+  material_kinds: animal, stone
+  process_tags: bone_craft, sharp, etched, primal
+  world_affinity: swamp, arctic, ancient_ruins
+
+# Kochen -- nachgetragen am 24.11.2026.  Die 48 Gerichte hingen an keinem
+# Cluster: `alchemy` fuehrt den Kochtopf als Werkzeug, gibt aber `utility`
+# und `remedy` aus, nicht `consumable`.  Damit hatte kein Kuechenrezept eine
+# Herkunft fuer seine Zutaten (doc/architecture/food_korpus_2026-11-24.md).
+cluster kitchen
+  output_types: consumable
+  skills: resource_lore, animal_sense
+  tools: cooking_pot, alchemy_station
+  core_materials: rye, wheat, oat, barley, flour, honey, egg, goat_milk, river_fish, game_meat, onion, carrot, potato, cabbage, bean, apple, strawberry, hazelnut, sage, broth
+  material_kinds: food, liquid, herb, animal
+  process_tags: baked, simmered, roasted, dried, preserved, nourishing, brewed
+  world_affinity: farmland, forest, coastal

@@ -1,0 +1,113 @@
+# Mechanic-Skill-Namen — technische, baunahe, systemische und strukturbezogene
+# Fähigkeiten. Kebab-Case Konvention, passend zum übrigen itemgen-/skillgen-
+# Korpus.
+#
+# Eine Zeile = ein Skill-Name. Leere Zeilen / # Kommentare ignoriert.
+
+# ── Repair / Maintenance ────────────────────────────────────────────────────
+field_repair
+quick_mending
+joint_reset
+seal_patching
+circuit_mending
+frame_tightening
+gear_cleaning
+hinge_tuning
+core_stabilizing
+wear_reading
+
+# ── Assembly / Construction ─────────────────────────────────────────────────
+bolt_setting
+frame_assembly
+lattice_building
+brace_fitting
+rivet_setting
+panel_mounting
+coil_wrapping
+housing_build
+anchor_setting
+module_linking
+
+# ── Energy / Conduction ─────────────────────────────────────────────────────
+power_routing
+charge_balancing
+current_sense
+flux_tuning
+coil_alignment
+voltage_shaping
+conductor_mapping
+spark_buffer
+load_balancing
+capacitor_timing
+
+# ── Precision / Calibration ─────────────────────────────────────────────────
+fine_calibration
+range_tuning
+lens_alignment
+sensor_tuning
+gyro_setting
+signal_trimming
+focus_calibration
+threshold_setting
+pattern_locking
+stability_tuning
+
+# ── Lock / Access / Security ────────────────────────────────────────────────
+code_bypass
+seal_decoding
+key_matrixing
+latch_reading
+ward_locking
+gate_sync
+access_weaving
+pattern_unlocking
+safe_entry
+barrier_reset
+
+# ── Salvage / Recovery ──────────────────────────────────────────────────────
+part_salvage
+core_recovery
+scrap_sorting
+component_harvest
+wire_stripping
+board_lifting
+relic_recovery
+module_salvage
+cache_opening
+ruin_scraping
+
+# ── Vehicles / Motion Systems ───────────────────────────────────────────────
+drive_tuning
+wheel_balancing
+axle_setting
+thrust_vectoring
+brake_feathering
+engine_listening
+gear_phasing
+suspension_tuning
+trail_driving
+beacon_steering
+
+# ── Data / Signal / Diagnostics ─────────────────────────────────────────────
+signal_reading
+diagnostic_scan
+fault_tracing
+logic_sifting
+packet_sense
+noise_filtering
+relay_reading
+system_probing
+memory_recovery
+checksum_reading
+
+# ── Realm-Tech / Arcane Mechanic ────────────────────────────────────────────
+rune_circuitry
+sigil_engineering
+portal_stabilizing
+shard_indexing
+beacon_attuning
+phase_anchoring
+mirror_rigging
+coherence_locking
+aether_regulation
+resonance_engineering

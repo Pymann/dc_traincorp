@@ -1,0 +1,67 @@
+# Shared base item model.
+#
+# Die Gegenstandsarten stehen als Enum in sources/shared/item_arten.aiml
+# (ItemArt, wire: true) -- frueher als Kommentarblock hier und als nackte
+# Zahlen im Code.  Das Feld bleibt i32: Enums sind i32-gestuetzt (spec/14),
+# und spec/45 nennt i32 als indizierbaren Feldtyp.
+
+- import: "sources/shared/counted_item.aiml"
+- import: "sources/shared/item_arten.aiml"
+
+- model:
+    name: Item
+    fields:
+      - [item_id,     string]
+      # Wem das Stueck gehoert.  Steht IM SATZ, nicht im Schluesselnamen:
+      # ein Schluessel, den man richtig zusammensetzen muss, wird irgendwann
+      # falsch zusammengesetzt -- genau so teilten sich bis zum 14.11. alle
+      # Kreaturen einen Materialstapel (doc/architecture/kv_umbau_2026-11-14.md).
+      # "" heisst: gehoert niemandem.
+      - [owner_id,    string, "", { db_indexed: true }]
+      # In welchem Trage-Fach es steckt; TrageFach.Keins = im Rucksack.
+      # Ersetzt den Umzug zwischen inventory_items und equipped_items.
+      - [equipped_slot, i32, 0]
+      # name ist case-insensitive db_indexed → items.findings_by("name", "hammer")
+      # liefert in O(1) alle item_ids mit diesem Display-Namen (egal welche
+      # Casing).  Ersetzt den linearen Scan im harvest tool-check.
+      - [name,        string, "", { db_indexed: "lower" }]
+      - [description, string]
+      - [icon_path,   string]
+      - [itemlevel,   i32, 0]
+      - [item_type,   i32, 0]
+      - [rarity,      string]
+      - [materials,   list<CountedItem>]
+      - [tags,        list<string>]
+      # Fixer Tag, der CRAFT-RECIPE-Items (item_type=18) garantiert ans
+      # gecraftete Output-Item vererben.  Random gerollt aus
+      # pool_for_type(output_item_type) bei der Recipe-Discovery.  Für alle
+      # Nicht-Recipe-Items leer.
+      - [guaranteed_tag, string, ""]
+      # Stack-Count.  In equipped_items_kv immer 1; in inventory_items_kv
+      # ist count = Anzahl gestackter identischer Items (Raw-Materials wie
+      # "crystal-rock" stacken).  c.inventory.items ist `list<string>`
+      # (item_ids), die Count-Info lebt im Kv-Eintrag.
+      - [count,       i32, 1]
+      # ── Combat-relevant equipment properties ───────────────────────────
+      # element_resistances: armor reduziert Trefferquote von skills mit
+      #   matching element_tag (z.B. armor ["fire"] → Fire-Skill hat
+      #   höhere miss/glancing-Chance gegen den Träger).
+      # element_boosts: weapon erhöht Trefferquote der eigenen skills mit
+      #   matching element_tag (z.B. weapon ["fire"] → Spieler's Fire-
+      #   Skills haben höhere normal/critical-Chance).
+      # normal_hits_bonus / critical_hits_bonus: addieren zum hit-counter
+      #   beim Combat-Start (heavy plate +3 normal +1 crit etc.).
+      - [element_resistances, list<string>]
+      - [element_boosts,      list<string>]
+      - [normal_hits_bonus,   i32, 0]
+      - [critical_hits_bonus, i32, 0]
+      # Haltbarkeit: 0 = unverderblich, sonst der Zeitpunkt, ab dem das
+      # Stueck verdorben ist.  Geprueft wird TRAEGE, erst beim Essen
+      # (doc/architecture/nahrung_und_krankheit_2026-11-13.md) -- kein
+      # Durchlauf ueber alle Inventare.
+      - [haltbar_bis, i64, 0]
+
+# ItemBehavior (class that implements Tileable) lives in
+# sources/shared/tile_behaviors.aiml — collecting all behavior classes in
+# one file works around the multi-phase compile sub-instance issue tracked
+# in doc/issue/cross_file_class_models.md.

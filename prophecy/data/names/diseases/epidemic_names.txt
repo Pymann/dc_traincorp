@@ -1,0 +1,24 @@
+# Epidemic-Welt-Event-Namen — werden vom Server beim Epidemic-Spawn
+# (siehe disease_and_healing.md "Epidemic = Zone-Event") als Display-
+# Name gerollt.  Dramatisch, einprägsam, Lore-tauglich.
+
+the_great_fading
+rusted_death
+the_quiet_plague
+shard_fever_outbreak
+hollow_cough_wave
+verdant_blight_season
+gear_rot_resurgence
+the_cold_silence
+ember_lung_epidemic
+moss_madness
+the_long_winter_sickness
+the_dust_calamity
+quantum_static_outbreak
+the_singing_madness
+parasite_bloom
+sky_burn_season
+the_unraveling
+nightshade_drift
+the_glass_cough_wave
+mineral_dust_storm_sickness

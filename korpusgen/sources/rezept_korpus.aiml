@@ -1,0 +1,310 @@
+# Der Rezept-Korpus: `itemgen/data/items_augmented.txt`.
+#
+# DREI Werkzeuge schreiben in diese Datei, in markierte Bloecke:
+#   1. dieser Erzeuger            -- Rezepte + Eingabezeilen (vorher Python)
+#   2. korpus_kochen_app (aiml)   -- 48 Gerichte, Block `KOCHEN`
+#   3. korpus_tragbares_app (aiml)-- duenne Ausgabetypen, Block `TRAGBARES`
+# Darum wird nur der Teil VOR dem KOCHEN-Block ersetzt; der Rest bleibt Zeile
+# fuer Zeile stehen.
+#
+# Zwei Entscheidungen (20.11.2026):
+#
+# (1) Die REZEPTZEILEN bleiben unveraendert.  Eine neue Ziehung gaebe neue
+#     Rezept-Kennungen, und die stehen in der lebenden Datenbank (entdeckte
+#     Rezepte je Kreatur).  Erzeugt werden nur die Eingabezeilen -- genau das,
+#     was Plan Punkt 3 und 4 verlangen.
+#
+# (2) Das FUNDAMENT (vierte Spalte) kommt nur noch aus den acht echten
+#     Starter-Fertigkeiten.  Vorher trugen 424 Zeilen eine von fuenf
+#     Fertigkeiten, die es im Spiel nicht mehr gibt (`weaver_touch`,
+#     `crystal_affinity`, `fire_channel`, `smith_touch`, `woodworker_touch`) --
+#     das Modell lernte ein Tor, das kein Spieler erfuellen kann.  Hat ein
+#     Cluster keine echte Fertigkeit mehr (fiber_weave), tritt
+#     `resource_lore` ein: die Fertigkeit des Werkstoff-Handwerks.
+- import: "korpusgen/sources/topf.aiml"
+- import: "korpusgen/sources/ziehen.aiml"
+- import: "korpusgen/sources/schreiber.aiml"
+
+- model:
+    name: Rezept
+    fields:
+      - [zeile,    string]          # die Rezeptzeile, unveraendert
+      - [kennung,  string]
+      - [marke,    string]          # garantierte Marke
+      - [arten,    list<string>]    # Materialarten ("gem x3" -> "gem")
+      - [werkzeug, list<string>]
+      - [ausgabe,  string]          # out_type
+      - [stil,     string]          # Praefix der Kennung: rune, metal, kitchen ...
+
+- class:
+    name: RezeptKorpus
+    members:
+      - [zie,      ptr<Zieher>, null]
+      - [taetig,   list<string>]
+      - [starter,  map<string:i32>]
+      - [cluster,  list<Satz>, null]
+      - [rezepte,  list<Rezept>, null, { access: public }]
+      - [zeilen,   list<string>, null, { access: public }]   # die neuen Eingabezeilen
+      - [kopf,     list<string>, null, { access: public }]   # Kopfzeilen der alten Datei
+      - [schwanz,  list<string>, null, { access: public }]   # KOCHEN + TRAGBARES, unveraendert
+      - [domaenen, list<string>, null, { access: public }]
+      - [ersetzt,  i32, 0, { access: public }]               # Fundamente, die getauscht wurden
+    methods:
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          body:
+            - set: [<.zie, { new: Zieher }]
+            - call: [<.zie.start, saat]
+            - set: [<.taetig, { call: [topf_lesen, "prophecy/data/names/actions/base_actions.txt"] }]
+            - decl: [acht, list<string>, { call: [topf_lesen, "prophecy/data/names/skills/starter_skills.txt"] }]
+            - set: [<.starter, { call: [topf_als_karte, acht] }]
+            - set: [<.cluster, { call: [cluster_lesen, "prophecy/data/clusters/craft_clusters.txt"] }]
+            - call: [log.info, "rezepte: ${<.starter.len} echte Starter-Fertigkeiten, ${<.cluster.len} Handwerks-Cluster"]
+
+      # "gem x3" -> "gem"
+      - def:
+          name: art_ohne_zahl
+          access: public
+          args: [[roh, string]]
+          return: string
+          body:
+            - decl: [sauber, string, { call: [roh.trim] }]
+            - decl: [schnitt, i32, { call: [sauber.index_of, " x"] }]
+            - if: { condition: { gt: [schnitt, 0] }, then: [{ return: { call: [sauber.substr, 0, schnitt] } }] }
+            - return: sauber
+
+      # Der Stil aus der Kennung: `recipe-rune-amulet-medallion` -> `rune`.
+      - def:
+          name: stil_von
+          access: public
+          args: [[kennung, string]]
+          return: string
+          body:
+            - decl: [ohne, string, { call: [kennung.replace, "recipe-", ""] }]
+            - decl: [teile, list<string>, { call: [ohne.split, "-"] }]
+            - if: { condition: { gt: [teile.len, 0] }, then: [{ return: { at: [teile, 0] } }] }
+            - return: ""
+
+      # Das Cluster zu einem Stil: `rune` -> `rune_craft`.
+      - def:
+          name: cluster_fuer
+          access: public
+          args: [[stil, string]]
+          return: i32
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.cluster.len] }
+                body:
+                  - decl: [eins, ref<Satz>, { at: [<.cluster, idx] }]
+                  - decl: [teile, list<string>, { call: [eins.kennung.split, "_"] }]
+                  - if:
+                      condition: { gt: [teile.len, 0] }
+                      then:
+                        - decl: [vorn, string, { at: [teile, 0] }]
+                        - if: { condition: { eq: [vorn, stil] }, then: [{ return: idx }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: -1
+
+      # Die Datei lesen: Kopf, Rezepte, und alles ab dem KOCHEN-Block
+      # unveraendert aufheben.
+      - def:
+          name: alte_datei_lesen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ call: [log.error, "rezepte: '${pfad}' fehlt"] }, { return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [idx, i32, 0]
+            - decl: [im_schwanz, i32, 0]
+            - while:
+                condition: { lt: [idx, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [roh.contains, "KOCHEN: erzeugt"] }, 1] }
+                      then: [{ set: [im_schwanz, 1] }]
+                  - if:
+                      condition: { eq: [im_schwanz, 1] }
+                      then: [{ call: [<.schwanz.push, roh] }]
+                      else:
+                        - if:
+                            condition: { eq: [{ call: [roh.starts_with, "recipe |"] }, 1] }
+                            then:
+                              - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
+                              - if:
+                                  condition: { ge: [spalten.len, 7] }
+                                  then:
+                                    - decl: [rez, Rezept]
+                                    - set: [rez.zeile, roh]
+                                    - decl: [kenn_roh, string, { at: [spalten, 1] }]
+                                    - set: [rez.kennung, { call: [kenn_roh.trim] }]
+                                    - decl: [marke_roh, string, { at: [spalten, 3] }]
+                                    - set: [rez.marke, { call: [marke_roh.trim] }]
+                                    - decl: [mat_roh, string, { at: [spalten, 4] }]
+                                    - decl: [mat_teile, list<string>, { call: [topf_teile, mat_roh] }]
+                                    - decl: [mpos, i32, 0]
+                                    - while:
+                                        condition: { lt: [mpos, mat_teile.len] }
+                                        body:
+                                          - call: [rez.arten.push, { call: [<.art_ohne_zahl, { at: [mat_teile, mpos] }] }]
+                                          - set: [mpos, { "+": [mpos, 1] }]
+                                    - decl: [wkz_roh, string, { at: [spalten, 5] }]
+                                    - set: [rez.werkzeug, { call: [topf_teile, wkz_roh] }]
+                                    - decl: [aus_roh, string, { at: [spalten, 6] }]
+                                    - set: [rez.ausgabe, { call: [aus_roh.trim] }]
+                                    - set: [rez.stil, { call: [<.stil_von, rez.kennung] }]
+                                    - call: [<.rezepte.push, rez]
+            - call: [log.info, "rezepte: ${<.rezepte.len} Rezeptzeilen, ${<.schwanz.len} Zeilen bleiben unveraendert"]
+            - return: <.rezepte.len
+
+      # Die echten Fertigkeiten eines Clusters.  Leer, wenn keine mehr gilt --
+      # dann tritt `resource_lore` ein (Werkstoff-Handwerk).
+      - def:
+          name: fertigkeiten_fuer
+          access: public
+          args: [[stil, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [pos, i32, { call: [<.cluster_fuer, stil] }]
+            - if:
+                condition: { ge: [pos, 0] }
+                then:
+                  - decl: [satz, ref<Satz>, { at: [<.cluster, pos] }]
+                  - decl: [roh, list<string>, { call: [satz_liste, satz, "skills"] }]
+                  - set: [raus, { call: [nur_erlaubte, roh, <.starter] }]
+                  - if: { condition: { lt: [raus.len, roh.len] }, then: [{ set: [<.ersetzt, { "+": [<.ersetzt, 1] }] }] }
+            - if: { condition: { eq: [raus.len, 0] }, then: [{ call: [raus.push, "resource_lore"] }] }
+            - return: raus
+
+      # Eine Eingabezeile zu einem Rezept.  Die Vielfalt kommt aus
+      # Materialarten, Kernstoffen, Werkzeug, Prozessmarke, Taetigkeit und
+      # Fertigkeit -- nicht aus umsortierten Woertern (Plan Punkt 4).
+      - def:
+          name: eingabe_zeile
+          access: public
+          args: [[rez, ref<Rezept>], [fert, list<string>], [kern, list<string>], [marken, list<string>]]
+          return: string
+          body:
+            - decl: [beutel, list<string>]
+            # Materialarten: mindestens eine, meist alle.
+            - decl: [wie_viele, i32, { call: [<.zie.spanne, 1, rez.arten.len] }]
+            - decl: [gezogen, list<string>, { call: [<.zie.mehrere, rez.arten, wie_viele] }]
+            - decl: [apos, i32, 0]
+            - while:
+                condition: { lt: [apos, gezogen.len] }
+                body:
+                  - call: [beutel.push, { at: [gezogen, apos] }]
+                  - set: [apos, { "+": [apos, 1] }]
+            # Kernstoffe des Clusters: echte Namen, kein Umsortieren.
+            - if:
+                condition: { "&&": [{ gt: [kern.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.55] }, 1] }] }
+                then:
+                  - decl: [kzahl, i32, { call: [<.zie.spanne, 1, 2] }]
+                  - decl: [kgez, list<string>, { call: [<.zie.mehrere, kern, kzahl] }]
+                  - decl: [kpos, i32, 0]
+                  - while:
+                      condition: { lt: [kpos, kgez.len] }
+                      body:
+                        - call: [beutel.push, { at: [kgez, kpos] }]
+                        - set: [kpos, { "+": [kpos, 1] }]
+            - if: { condition: { eq: [{ call: [<.zie.muenze, 0.75] }, 1] }, then: [{ call: [beutel.push, rez.marke] }] }
+            - if:
+                condition: { "&&": [{ gt: [marken.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.35] }, 1] }] }
+                then: [{ call: [beutel.push, { call: [<.zie.eines, marken] }] }]
+            - if: { condition: { eq: [{ call: [<.zie.muenze, 0.35] }, 1] }, then: [{ call: [beutel.push, rez.ausgabe] }] }
+            - if:
+                condition: { "&&": [{ gt: [rez.werkzeug.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.5] }, 1] }] }
+                then: [{ call: [beutel.push, { call: [<.zie.eines, rez.werkzeug] }] }]
+            - if: { condition: { eq: [{ call: [<.zie.muenze, 0.7] }, 1] }, then: [{ call: [beutel.push, { call: [<.zie.eines, fert] }] }] }
+            - if: { condition: { eq: [{ call: [<.zie.muenze, 0.4] }, 1] }, then: [{ call: [beutel.push, { call: [<.zie.eines, <.taetig] }] }] }
+            - decl: [sauber, list<string>, { call: [nur_einmal, beutel] }]
+            - decl: [gemischt, list<string>, { call: [<.zie.mischen, sauber] }]
+            # Das Fundament: immer eine ECHTE Starter-Fertigkeit.
+            - decl: [fundament, string, { call: [<.zie.eines, fert] }]
+            - return: "sample | ${{ call: [zeile_aus, gemischt] }} | ${rez.kennung} | ${fundament}"
+
+      - def:
+          name: bauen
+          access: public
+          args: [[je_rezept, i32]]
+          return: i32
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.rezepte.len] }
+                body:
+                  - decl: [rez, ref<Rezept>, { at: [<.rezepte, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [fert, list<string>, { call: [<.fertigkeiten_fuer, rez.stil] }]
+                  - decl: [kern, list<string>]
+                  - decl: [marken, list<string>]
+                  - decl: [pos, i32, { call: [<.cluster_fuer, rez.stil] }]
+                  - if:
+                      condition: { ge: [pos, 0] }
+                      then:
+                        - decl: [satz, ref<Satz>, { at: [<.cluster, pos] }]
+                        - set: [kern, { call: [satz_liste, satz, "core_materials"] }]
+                        - set: [marken, { call: [satz_liste, satz, "process_tags"] }]
+                  - decl: [lauf, i32, 0]
+                  - while:
+                      condition: { lt: [lauf, je_rezept] }
+                      body:
+                        - call: [<.zeilen.push, { call: [<.eingabe_zeile, rez, fert, kern, marken] }]
+                        - set: [lauf, { "+": [lauf, 1] }]
+            # Die Domaenen-Reihenfolge liegt als DATEN daneben
+            # (prophecy/data/domains/items.txt): gekuerzt verliert ein Wort
+            # still seine Domaene, und die Maske wirft es weg.
+            - set: [<.domaenen, { call: [topf_lesen, "prophecy/data/domains/items.txt"] }]
+            - return: <.zeilen.len
+
+      # Schreiben: Kopf, Rezepte unveraendert, neue Eingaben, dann der
+      # fremde Schwanz (KOCHEN/TRAGBARES) Zeile fuer Zeile.
+      - def:
+          name: schreiben
+          access: public
+          args: [[pfad, string], [saat, i64]]
+          return: i32
+          body:
+            - decl: [datei, file_handle, { call: [io.open, pfad, "w"] }]
+            - if: { condition: { eq: [datei, null] }, then: [{ call: [log.error, "rezepte: '${pfad}' nicht schreibbar"] }, { return: 0 }] }
+            - call: [io.write, datei, "# Item-Generator Trainings-Korpus (Cluster, gegen die DATEN geprueft).\n"]
+            - call: [io.write, datei, "# Erzeugt von korpusgen (aiml, JIT) -- seed=${saat}.\n"]
+            - call: [io.write, datei, "# Die Rezeptzeilen sind UNVERAENDERT uebernommen: ihre Kennungen stehen in\n"]
+            - call: [io.write, datei, "# der lebenden Datenbank.  Neu erzeugt sind nur die Eingabezeilen.\n"]
+            - call: [io.write, datei, "# Das Fundament (vierte Spalte) ist immer eine der acht echten\n"]
+            - call: [io.write, datei, "# Starter-Fertigkeiten -- vorher trugen 424 Zeilen eine entfernte.\n"]
+            - decl: [prio, string, { call: [domaenen_zeile, <.domaenen] }]
+            - call: [io.write, datei, "${prio}\n"]
+            - call: [io.write, datei, "\n# -- Rezepte --\n"]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.rezepte.len] }
+                body:
+                  - decl: [rez, ref<Rezept>, { at: [<.rezepte, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - call: [io.write, datei, "${rez.zeile}\n"]
+            - call: [io.write, datei, "\n# -- Eingaben (Marken -> Rezept + Fertigkeit) --\n"]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.zeilen.len] }
+                body:
+                  - decl: [zeile, string, { at: [<.zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - call: [io.write, datei, "${zeile}\n"]
+            - decl: [spos, i32, 0]
+            - while:
+                condition: { lt: [spos, <.schwanz.len] }
+                body:
+                  - decl: [schwanz_zeile, string, { at: [<.schwanz, spos] }]
+                  - set: [spos, { "+": [spos, 1] }]
+                  - call: [io.write, datei, "${schwanz_zeile}\n"]
+            - call: [io.close, datei]
+            - call: [log.info, "rezepte: ${<.rezepte.len} Rezepte, ${<.zeilen.len} Eingaben, ${<.schwanz.len} fremde Zeilen → ${pfad}"]
+            - return: <.zeilen.len

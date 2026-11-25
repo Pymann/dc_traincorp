@@ -1,0 +1,53 @@
+# Tensor-Initialisierung fuer Backbone und Heads: laden, sonst zufaellig
+# bzw. null.  Eigene Datei, weil heads.aiml sonst 4 Top-Level-Typen traegt
+# (Maximum 3, spec/49 §14).
+
+# ── Helper: init tensor from store (random fallback) ─────────────────────────
+- def:
+    name: head_load_or_randn_2d
+    args: [[store, string], [key, string], [dim_0, i32], [dim_1, i32], [stddev, f32]]
+    return: tensor
+    body:
+      - decl: [tns, tensor, { call: [tensor.load, store, key] }]
+      # Die Form MUSS passen.  Sonst laedt ein Kopf mit neuem Namensraum
+      # stillschweigend die alten Gewichte: der skill_head trainierte am
+      # 11.11. mit 248 Labels gegen eine 64x8-Matrix aus dem Juni, und die
+      # Inferenz gab danach fuer jede Eingabe dasselbe p=0.5 zurueck.  Ein
+      # Formfehler muss laut sein, nicht still.
+      - if:
+          condition: { neq: [tns, null] }
+          then:
+            - decl: [hat_0, i32, { call: [tns.shape, 0] }]
+            - decl: [hat_1, i32, { call: [tns.shape, 1] }]
+            - if:
+                condition: { "||": [{ neq: [hat_0, dim_0] }, { neq: [hat_1, dim_1] }] }
+                then:
+                  - call: [log.warn, "head: ${key} hat ${hat_0}x${hat_1}, gebraucht wird ${dim_0}x${dim_1} — neu initialisiert"]
+                  - set: [tns, null]
+      - if:
+          condition: { eq: [tns, null] }
+          then:
+            - set: [tns, { call: [tensor.randn_ex, 0.0, stddev, dim_0, dim_1] }]
+            - call: [log.info, "head: init ${key} randn (${dim_0}×${dim_1})"]
+          else: [{ call: [log.info, "head: loaded ${key}"] }]
+      - return: tns
+
+- def:
+    name: head_load_or_zeros_1d
+    args: [[store, string], [key, string], [dim_0, i32]]
+    return: tensor
+    body:
+      - decl: [tns, tensor, { call: [tensor.load, store, key] }]
+      - if:
+          condition: { neq: [tns, null] }
+          then:
+            - decl: [hat_0, i32, { call: [tns.shape, 0] }]
+            - if:
+                condition: { neq: [hat_0, dim_0] }
+                then:
+                  - call: [log.warn, "head: ${key} hat ${hat_0}, gebraucht werden ${dim_0} — neu initialisiert"]
+                  - set: [tns, null]
+      - if:
+          condition: { eq: [tns, null] }
+          then: [{ set: [tns, { call: [tensor.zeros, dim_0] }] }]
+      - return: tns

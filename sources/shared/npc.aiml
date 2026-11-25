@@ -1,0 +1,17 @@
+# Shared NPC model.
+
+- import: "sources/shared/character_attributes.aiml"
+
+- model:
+    name: NPC
+    fields:
+      - [npc_id,             string]
+      - [name,               string]
+      - [attributes,         CharacterAttributes]
+      - [realm_id,           string]
+      - [zone_id,            string]
+      - [conversation_ids,   list<string>]
+      - [trade_offer_ids,    list<string>]
+      - [quest_offer_ids,    list<string>]
+      - [zone_transfer_ids,  list<string>]
+      - [contact_tags,       list<string>]

@@ -1,0 +1,64 @@
+# Shared base Skill model.
+#
+# `skill_kind` discriminates which subtype the skill is:
+#   1 = CombatSkill    (skill/combat_skill.aiml)
+#   2 = PassiveSkill   (skill/passive_skill.aiml)
+#   3 = ActiveSkill    (skill/active_skill.aiml)
+#   4 = MechanicSkill  (skill/mechanic_skill.aiml)
+#   5 = BaseSkill      (skill/base_skill.aiml) — being re-designed.
+#       Currently spawn_default_base_skills instantiates 4 base actions
+#       (meditate/workout/study/breathe) as kind=5; conceptually these are
+#       NOT skills (see doc/backlog/2026-06-08_skill_generation_pipeline.md
+#       + prophecy/data/names/actions/base_actions.txt).  Pending refactor
+#       decides whether kind=5 is dropped or repurposed for
+#       "Knowledge/Discovery-Skills".
+#
+# Subtypes extend Skill and add the kind-specific fields. The base
+# alone is enough wherever you only need identity / display (e.g. UI
+# pickers, skill_ids list on DataCreature).
+#
+# `icon_path` is a path under resources/skills/ — empty during MVP
+# means the UI falls back to a white-box placeholder.
+#
+# `family` is a lose grouping ("magic", "terrain", "bond", …) used
+# for UI sorting and later profession derivation. Unrelated to
+# skill_kind.
+
+- model:
+    name: Skill
+    fields:
+      - [skill_id,    string]
+      - [name,        string]
+      - [family,      string]
+      - [icon_path,   string]
+      - [description, string]
+      - [skill_kind,  i32, 0]
+      # Use it or lose it (sources/server/vergessen.aiml).  Hier in der BASIS,
+      # weil jede Fertigkeitsart verfallen kann -- nicht in einem Nebenspeicher
+      # und nicht in einen Textstring gepackt.
+      #
+      # `vergisst_nach_min` 0 heisst NIE: Starter- und Katalogfertigkeiten
+      # verfallen nicht, nur ENTDECKTE.  `rest_min` wird beim Ausliefern
+      # gerechnet und bleibt im Speicher 0.
+      #
+      # Das aendert die Satzgestalt ALLER vier Fertigkeits-Speicher und macht
+      # ihre bestehenden Saetze ungueltig -- der Satz-Fingerabdruck deckt die
+      # ganze Gestalt ab, ein Anhaengen am Ende genuegt dafuer schon.  Darum
+      # gehoert ein Wipe dazu: scripts/wipe_fertigkeiten.sh.
+      - [zuletzt_benutzt,   i64, 0]
+      - [vergisst_nach_min, i32, 0]
+      - [rest_min,          i32, 0]
+      # Welche KATALOG-Fertigkeit das hier ist (`focus_breath`, `shard_walker`).
+      # `skill_id` ist die Kennung dieser INSTANZ (ein Hash), `name` der
+      # Anzeigename ("Focus Breathing") -- beides taugt nicht zum Vergleich
+      # mit einem Tor oder einer Route.
+      #
+      # Ohne dieses Feld rechnete `skill_marken` die Kennung aus dem
+      # Anzeigenamen zurueck: "Focus Breathing" wurde `focus_breathing`, das
+      # Tor verlangte `focus_breath`, und 25 Fertigkeiten waren fuer immer
+      # gesperrt (gemessen 23.11.2026: 0 gelernte in 300 Aktionen).
+      # Spec: doc/architecture/namensregel_2026-11-23.md
+      #
+      # ACHTUNG: ein neues Feld aendert die Satzgestalt und macht gespeicherte
+      # Fertigkeits-Saetze ungueltig -- scripts/wipe_fertigkeiten.sh.
+      - [katalog_id,        string, ""]

@@ -1,0 +1,16 @@
+# Build-Ausgaben
+out/
+__aiml_cache/
+__exodus_cache/
+.werkzeug/
+
+# Ergebnisse eines Laufes
+aiondb/
+berichte/
+
+# Binaries (exodus legt sie per artifact_in_cwd neben die Configs)
+prophecy_build
+prophecy_pretrain
+prophecy_train_*
+prophecy_gate_korpus
+rezept_probe

@@ -1,0 +1,10 @@
+# Shared world model.
+
+- model:
+    name: Terrain
+    fields:
+      - [terrain_id,      string]
+      - [terrain_kind,    string]
+      - [terrain_subtype, string]
+      - [terrain_tags,    list<string>]
+      - [description,     string]

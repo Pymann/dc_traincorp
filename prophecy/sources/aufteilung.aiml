@@ -1,0 +1,64 @@
+# Train / Validierung / Test -- aus der AUSGANGSZEILE, nicht aus dem Zufall.
+#
+# Punkt 7 des Korpus-Implementierungsplans: „Die Aufteilung wird VOR
+# Vortraining und Augmentierung festgelegt.  Varianten derselben Ausgangszeile
+# bleiben zusammen."
+#
+# Warum nicht ziehen: wer je Zeile wuerfelt, verteilt die VARIANTEN einer
+# Ausgangszeile ueber alle drei Mengen -- dann steht im Test eine Zeile, deren
+# Geschwister das Modell gelernt hat, und die Messung sagt zu viel.  Darum
+# entscheidet ein Abdruck der Ausgangszeile, nicht ein Wurf:
+#
+#   teil = crc32(ausgangszeile) % 100     ->  0..79 lernen, 80..89 pruefen,
+#                                              90..99 testen
+#
+# Dieselbe Ausgangszeile landet damit in jedem Lauf, in jedem Prozess und in
+# jedem Trainer in derselben Menge -- auch wenn ein Trainer sie achtmal
+# abwandelt (gekuerzt, bekleidet, bewittert).
+#
+# Der Aufrufer gibt die IDENTITAET der Ausgangszeile: bei einem Korpus die
+# rohe Zeile, bei einer Paarung Angreifer+Gegner, bei einem Rezept seine
+# Kennung.  NICHT die abgewandelte Form -- sonst ist die Zusage dahin.
+
+- decl: [teil_lernen,      i32, 0]
+- decl: [teil_pruefen,     i32, 1]
+- decl: [teil_testen,      i32, 2]
+# Die Grenzen in Prozent; eine Zahl, eine Stelle.
+- decl: [teil_grenze_lernen,  i32, 80]
+- decl: [teil_grenze_pruefen, i32, 90]
+
+- def:
+    name: teil_von
+    args: [[ausgangszeile, string]]
+    return: i32
+    body:
+      - decl: [sauber, string, { call: [ausgangszeile.trim] }]
+      # Eine leere Identitaet gehoert ins Lernen -- sie kann nicht
+      # wiedererkannt werden, also darf sie nicht messen.
+      - if: { condition: { eq: [sauber.len, 0] }, then: [{ return: 0 }] }
+      - decl: [roh, i32, { call: [hash.crc32, sauber] }]
+      - if: { condition: { lt: [roh, 0] }, then: [{ set: [roh, { "-": [0, roh] }] }] }
+      - if: { condition: { lt: [roh, 0] }, then: [{ set: [roh, 0] }] }
+      - decl: [eimer, i32, { "%": [roh, 100] }]
+      - if: { condition: { lt: [eimer, teil_grenze_lernen] }, then: [{ return: 0 }] }
+      - if: { condition: { lt: [eimer, teil_grenze_pruefen] }, then: [{ return: 1 }] }
+      - return: 2
+
+# Gehoert diese Zeile ins Lernen?
+- def:
+    name: teil_ist_lernen
+    args: [[ausgangszeile, string]]
+    return: i32
+    body:
+      - if: { condition: { eq: [{ call: [teil_von, ausgangszeile] }, 0] }, then: [{ return: 1 }] }
+      - return: 0
+
+# Ein Name fuer die Meldung.
+- def:
+    name: teil_name
+    args: [[teil, i32]]
+    return: string
+    body:
+      - if: { condition: { eq: [teil, 0] }, then: [{ return: "lernen" }] }
+      - if: { condition: { eq: [teil, 1] }, then: [{ return: "pruefen" }] }
+      - return: "testen"

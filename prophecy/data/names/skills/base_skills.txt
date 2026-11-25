@@ -1,0 +1,23 @@
+# Foundation/base-skills the player picks 1-2 at character creation.
+# Hard-gates für combat-skill-discovery: ohne weapon_mastery keine Melee-
+# Combat-Skills, ohne magic_aptitude keine Spells etc.
+#
+# Element-spezifische Aptitudes (fire_aptitude, ice_aptitude, ...) wurden
+# 2026-06-15 entfernt — Elemente leben jetzt nur noch in CombatSkill.element_tags
+# und in Item.element_resistances/boosts (für Hit-Resolution).  Es gibt nur
+# noch 5 kanonische Elemente: fire, water, earth, air, aether.
+#
+# Eine Zeile = ein Foundation-Skill.  Kommentare/Leerzeilen werden ignoriert.
+
+# ── Physical Combat Foundation ─────────────────────────────────────────────
+weapon_mastery
+blade_mastery
+impact_mastery
+ranged_focus
+shadow_arts
+guard_mastery
+
+# ── Magical / Special Foundation ───────────────────────────────────────────
+magic_aptitude
+nature_attunement
+beast_attunement

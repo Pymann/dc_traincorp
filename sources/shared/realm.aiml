@@ -1,0 +1,16 @@
+# Shared realm model.
+
+- import: "sources/shared/terrain.aiml"
+- import: "sources/shared/weather.aiml"
+
+- model:
+    name: Realm
+    fields:
+      - [realm_id,        string]
+      - [name,            string]
+      - [realm_kind,      string]
+      - [realm_subtype,   string]
+      - [realm_tags,      list<string>]
+      - [primary_terrain, Terrain]
+      - [primary_weather, Weather]
+      - [state_tags,      list<string>]

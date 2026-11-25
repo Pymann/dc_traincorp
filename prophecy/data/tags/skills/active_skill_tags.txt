@@ -1,0 +1,48 @@
+# Active-Skill-Tags (skill_kind=3) — explizit per RPC während Action genutzt.
+
+# Target-Kind (validation in start_action)
+target_self
+target_ally
+target_enemy
+target_beast
+target_zone
+target_item
+target_npc
+
+# Action-Kategorie
+harvest_assist
+craft_assist
+combat_assist
+heal_assist
+travel_assist
+discover_assist
+social_assist
+
+# Outcome-Tags (was die Action gewinnt)
+yields_material
+yields_information
+yields_xp
+yields_currency
+yields_buff
+yields_debuff
+cures_disease_minor
+
+# Wirk-Stärke
+weak
+moderate
+strong
+overwhelming
+
+# Cooldown-Klasse
+no_cooldown
+short_cooldown
+medium_cooldown
+long_cooldown
+daily_cooldown
+
+# Ressource-Kosten
+no_cost
+mp_cost
+fatigue_cost
+hp_cost
+material_cost

@@ -1,0 +1,37 @@
+# JIT-Probe: zieht der Zieher wiederholbar?
+- import: "korpusgen/sources/ziehen.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [topf, list<string>, ["sharp", "metal", "edged", "heavy", "blunt", "light"]]
+      - decl: [zie, ptr<Zieher>, { new: Zieher }]
+      - call: [zie.start, 42]
+      - decl: [erste, list<string>, { call: [zie.mehrere, topf, 3] }]
+      - call: [log.info, "erste Ziehung: ${{ call: [zeile_aus, erste] }}"]
+      - decl: [zwei, ptr<Zieher>, { new: Zieher }]
+      - call: [zwei.start, 42]
+      - decl: [nochmal, list<string>, { call: [zwei.mehrere, topf, 3] }]
+      - decl: [gleich, i32, 0]
+      - if: { condition: { eq: [{ call: [zeile_aus, erste] }, { call: [zeile_aus, nochmal] }] }, then: [{ set: [gleich, 1] }] }
+      - call: [log.info, "derselbe Seed, dieselbe Ziehung: ${gleich}"]
+      - decl: [drei, ptr<Zieher>, { new: Zieher }]
+      - call: [drei.start, 43]
+      - decl: [anders, list<string>, { call: [drei.mehrere, topf, 3] }]
+      - call: [log.info, "anderer Seed: ${{ call: [zeile_aus, anders] }}"]
+      - decl: [gemischt, list<string>, { call: [zie.mischen, topf] }]
+      - call: [log.info, "gemischt (${gemischt.len}): ${{ call: [zeile_aus, gemischt] }}"]
+      - decl: [kopf, i32, 0]
+      - decl: [lauf, i32, 0]
+      - while:
+          condition: { lt: [lauf, 1000] }
+          body:
+            - set: [kopf, { "+": [kopf, { call: [zie.muenze, 0.3] }] }]
+            - set: [lauf, { "+": [lauf, 1] }]
+      - call: [log.info, "Muenze 0,3 von 1000: ${kopf}"]
+      - decl: [erlaubt, map<string:i32>, { call: [topf_als_karte, topf] }]
+      - decl: [gefiltert, list<string>, { call: [nur_erlaubte, ["sharp", "gibtsnicht", "blunt"], erlaubt] }]
+      - call: [log.info, "gefiltert: ${{ call: [zeile_aus, gefiltert] }}"]
+      - return: 0

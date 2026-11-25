@@ -1,0 +1,970 @@
+# Erzeugung mit Seed: (aufgabe, beutel, seed) -> Tokenfolge.
+#
+# Der Seed ist der Kern des Entwurfs.  Gleiche Eingabe plus gleicher Seed
+# ergibt dieselbe Folge, auf jedem Thread und in jedem Prozess -- darum muss
+# der Server ein entdecktes Rezept NICHT als Blob speichern, sondern nur
+# (aufgabe, beutel, seed, modell_version).  Gezogen wird mit `Zufall`
+# (eigener Zustand), NICHT mit `math.random`: das ist thread-local mt19937,
+# "seeded from std::random_device on first use" (spec/43_0 §7) und damit
+# nicht wiederholbar.
+- import: "prophecy/sources/transformer.aiml"
+- import: "prophecy/sources/folge.aiml"
+- import: "prophecy/sources/zufall.aiml"
+- import: "prophecy/sources/erreichbarkeit.aiml"
+
+- class:
+    name: Erzeuger
+    members:
+      - [fge,        Folge]
+      - [mdl,        RezeptModell]
+      - [wrf,        Zufall]
+      - [temperatur, f32, 0.9]
+      - [top_k,      i32, 40]
+      - [n_wort,     i32, 0]
+      - [n_ctx,      i32, 128]
+      # Trainingsfolgen sind im Mittel 20 Tokens lang.  Wird bis 128 erzeugt,
+      # laeuft das Modell ab ~25 in Positionen, die es NIE gesehen hat -- dort
+      # sind die Positionseinbettungen Rauschen, und es endet nie.  Deshalb
+      # eine Obergrenze nahe der Trainingsverteilung; wer sie erreicht, ohne
+      # <end> zu setzen, ist ein verworfener Vorschlag (Spec §7).
+      - [max_laenge, i32, 48]
+      - [erreich,    ErreichbarkeitsPruefung]
+      - [arten,      map<string:i32>]
+      - [soll_marken, map<string:string>]
+      - [grund,      string, "", { access: public }]
+      - [letzter_seed, i64, -1, { access: public }]
+      - [versuche,   i32, 0, { access: public }]
+      # Je Aufgabe die PRIORITAETSREIHENFOLGE ihres eigenen Korpus.  Der
+      # Entdeckungskorpus loest `frontier`/`echoing` ueber zone:/weather:
+      # auf, die Itemliste kennt diese Bereiche nicht -- mit der falschen
+      # Reihenfolge fiel die halbe Zonen-Eingabe aus dem Beutel, und das
+      # Modell sah einen Prompt, wie er im Training nie vorkam.
+      - [aufg_nr,    map<string:i32>]
+      - [prio_rez,   list<string>]
+      - [prio_entd,  list<string>]
+      - [prio_frt,   list<string>]
+      - [prio_kpf,   list<string>]
+      # Je Aufgabe Temperatur und top_k -- gemessen, nicht geraten.
+      - [t_je,       list<f32>]
+      - [k_je,       list<i32>]
+      # Grammatik beim Ziehen (Spec §7a): grenz[tid] == 1 heisst
+      # Abschnittsmarke; waehlbar ist davon nur <.erlaubt, die naechste der
+      # Sollfolge.  Mengen- und Fundartmarken haben grenz == 0: sie sind
+      # Inhalt.  -1 heisst "keine Marke mehr erlaubt".
+      - [grenz,      list<i32>]
+      - [erlaubt,    i32, -1]
+      # Abschnitte, die laut Regel GENAU EINEN Eintrag tragen (§7).  Ist das
+      # Budget aufgebraucht, ist nur noch die naechste Marke waehlbar.
+      - [inhalt_max, map<string:i32>]
+      - [nur_marke,  i32, 0]
+      # Vokabular je Abschnitt (Spec §7b), flach: Platz `slt` belegt
+      # [slt*n_wort .. slt*n_wort+n_wort).  <.mask_slot bildet
+      # "<a:aufgabe>|<marke>" auf den Platz ab, <.mask_jetzt ist der Platz
+      # des laufenden Abschnitts (-1: keine Maske, also nichts gesperrt).
+      # Beutelwoerter, die der Atlas in der Reihenfolge DIESER Aufgabe nicht
+      # aufloest.  Sie verschwinden still -- dreimal in einer Nacht war das
+      # die Ursache einer vermeintlichen Modellschwaeche (Fundarten,
+      # Materialdomaenen, Gegnernamen im Kampfbeutel).  Darum werden sie
+      # gezaehlt statt verschluckt.
+      - [unbek,      map<string:i32>]
+      - [unbek_reihe, list<string>]
+      - [maske,      list<i32>]
+      - [mask_slot,  map<string:i32>]
+      - [n_slots,    i32, 0]
+      # Ausgabename -> Gegenstandsart, aus den Rezeptzeilen des Korpus
+      # (Feld 3 -> Feld 7).  Damit prueft `pruefe_vorschlag` die BEZIEHUNG
+      # zwischen zwei Abschnitten, nicht nur jedes Wort fuer sich.
+      - [out_typ,    map<string:string>]
+      - [mask_jetzt, i32, -1]
+    methods:
+      - def:
+          name: init
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [ok_f, i32, { call: [<.fge.init] }]
+            - if: { condition: { neq: [ok_f, 1] }, then: [{ return: 0 }] }
+            - set: [<.n_wort, { call: [<.fge.gesamt_tokens] }]
+            - call: [<.mdl.init, <.n_wort]
+            - decl: [mdx, i32, 0]
+            - while:
+                condition: { lt: [mdx, <.fge.n_marken] }
+                body:
+                  - decl: [mwr, string, { call: [<.fge.wort, mdx] }]
+                  - call: [<.grenz.push, { call: [mwr.starts_with, "<"] }]
+                  - set: [mdx, { "+": [mdx, 1] }]
+            - call: [<.aufg_nr.put, "<a:rezept>", 0]
+            - call: [<.aufg_nr.put, "<a:entdeckung>", 1]
+            - call: [<.aufg_nr.put, "<a:fertigkeit>", 2]
+            - call: [<.aufg_nr.put, "<a:kampf>", 3]
+            # Hoechstlaenge je Abschnitt, AM KORPUS GEMESSEN (Spec §7a):
+            # Items Feld 3/5/6 -> out 2, mat 6, tool 2; Entdeckungen Feld
+            # 4/5/6/7 -> tags 3, ertrag 4, tool 1, name 2.  Genommen wird je
+            # Marke das Maximum ueber beide Korpora.  <bag> bleibt offen.
+            - call: [<.inhalt_max.put, "<skill>", 1]
+            - call: [<.inhalt_max.put, "<art>", 1]
+            - call: [<.inhalt_max.put, "<type>", 1]
+            - call: [<.inhalt_max.put, "<out>", 2]
+            - call: [<.inhalt_max.put, "<mat>", 6]
+            - call: [<.inhalt_max.put, "<tool>", 2]
+            - call: [<.inhalt_max.put, "<tags>", 3]
+            - call: [<.inhalt_max.put, "<ertrag>", 4]
+            - call: [<.inhalt_max.put, "<name>", 2]
+            # Reihenfolge wie <.aufg_nr: Rezept, Entdeckung, Fertigkeit, Kampf.
+            # Gemessen mit geschlossenem Beutel und Abschnittsmaske
+            # (logs/regler5.log, 12 Einstellungen x 4 Aufgaben x 120 Saaten).
+            # Mit der Maske ist hohe Temperatur gefahrlos -- was das Format
+            # verletzt, ist gar nicht waehlbar --, darum liegen die Werte weit
+            # ueber den frueheren.  NICHT genommen wird einfach die hoechste
+            # Vielfaltszahl: aus 166 Kampffertigkeiten zoege reiner Zufall bei
+            # 120 Saaten rund 86 verschiedene, und wer sich dieser Linie
+            # naehert, wuerfelt nur noch im erlaubten Vokabular.  Gewaehlt ist
+            # je Aufgabe der Punkt mit hoher Vielfalt UND hoher Beuteltreue.
+            - call: [<.t_je.push, 1.4]   # rezept     104 versch., 98 % gueltig, 89 % baubar
+            - call: [<.t_je.push, 1.2]   # entdeckung 114 versch., 95 % gueltig
+            - call: [<.t_je.push, 1.4]   # fertigkeit  32 versch., 100 % gueltig
+            - call: [<.t_je.push, 1.6]   # kampf       11 versch., 100 % gueltig
+            - call: [<.k_je.push, 20]
+            - call: [<.k_je.push, 10]
+            - call: [<.k_je.push, 40]
+            - call: [<.k_je.push, 40]
+            - return: 1
+
+      - def:
+          name: prio_setzen
+          access: public
+          args: [[pri, list<string>]]
+          body:
+            - call: [<.fge.prio_setzen, pri]
+
+      # Die vier Korpuspfade -- jeder bringt seine eigene Kopfzeile mit.
+      # Daraus kommt zweierlei: die Reihenfolge der Atlas-Aufloesung und das
+      # Vokabular je Abschnitt (Spec §7b).  Beides MUSS aus demselben Korpus
+      # stammen, sonst traegt die Maske Token-Nummern einer anderen
+      # Aufloesung als das Training.
+      - def:
+          name: korpora_lesen
+          access: public
+          args: [[p_rez, string], [p_entd, string], [p_frt, string], [p_kpf, string]]
+          body:
+            - set: [<.prio_rez,  { call: [<.fge.prio_lesen, p_rez] }]
+            - set: [<.prio_entd, { call: [<.fge.prio_lesen, p_entd] }]
+            - set: [<.prio_frt,  { call: [<.fge.prio_lesen, p_frt] }]
+            - set: [<.prio_kpf,  { call: [<.fge.prio_lesen, p_kpf] }]
+            # Rezepte: Inhalt steht in den `recipe`-Zeilen, der Beutel in den
+            # `sample`-Zeilen.  Felder 3/4/5/7 = Ausgabe, Voraussetzung,
+            # Material, Gegenstandsart.
+            - if: { condition: { gt: [<.prio_rez.len, 0] }, then: [{ call: [<.fge.prio_setzen, <.prio_rez] }] }
+            - call: [<.maske_dazu, "<a:rezept>", "<out>",   p_rez, "recipe", 3]
+            - call: [<.maske_dazu, "<a:rezept>", "<skill>", p_rez, "recipe", 4]
+            - call: [<.maske_dazu, "<a:rezept>", "<mat>",   p_rez, "recipe", 5]
+            - call: [<.maske_dazu, "<a:rezept>", "<type>",  p_rez, "recipe", 7]
+            # Feld 6 = Werkzeug.  Hinter diesem Abschnitt steht eine Regel
+            # ("Werkzeug ist nicht zu bekommen"), also darf er eine Maske
+            # haben -- gemessen 20.11.2026: ohne sie landeten Namen und
+            # Gegenstandsarten darin (chalkstone, iron-craft, consumable).
+            - call: [<.maske_dazu, "<a:rezept>", "<tool>",  p_rez, "recipe", 6]
+            - set: [<.out_typ, { call: [<.fge.feld_paare, p_rez, "recipe", 3, 7] }]
+            - call: [log.info, "rezept: ${<.out_typ.len} Ausgabenamen mit fester Art"]
+            - if: { condition: { gt: [<.prio_frt.len, 0] }, then: [{ call: [<.fge.prio_setzen, <.prio_frt] }] }
+            - call: [<.maske_dazu, "<a:fertigkeit>", "<skill>", p_frt, "sample", 4]
+            - if: { condition: { gt: [<.prio_kpf.len, 0] }, then: [{ call: [<.fge.prio_setzen, <.prio_kpf] }] }
+            - call: [<.maske_dazu, "<a:kampf>", "<skill>", p_kpf, "combat", 3]
+
+      - def:
+          name: maske_dazu
+          args: [[aufgabe, string], [marke, string], [pfad, string], [art, string], [feld, i32]]
+          body:
+            - decl: [mas, list<i32>, { call: [<.fge.feld_maske, pfad, art, feld] }]
+            - if: { condition: { lt: [mas.len, <.n_wort] }, then: [{ return: }] }
+            - call: [<.mask_slot.put, "${aufgabe}|${marke}", <.n_slots]
+            - decl: [sdx, i32, 0]
+            - decl: [zahl, i32, 0]
+            - while:
+                condition: { lt: [sdx, <.n_wort] }
+                body:
+                  - decl: [bit, i32, { at: [mas, sdx] }]
+                  - call: [<.maske.push, bit]
+                  - set: [zahl, { "+": [zahl, bit] }]
+                  - set: [sdx, { "+": [sdx, 1] }]
+            - set: [<.n_slots, { "+": [<.n_slots, 1] }]
+            - call: [log.info, "maske ${aufgabe} ${marke}: ${zahl} Woerter"]
+
+      # 1 heisst: dieser Abschnitt hat eine Maske und das Token steht nicht
+      # darin.  Ohne Maske ist nichts gesperrt (Spec §7b).
+      - def:
+          name: maske_sperrt
+          access: public
+          args: [[aufgabe, string], [marke, string], [tid, i32]]
+          return: i32
+          body:
+            - decl: [mkey, string, "${aufgabe}|${marke}"]
+            - if: { condition: { eq: [{ call: [<.mask_slot.contains, mkey] }, 0] }, then: [{ return: 0 }] }
+            - if: { condition: { lt: [tid, 0] }, then: [{ return: 0 }] }
+            - decl: [slt, i32, { call: [<.mask_slot.get, mkey] }]
+            - decl: [pos, i32, { "+": [{ "*": [slt, <.n_wort] }, tid] }]
+            - if: { condition: { ge: [pos, <.maske.len] }, then: [{ return: 0 }] }
+            - if: { condition: { eq: [{ at: [<.maske, pos] }, 1] }, then: [{ return: 0 }] }
+            - return: 1
+
+      # Vor dem Kodieren des Beutels auf Reihenfolge UND Ziehung der Aufgabe
+      # stellen.  Die Zuordnung laeuft ueber <.aufg_nr, nicht ueber eine
+      # Kette von Stringvergleichen.
+      #
+      # Die Ziehung gehoert hierher, weil sie je Aufgabe verschieden ist:
+      # gemessen (logs/regler1.log, 15 Einstellungen x 4 Aufgaben x 40 Saaten)
+      # halbierte top_k 40 ueberall die gueltige Vielfalt -- 22 statt 80 --,
+      # und die Entdeckung will t=0.5, der Kampf t=0.9.  Mit dem vorher
+      # geratenen 0.9/40 kamen aus DENSELBEN Gewichten 1 % Rezepte statt 15 %.
+      - def:
+          name: einstellen_fuer
+          args: [[aufgabe, string]]
+          body:
+            - decl: [nmr, i32, 0]
+            - if:
+                condition: { eq: [{ call: [<.aufg_nr.contains, aufgabe] }, 1] }
+                then: [{ set: [nmr, { call: [<.aufg_nr.get, aufgabe] }] }]
+            - decl: [gew, list<string>, <.prio_rez]
+            - if: { condition: { eq: [nmr, 1] }, then: [{ set: [gew, <.prio_entd] }] }
+            - if: { condition: { eq: [nmr, 2] }, then: [{ set: [gew, <.prio_frt] }] }
+            - if: { condition: { eq: [nmr, 3] }, then: [{ set: [gew, <.prio_kpf] }] }
+            - if: { condition: { gt: [gew.len, 0] }, then: [{ call: [<.fge.prio_setzen, gew] }] }
+            - if:
+                condition: { "&&": [{ ge: [nmr, 0] }, { lt: [nmr, <.t_je.len] }] }
+                then:
+                  - set: [<.temperatur, { at: [<.t_je, nmr] }]
+                  - set: [<.top_k, { at: [<.k_je, nmr] }]
+
+      # Eine Aufgabe anders ziehen lassen, als gemessen wurde.
+      - def:
+          name: ziehung_je
+          access: public
+          args: [[aufgabe, string], [tmp, f32], [tpk, i32]]
+          body:
+            - if:
+                condition: { eq: [{ call: [<.aufg_nr.contains, aufgabe] }, 1] }
+                then:
+                  - decl: [nmr, i32, { call: [<.aufg_nr.get, aufgabe] }]
+                  - if:
+                      condition: { lt: [nmr, <.t_je.len] }
+                      then:
+                        - idx: [<.t_je, nmr, tmp]
+                        - idx: [<.k_je, nmr, tpk]
+
+      # Eine Zeile Logits -> gezogene Token-Nummer.
+      # Temperatur, dann top_k, dann Ziehung aus der Verteilung.
+      - def:
+          name: waehle
+          args: [[zeile, tensor]]
+          return: i32
+          body:
+            - decl: [anz, i32, <.n_wort]
+            - decl: [wrt, list<f32>]
+            - decl: [hoch, f32, -1000000.0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, anz] }
+                body:
+                  - decl: [roh, f32, { call: [zeile.get, idx] }]
+                  - decl: [skl, f32, { "/": [roh, <.temperatur] }]
+                  # Spec §7a: eine Abschnittsmarke, die nicht die naechste
+                  # der Sollfolge ist, kommt nicht in die Auswahl.
+                  # <.erlaubt < 0 heisst: fuer diese Aufgabe ist keine
+                  # Sollfolge hinterlegt -- dann wird nichts gesperrt, sonst
+                  # koennte das Modell nie ein <end> setzen.
+                  - if:
+                      condition: { "&&": [{ lt: [idx, <.grenz.len] }, { ge: [<.erlaubt, 0] }] }
+                      then:
+                        - if:
+                            condition: { "&&": [{ eq: [{ at: [<.grenz, idx] }, 1] }, { neq: [idx, <.erlaubt] }] }
+                            then: [{ set: [skl, -1000000.0] }]
+                  # Spec §7b: Token, das die Maske dieses Abschnitts nicht
+                  # kennt.  Die naechste Marke bleibt immer waehlbar, sonst
+                  # koennte der Abschnitt nie enden.
+                  - if:
+                      condition: { "&&": [{ ge: [<.mask_jetzt, 0] }, { neq: [idx, <.erlaubt] }] }
+                      then:
+                        - decl: [mpos, i32, { "+": [{ "*": [<.mask_jetzt, anz] }, idx] }]
+                        - if:
+                            condition: { "&&": [{ lt: [mpos, <.maske.len] }, { eq: [{ at: [<.maske, mpos] }, 0] }] }
+                            then: [{ set: [skl, -1000000.0] }]
+                  # Abschnittsbudget aufgebraucht: nur noch die naechste Marke.
+                  - if:
+                      condition: { "&&": [{ eq: [<.nur_marke, 1] }, { "&&": [{ ge: [<.erlaubt, 0] }, { neq: [idx, <.erlaubt] }] }] }
+                      then: [{ set: [skl, -1000000.0] }]
+                  - call: [wrt.push, skl]
+                  - if: { condition: { gt: [skl, hoch] }, then: [{ set: [hoch, skl] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            # top_k heraussuchen: k Durchgaenge, jeweils das groesste noch
+            # nicht genommene.  Kein Sortieren von 5399 Werten je Token.
+            - decl: [wahr, list<f32>]
+            - set: [idx, 0]
+            - while:
+                condition: { lt: [idx, anz] }
+                body:
+                  - call: [wahr.push, 0.0]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [rest, list<f32>, wrt]
+            - decl: [kdx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [kdx, <.top_k] }, { lt: [kdx, anz] }] }
+                body:
+                  - decl: [best_i, i32, -1]
+                  - decl: [best_w, f32, -1000000.0]
+                  - set: [idx, 0]
+                  - while:
+                      condition: { lt: [idx, anz] }
+                      body:
+                        - decl: [kan, f32, { at: [rest, idx] }]
+                        - if:
+                            condition: { gt: [kan, best_w] }
+                            then:
+                              - set: [best_w, kan]
+                              - set: [best_i, idx]
+                        - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { ge: [best_i, 0] }
+                      then:
+                        - decl: [dif, f32, { "-": [best_w, hoch] }]
+                        - decl: [exw, f32, { call: [math.exp, dif] }]
+                        - idx: [wahr, best_i, exw]
+                        - idx: [rest, best_i, -1000000.0]
+                  - set: [kdx, { "+": [kdx, 1] }]
+            - return: { call: [<.wrf.kategorisch, wahr] }
+
+      # Der Anfang der Folge: Aufgabenmarke, <bag>, die Tags des Beutels.
+      - def:
+          name: anfang
+          args: [[aufgabe, string], [beutel, string]]
+          return: list<i32>
+          body:
+            - decl: [aus, list<i32>]
+            - call: [<.einstellen_fuer, aufgabe]
+            - decl: [mka, i32, { call: [<.fge.marke, aufgabe] }]
+            - if: { condition: { lt: [mka, 0] }, then: [{ return: aus }] }
+            - call: [aus.push, mka]
+            - call: [aus.push, { call: [<.fge.marke, "<bag>"] }]
+            - decl: [teile, list<string>, { call: [beutel.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - decl: [roh, string, { at: [teile, idx] }]
+                  - decl: [tid, i32, { call: [<.fge.tok, roh] }]
+                  - if:
+                      condition: { ge: [tid, 0] }
+                      then: [{ call: [aus.push, tid] }]
+                      else:
+                        - decl: [kln, string, "${aufgabe} ${roh}"]
+                        - if:
+                            condition: { eq: [{ call: [<.unbek.contains, kln] }, 0] }
+                            then:
+                              - call: [<.unbek.put, kln, 1]
+                              - call: [<.unbek_reihe.push, kln]
+                            else: [{ call: [<.unbek.put, kln, { "+": [{ call: [<.unbek.get, kln] }, 1] }] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: aus
+
+      # Was ist beim Kodieren der Beutel verlorengegangen?  Leer heisst: alles
+      # aufgeloest.
+      - def:
+          name: unbekannt_text
+          access: public
+          args: []
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [pos, <.unbek_reihe.len] }, { lt: [pos, 12] }] }
+                body:
+                  - decl: [nam, string, { at: [<.unbek_reihe, pos] }]
+                  - set: [aus, "${aus}\n  ${nam} (${{ call: [<.unbek.get, nam] }}x)"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      - def:
+          name: erzeuge
+          access: public
+          args: [[aufgabe, string], [beutel, string], [saat, i64]]
+          return: list<i32>
+          body:
+            - call: [<.wrf.setze, saat]
+            - decl: [ids, list<i32>, { call: [<.anfang, aufgabe, beutel] }]
+            - if: { condition: { lt: [ids.len, 2] }, then: [{ return: ids }] }
+            - decl: [ende_m, i32, { call: [<.fge.marke, "<end>"] }]
+            # Sollfolge der Marken als Token-Nummern (Spec §7a).  Position 0
+            # ist die Aufgabenmarke, 1 der <bag> -- beide hat <.anfang schon
+            # gesetzt, also ist 2 die naechste erwartete Marke.
+            - decl: [soll_ids, list<i32>]
+            - decl: [soll_zahl, list<i32>]
+            - if:
+                condition: { eq: [{ call: [<.soll_marken.contains, aufgabe] }, 1] }
+                then:
+                  - decl: [soll_txt, string, { call: [<.soll_marken.get, aufgabe] }]
+                  - decl: [s_teile, list<string>, { call: [soll_txt.split, " "] }]
+                  - decl: [sdx, i32, 0]
+                  - while:
+                      condition: { lt: [sdx, s_teile.len] }
+                      body:
+                        - decl: [s_nam, string, { at: [s_teile, sdx] }]
+                        - call: [soll_ids.push, { call: [<.fge.marke, s_nam] }]
+                        - decl: [s_max, i32, -1]
+                        - if:
+                            condition: { eq: [{ call: [<.inhalt_max.contains, s_nam] }, 1] }
+                            then: [{ set: [s_max, { call: [<.inhalt_max.get, s_nam] }] }]
+                        - call: [soll_zahl.push, s_max]
+                        - set: [sdx, { "+": [sdx, 1] }]
+            - decl: [m_idx, i32, 2]
+            - set: [<.erlaubt, -1]
+            - if:
+                condition: { lt: [m_idx, soll_ids.len] }
+                then: [{ set: [<.erlaubt, { at: [soll_ids, m_idx] }] }]
+            # Der <bag> ist die EINGABE und damit fertig, sobald <.anfang ihn
+            # gefuellt hat: Budget 0, also ist der erste gezogene Token die
+            # erste Abschnittsmarke.  Stand er offen, hing das Modell eigene
+            # Woerter an ("resource_lore workout aether woodworker-bench oak"
+            # aus drei gegebenen) -- es erfand sich seine eigene Eingabe und
+            # schloss dann daraus.  Fuer die Kreatur hiess das: Rezepte aus
+            # Material, das sie nie besessen hat.
+            - decl: [rest_inh, i32, 0]
+            - set: [<.nur_marke, 1]
+            - set: [<.mask_jetzt, -1]
+            - decl: [fertig, i32, 0]
+            - while:
+                condition: { "&&": [{ eq: [fertig, 0] }, { lt: [ids.len, <.max_laenge] }] }
+                body:
+                  - decl: [lng, i32, ids.len]
+                  - call: [tensor.begin_graph]
+                  - call: [tensor.no_grad_begin]
+                  - decl: [ids_t, tensor, { call: [tensor.zeros, lng] }]
+                  - decl: [pdx, i32, 0]
+                  - while:
+                      condition: { lt: [pdx, lng] }
+                      body:
+                        - decl: [tin, i32, { at: [ids, pdx] }]
+                        - call: [ids_t.set, pdx, { cast: [tin, f32] }]
+                        - set: [pdx, { "+": [pdx, 1] }]
+                  - decl: [logits, tensor, { call: [<.mdl.vorwaerts, ids_t, lng] }]
+                  - decl: [zeile, tensor, { call: [tensor.slice, logits, 0, { "-": [lng, 1] }, lng] }]
+                  - decl: [naechst, i32, { call: [<.waehle, zeile] }]
+                  - call: [tensor.no_grad_end]
+                  - if:
+                      condition: { lt: [naechst, 0] }
+                      then: [{ set: [fertig, 1] }]
+                      else:
+                        - call: [ids.push, naechst]
+                        # Marke gesetzt -> die naechste der Sollfolge freigeben
+                        # und das Budget des neuen Abschnitts uebernehmen.
+                        - if:
+                            condition: { eq: [naechst, <.erlaubt] }
+                            then:
+                              # Neuer Abschnitt: sein Vokabular (Spec §7b).
+                              - decl: [mnam, string, { call: [<.fge.wort, naechst] }]
+                              - decl: [mkey, string, "${aufgabe}|${mnam}"]
+                              - set: [<.mask_jetzt, -1]
+                              - if:
+                                  condition: { eq: [{ call: [<.mask_slot.contains, mkey] }, 1] }
+                                  then: [{ set: [<.mask_jetzt, { call: [<.mask_slot.get, mkey] }] }]
+                              - set: [rest_inh, { at: [soll_zahl, m_idx] }]
+                              - set: [m_idx, { "+": [m_idx, 1] }]
+                              - set: [<.erlaubt, -1]
+                              - if:
+                                  condition: { lt: [m_idx, soll_ids.len] }
+                                  then: [{ set: [<.erlaubt, { at: [soll_ids, m_idx] }] }]
+                            else:
+                              - if:
+                                  condition: { gt: [rest_inh, 0] }
+                                  then: [{ set: [rest_inh, { "-": [rest_inh, 1] }] }]
+                        - set: [<.nur_marke, 0]
+                        - if: { condition: { eq: [rest_inh, 0] }, then: [{ set: [<.nur_marke, 1] }] }
+                        - if: { condition: { eq: [naechst, ende_m] }, then: [{ set: [fertig, 1] }] }
+            - return: ids
+
+      # ── Gueltigkeit (Spec §7) ──────────────────────────────────────────
+      # Ein erzeugter Vorschlag ist ein VORSCHLAG, bis die Regel zustimmt.
+      # Erst damit ist die Zielgroesse messbar: nicht "verschiedene Folgen",
+      # sondern "verschiedene GUELTIGE Rezepte".
+      - def:
+          name: gueltig_init
+          access: public
+          args: [[korpus, string], [realm, string]]
+          return: i32
+          body:
+            - call: [<.erreich.korpus_lesen, korpus]
+            - call: [<.erreich.stationen_lesen, realm]
+            - call: [<.erreich.startgepaeck]
+            - decl: [machbar, i32, { call: [<.erreich.abschluss_rechnen] }]
+            # Die 16 out_type-Werte des Korpus, abgebildet auf ItemArt.
+            - call: [<.arten.put, "utility", 8]
+            - call: [<.arten.put, "tool", 3]
+            - call: [<.arten.put, "weapon", 2]
+            - call: [<.arten.put, "amulet", 14]
+            - call: [<.arten.put, "socketable", 17]
+            - call: [<.arten.put, "ring", 15]
+            - call: [<.arten.put, "armor", 5]
+            - call: [<.arten.put, "rune", 4]
+            - call: [<.arten.put, "device", 9]
+            - call: [<.arten.put, "cape", 11]
+            - call: [<.arten.put, "remedy", 20]
+            - call: [<.arten.put, "gloves", 7]
+            - call: [<.arten.put, "helmet", 12]
+            - call: [<.arten.put, "boots", 6]
+            - call: [<.arten.put, "trouser", 10]
+            - call: [<.arten.put, "bracer", 13]
+            # `consumable` = ItemArt.Verpflegung (19).  Fehlte bis zum
+            # 19.11.2026: die Regel verwarf damit JEDEN Kochvorschlag, und ein
+            # Beutel mit `cooking_pot` kam auf 0 von 120 angenommenen
+            # Vorschlaegen (gemessen).  Die Tabelle ist die zweite Stelle, an
+            # der ein neuer Ausgabetyp eingetragen werden muss -- die erste
+            # ist `type_code_from_tag` im Server
+            # (doc/architecture/korpus_kochen_2026-11-19.md).
+            - call: [<.arten.put, "consumable", 19]
+            - call: [<.soll_marken.put, "<a:rezept>", "<a:rezept> <bag> <out> <mat> <tool> <skill> <type> <end>"]
+            - call: [<.soll_marken.put, "<a:entdeckung>", "<a:entdeckung> <bag> <art> <tags> <ertrag> <tool> <name> <end>"]
+            - call: [<.soll_marken.put, "<a:fertigkeit>", "<a:fertigkeit> <bag> <skill> <end>"]
+            - call: [<.soll_marken.put, "<a:kampf>", "<a:kampf> <bag> <skill> <end>"]
+            - call: [log.info, "gueltigkeit: ${machbar} Rezepte erreichbar, ${<.arten.len} Gegenstandsarten"]
+            - return: 1
+
+      # 0 = gueltig.  Sonst ein Grund in <.grund.
+      #
+      # Die Markenfolge wird MITGEPRUEFT, nicht nur das Vorhandensein der
+      # Abschnitte.  Ohne das zaehlte ich Artefakte als eigene Rezepte:
+      # `<type> amulet <out> <end>` und `<type> amulet amulet <end>` sind
+      # dasselbe Rezept mit Rauschen, keine zwei Varianten.
+      - def:
+          name: pruefe_vorschlag
+          access: public
+          args: [[ids, list<i32>], [aufgabe, string]]
+          return: i32
+          body:
+            - set: [<.grund, ""]
+            - if:
+                condition: { lt: [ids.len, 6] }
+                then:
+                  - set: [<.grund, "zu kurz"]
+                  - return: 1
+            - decl: [ende_m, i32, { call: [<.fge.marke, "<end>"] }]
+            - decl: [letzt, i32, { at: [ids, { "-": [ids.len, 1] }] }]
+            - if:
+                condition: { neq: [letzt, ende_m] }
+                then:
+                  - set: [<.grund, "endet nicht auf <end>"]
+                  - return: 1
+            - if:
+                condition: { eq: [{ call: [<.soll_marken.contains, aufgabe] }, 0] }
+                then:
+                  - set: [<.grund, "unbekannte Aufgabe"]
+                  - return: 1
+            - decl: [soll, string, { call: [<.soll_marken.get, aufgabe] }]
+            - decl: [nmr, i32, -1]
+            - if:
+                condition: { eq: [{ call: [<.aufg_nr.contains, aufgabe] }, 1] }
+                then: [{ set: [nmr, { call: [<.aufg_nr.get, aufgabe] }] }]
+            - decl: [m_out, i32, { call: [<.fge.marke, "<out>"] }]
+            - decl: [m_mat, i32, { call: [<.fge.marke, "<mat>"] }]
+            - decl: [m_too, i32, { call: [<.fge.marke, "<tool>"] }]
+            - decl: [m_ski, i32, { call: [<.fge.marke, "<skill>"] }]
+            - decl: [m_art, i32, { call: [<.fge.marke, "<art>"] }]
+            - decl: [m_ert, i32, { call: [<.fge.marke, "<ertrag>"] }]
+            - decl: [m_typ, i32, { call: [<.fge.marke, "<type>"] }]
+            - decl: [m_tag, i32, { call: [<.fge.marke, "<tags>"] }]
+            - decl: [m_nam, i32, { call: [<.fge.marke, "<name>"] }]
+            - decl: [abschnitt, i32, -1]
+            - decl: [n_out, i32, 0]
+            - decl: [n_mat, i32, 0]
+            - decl: [n_typ, i32, 0]
+            - decl: [n_art, i32, 0]
+            - decl: [n_ski, i32, 0]
+            - decl: [ski_wort, string, ""]
+            - decl: [n_ert, i32, 0]
+            - decl: [art_wort, string, ""]
+            - decl: [out_letzt, string, ""]
+            - decl: [n_marken, i32, <.fge.n_marken]
+            - decl: [ist_marken, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, ids.len] }
+                body:
+                  - decl: [tid, i32, { at: [ids, pos] }]
+                  - decl: [wrt, string, { call: [<.fge.wort, tid] }]
+                  - if:
+                      condition: { lt: [tid, n_marken] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [wrt.starts_with, "<"] }, 1] }
+                            then:
+                              - if:
+                                  condition: { eq: [ist_marken.len, 0] }
+                                  then: [{ set: [ist_marken, wrt] }]
+                                  else: [{ set: [ist_marken, "${ist_marken} ${wrt}"] }]
+                            else:
+                              # Keine Abschnittsmarke, sondern eine Menge
+                              # (x1..x9) oder eine Fundart: geschlossenes
+                              # Vokabular, darum Marke und nicht Atlas-Token
+                              # (siehe folge.aiml).  Beide sind INHALT.
+                              - if:
+                                  condition: { eq: [abschnitt, 0] }
+                                  then:
+                                    - set: [n_out, { "+": [n_out, 1] }]
+                                    - set: [out_letzt, wrt]
+                              - if:
+                                  condition: { eq: [abschnitt, 5] }
+                                  then:
+                                    - set: [n_art, { "+": [n_art, 1] }]
+                                    - set: [art_wort, wrt]
+                                    - if:
+                                        condition: { eq: [{ call: [<.fge.fundart, wrt] }, Fundart.Keine] }
+                                        then:
+                                          - set: [<.grund, "'${wrt}' ist keine Fundart"]
+                                          - return: 1
+                        - if: { condition: { eq: [tid, m_out] }, then: [{ set: [abschnitt, 0] }] }
+                        - if: { condition: { eq: [tid, m_mat] }, then: [{ set: [abschnitt, 1] }] }
+                        - if: { condition: { eq: [tid, m_too] }, then: [{ set: [abschnitt, 2] }] }
+                        - if: { condition: { eq: [tid, m_ski] }, then: [{ set: [abschnitt, 3] }] }
+                        - if: { condition: { eq: [tid, m_art] }, then: [{ set: [abschnitt, 5] }] }
+                        - if: { condition: { eq: [tid, m_ert] }, then: [{ set: [abschnitt, 6] }] }
+                        - if: { condition: { eq: [tid, m_typ] }, then: [{ set: [abschnitt, 4] }] }
+                        # <tags> und <name> fehlten hier: nach `<name>` stand
+                        # der Abschnitt noch auf 2, also wurde jedes
+                        # Namenswort als WERKZEUG geprueft ("Werkzeug 'ripe'
+                        # ist nicht zu bekommen").  Beide Abschnitte sind
+                        # freier Text aus `name:*`/`tag:*` und werden nicht
+                        # gegen eine Liste gehalten (Spec §7).
+                        - if: { condition: { eq: [tid, m_tag] }, then: [{ set: [abschnitt, 7] }] }
+                        - if: { condition: { eq: [tid, m_nam] }, then: [{ set: [abschnitt, 8] }] }
+                      else:
+                        - if:
+                            condition: { eq: [abschnitt, 0] }
+                            then:
+                              - set: [n_out, { "+": [n_out, 1] }]
+                              - set: [out_letzt, wrt]
+                              - if:
+                                  condition: { eq: [{ call: [<.maske_sperrt, aufgabe, "<out>", tid] }, 1] }
+                                  then:
+                                    - set: [<.grund, "'${wrt}' ist kein Gegenstandsname des Korpus"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 1] }
+                            then:
+                              - set: [n_mat, { "+": [n_mat, 1] }]
+                              - if:
+                                  condition: { eq: [{ call: [<.fge.ist_material, wrt] }, 0] }
+                                  then:
+                                    - set: [<.grund, "'${wrt}' ist keine Materialart"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 2] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.erreich.hat_werkzeug, wrt] }, 0] }
+                                  then:
+                                    - set: [<.grund, "Werkzeug '${wrt}' ist nicht zu bekommen"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 3] }
+                            then:
+                              - set: [n_ski, { "+": [n_ski, 1] }]
+                              - set: [ski_wort, wrt]
+                              - if:
+                                  condition: { eq: [{ call: [<.maske_sperrt, aufgabe, "<skill>", tid] }, 1] }
+                                  then:
+                                    - set: [<.grund, "'${wrt}' steht im Korpus nie in <skill>"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 5] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.fge.fundart, wrt] }, Fundart.Keine] }
+                                  then:
+                                    - set: [<.grund, "'${wrt}' ist keine Fundart"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 6] }
+                            then:
+                              - set: [n_ert, { "+": [n_ert, 1] }]
+                              - if:
+                                  condition: { eq: [{ call: [<.fge.ist_material, wrt] }, 0] }
+                                  then:
+                                    - set: [<.grund, "Ertrag '${wrt}' ist keine Materialart"]
+                                    - return: 1
+                        - if:
+                            condition: { eq: [abschnitt, 4] }
+                            then:
+                              - set: [n_typ, { "+": [n_typ, 1] }]
+                              - if:
+                                  condition: { eq: [{ call: [<.arten.contains, wrt] }, 0] }
+                                  then:
+                                    - set: [<.grund, "'${wrt}' ist keine Gegenstandsart"]
+                                    - return: 1
+                  - set: [pos, { "+": [pos, 1] }]
+            - if:
+                condition: { neq: [ist_marken, soll] }
+                then:
+                  - set: [<.grund, "Markenfolge '${ist_marken}'"]
+                  - return: 1
+            - if:
+                condition: { eq: [nmr, 0] }
+                then:
+                  # Alle 151 Rezepte des Korpus haben die Form "Name xN"
+                  # (Feld 3).  Ohne diese Pruefung kam "portal drawer" und
+                  # "open x1 x1" als Ausgabe durch.
+                  - if: { condition: { neq: [n_out, 2] }, then: [{ set: [<.grund, "Ausgabe hat ${n_out} Teile statt Name+Menge"] }, { return: 1 }] }
+                  - if:
+                      condition: { "||": [{ neq: [out_letzt.len, 2] }, { eq: [{ call: [out_letzt.starts_with, "x"] }, 0] }] }
+                      then: [{ set: [<.grund, "Ausgabe endet auf '${out_letzt}' statt auf einer Menge"] }, { return: 1 }]
+                  - if: { condition: { eq: [n_mat, 0] }, then: [{ set: [<.grund, "kein Material"] }, { return: 1 }] }
+                  - if: { condition: { neq: [n_typ, 1] }, then: [{ set: [<.grund, "${n_typ} Gegenstandsarten statt einer"] }, { return: 1 }] }
+                  # Das vierte Feld des Itemkorpus ist die Voraussetzung des
+                  # Rezepts -- genau eine.  Es ist KEINE Atlas-Kategorie:
+                  # `gem-craft` (Disziplin) und `etched` (Adjektiv) stehen
+                  # gemischt, und die Fassung, die einen `craft_recipe_tag`
+                  # verlangte, verwarf 32 von 300 ECHTEN Folgen
+                  # (gate_korpus2.log).  Als WORTMENGE ist es aber geschlossen
+                  # -- 35 Woerter --, darum prueft die Maske aus dem Korpus
+                  # selbst (Spec §7b) und keine Liste von Hand.
+                  - if: { condition: { neq: [n_ski, 1] }, then: [{ set: [<.grund, "${n_ski} Voraussetzungen statt einer"] }, { return: 1 }] }
+                  # ── Die BEZIEHUNG der Abschnitte (22.11.2026) ───────────
+                  # Bis hierher prueft jede Regel ein Wort in SEINEM
+                  # Abschnitt.  Gemeldet wurde ein Rezept, in dem jedes Wort
+                  # erlaubt war und das Ganze trotzdem Unsinn: "soldering-iron
+                  # x1 (weapon), Tools: soldering-iron" -- der Korpus kennt es
+                  # als `tool`, gebaut an der `bone-bench`.
+                  #
+                  # 1. Der NAME bestimmt die ART.  Steht der Ausgabename in
+                  #    den Rezeptzeilen des Korpus, gilt dessen Art.
+                  - decl: [out_txt, string, { call: [<.abschnitt_text, ids, "<out>"] }]
+                  - decl: [out_teile, list<string>, { call: [out_txt.split, " "] }]
+                  - if:
+                      condition: { gt: [out_teile.len, 0] }
+                      then:
+                        - decl: [out_name, string, { at: [out_teile, 0] }]
+                        - if:
+                            condition: { neq: [{ call: [<.out_typ.contains, out_name] }, 0] }
+                            then:
+                              - decl: [soll_typ, string, { call: [<.out_typ.get, out_name] }]
+                              - decl: [typ_roh, string, { call: [<.abschnitt_text, ids, "<type>"] }]
+                              - decl: [ist_typ, string, { call: [typ_roh.trim] }]
+                              - if:
+                                  condition: { neq: [ist_typ, soll_typ] }
+                                  then:
+                                    - set: [<.grund, "'${out_name}' ist im Korpus ${soll_typ}, nicht ${ist_typ}"]
+                                    - return: 1
+                        # 2. Ein Rezept darf nicht VERLANGEN, was es erzeugt.
+                        #    Der Zirkel ist ohne Modellwissen erkennbar.
+                        - decl: [wkz_txt, string, { call: [<.abschnitt_text, ids, "<tool>"] }]
+                        - decl: [wkz_satz, string, " ${wkz_txt} "]
+                        - decl: [name_satz, string, " ${out_name} "]
+                        - if:
+                            condition: { neq: [{ call: [wkz_satz.contains, name_satz] }, 0] }
+                            then:
+                              - set: [<.grund, "'${out_name}' verlangt sich selbst als Werkzeug"]
+                              - return: 1
+            # Eine Entdeckung ohne Fundart ist keine Entdeckung.
+            - if:
+                condition: { eq: [nmr, 1] }
+                then:
+                  - if: { condition: { neq: [n_art, 1] }, then: [{ set: [<.grund, "${n_art} Fundarten statt einer"] }, { return: 1 }] }
+                  # Der Ertrag je Fundart -- DREI Faelle, nicht zwei
+                  # (Spec doc/architecture/fund_schema_2026-11-21.md):
+                  #   PFLICHT  enemy, harvestable  -- ohne Ertrag kein Fund
+                  #   ERLAUBT  growable, locked     -- die Pflanze traegt, was
+                  #            sie reif hergibt; die Truhe, was drin liegt.
+                  #            Leer ist auch gueltig (`known-empty`).
+                  #   VERBOTEN npc, portal, nothing
+                  # Bis zum 21.11.2026 stand hier "genau enemy und harvestable,
+                  # die anderen fuenf nie -- 25000 von 25000": die Regel war aus
+                  # dem Korpus abgelesen, und der Korpus gab Pflanzen und
+                  # Truhen nie etwas.  Darum konnte der Kopf den Inhalt einer
+                  # Truhe nicht vorhersagen (Plan Punkt 6).  Korpus und Regel
+                  # aendern sich zusammen -- der Zweck der Pruefung bleibt:
+                  # ein Gegner oder eine Erntestelle OHNE Ertrag ist ungueltig.
+                  - decl: [f_art_e, i32, { call: [<.fge.fundart, art_wort] }]
+                  - decl: [will_ertrag, i32, 0]
+                  - decl: [darf_ertrag, i32, 0]
+                  - if: { condition: { eq: [f_art_e, Fundart.Enemy] }, then: [{ set: [will_ertrag, 1] }] }
+                  - if: { condition: { eq: [f_art_e, Fundart.Harvestable] }, then: [{ set: [will_ertrag, 1] }] }
+                  - if: { condition: { eq: [f_art_e, Fundart.Growable] }, then: [{ set: [darf_ertrag, 1] }] }
+                  - if: { condition: { eq: [f_art_e, Fundart.Locked] }, then: [{ set: [darf_ertrag, 1] }] }
+                  - if: { condition: { eq: [will_ertrag, 1] }, then: [{ set: [darf_ertrag, 1] }] }
+                  - if:
+                      condition: { "&&": [{ eq: [will_ertrag, 1] }, { eq: [n_ert, 0] }] }
+                      then: [{ set: [<.grund, "'${art_wort}' ohne Ertrag"] }, { return: 1 }]
+                  - if:
+                      condition: { "&&": [{ eq: [darf_ertrag, 0] }, { gt: [n_ert, 0] }] }
+                      then: [{ set: [<.grund, "'${art_wort}' darf keinen Ertrag haben"] }, { return: 1 }]
+            # Spec §7: "Fertigkeit existiert und passt zur Art".  Geprueft
+            # wurde der <skill>-Abschnitt bisher GAR NICHT -- darum lernte
+            # der Streifzug "endurance-running hammer ruin-moss-patch water"
+            # als eine Fertigkeit.  Im Korpus steht dort genau ein Name.
+            - if:
+                condition: { "||": [{ eq: [nmr, 2] }, { eq: [nmr, 3] }] }
+                then:
+                  - if: { condition: { neq: [n_ski, 1] }, then: [{ set: [<.grund, "${n_ski} Fertigkeitsnamen statt einem"] }, { return: 1 }] }
+                  - decl: [f_art, i32, { call: [<.fge.fertigkeit_art, ski_wort] }]
+                  - if: { condition: { eq: [f_art, 0] }, then: [{ set: [<.grund, "Fertigkeit '${ski_wort}' gibt es nicht"] }, { return: 1 }] }
+                  - if:
+                      condition: { "&&": [{ eq: [nmr, 3] }, { neq: [f_art, 1] }] }
+                      then: [{ set: [<.grund, "'${ski_wort}' ist keine Kampffertigkeit"] }, { return: 1 }]
+                  - if:
+                      condition: { "&&": [{ eq: [nmr, 2] }, { eq: [f_art, 1] }] }
+                      then: [{ set: [<.grund, "'${ski_wort}' ist eine Kampffertigkeit, keine entdeckbare"] }, { return: 1 }]
+            - return: 0
+
+      # Ziehen, bis die Regel zustimmt -- hoechstens 16 Mal, mit seed+1.
+      # Der ANGENOMMENE Seed landet in <.letzter_seed>; nur der wird gespeichert.
+      - def:
+          name: erzeuge_gueltig
+          access: public
+          args: [[aufgabe, string], [beutel, string], [saat, i64]]
+          return: list<i32>
+          body:
+            - decl: [leer, list<i32>]
+            - decl: [versuch, i32, 0]
+            - while:
+                condition: { lt: [versuch, 16] }
+                body:
+                  - decl: [jetzt, i64, { "+": [saat, { cast: [versuch, i64] }] }]
+                  - decl: [fls, list<i32>, { call: [<.erzeuge, aufgabe, beutel, jetzt] }]
+                  - decl: [bad, i32, { call: [<.pruefe_vorschlag, fls, aufgabe] }]
+                  - if:
+                      condition: { eq: [bad, 0] }
+                      then:
+                        - set: [<.letzter_seed, jetzt]
+                        - set: [<.versuche, { "+": [versuch, 1] }]
+                        - return: fls
+                  - set: [versuch, { "+": [versuch, 1] }]
+            - set: [<.letzter_seed, -1]
+            - set: [<.versuche, 16]
+            - return: leer
+
+      # Der Inhalt EINES Abschnitts einer erzeugten Folge, als Text.
+      # Vom gesuchten Marker bis zum naechsten Marker.
+
+      # Durchreichen: der Streifzug entscheidet nach Fundart.
+      - def:
+          name: fundart
+          access: public
+          args: [[wrt, string]]
+          return: i32
+          body:
+            - return: { call: [<.fge.fundart, wrt] }
+      - def:
+          name: abschnitt_text
+          access: public
+          args: [[ids, list<i32>], [marke, string]]
+          return: string
+          body:
+            - decl: [ziel, i32, { call: [<.fge.marke, marke] }]
+            - if: { condition: { lt: [ziel, 0] }, then: [{ return: "" }] }
+            - decl: [n_marken, i32, <.fge.n_marken]
+            - decl: [aus, string, ""]
+            - decl: [drin, i32, 0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, ids.len] }
+                body:
+                  - decl: [tid, i32, { at: [ids, pos] }]
+                  - if:
+                      condition: { lt: [tid, n_marken] }
+                      then:
+                        - if:
+                            condition: { eq: [tid, ziel] }
+                            then: [{ set: [drin, 1] }]
+                            else:
+                              - decl: [wrt_m, string, { call: [<.fge.wort, tid] }]
+                              - if:
+                                  condition: { eq: [{ call: [wrt_m.starts_with, "<"] }, 1] }
+                                  then: [{ set: [drin, 0] }]
+                                  else:
+                                    # Mengenmarken (x1..x9) und Fundartmarken
+                                    # sind INHALT eines Abschnitts, keine Grenze.
+                                    - if:
+                                        condition: { eq: [drin, 1] }
+                                        then:
+                                          - if:
+                                              condition: { eq: [aus.len, 0] }
+                                              then: [{ set: [aus, wrt_m] }]
+                                              else: [{ set: [aus, "${aus} ${wrt_m}"] }]
+                      else:
+                        - if:
+                            condition: { eq: [drin, 1] }
+                            then:
+                              - decl: [wrt, string, { call: [<.fge.wort, tid] }]
+                              - if:
+                                  condition: { eq: [aus.len, 0] }
+                                  then: [{ set: [aus, wrt] }]
+                                  else: [{ set: [aus, "${aus} ${wrt}"] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      - def:
+          name: lesbar
+          access: public
+          args: [[ids, list<i32>]]
+          return: string
+          body:
+            - return: { call: [<.fge.lesbar, ids] }
+
+      # Zaehlt die Rezept-Felder, die kein Token haben: Feld 4 (Voraussetzung)
+      # und Feld 7 (Gegenstandsart).  Beides ist EIN Wort.  Jedes gemeldete
+      # Wort fehlt der Maske -- siehe item_materialien_2026-11-19.md §6.
+      - def:
+          name: felder_ohne_token
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            # Aufgeloest wird PRO KORPUS (folge.aiml §prio_setzen).  Ohne das
+            # hier fragte die Pruefung mit der Reihenfolge des zuletzt
+            # geladenen Korpus und meldete 51 Woerter als tokenlos, darunter
+            # `weapon` und `elemental`.
+            - decl: [pri, list<string>, { call: [<.fge.prio_lesen, pfad] }]
+            - call: [<.fge.prio_setzen, pri]
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [fehlt, list<string>]
+            - decl: [zdx, i32, 0]
+            - while:
+                condition: { lt: [zdx, zeilen.len] }
+                body:
+                  - decl: [zle, string, { at: [zeilen, zdx] }]
+                  - set: [zdx, { "+": [zdx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [zle.starts_with, "recipe |"] }, 1] }
+                      then:
+                        - decl: [tle, list<string>, { call: [zle.split, "|"] }]
+                        - if:
+                            condition: { ge: [tle.len, 7] }
+                            then:
+                              - call: [<.wort_pruefen, tle, 4, fehlt]
+                              - call: [<.wort_pruefen, tle, 7, fehlt]
+            - if:
+                condition: { gt: [fehlt.len, 0] }
+                then:
+                  - decl: [satz, string, ""]
+                  - decl: [sdx, i32, 0]
+                  - while:
+                      condition: { lt: [sdx, fehlt.len] }
+                      body:
+                        - decl: [wrd, string, { at: [fehlt, sdx] }]
+                        - set: [satz, "${satz} ${wrd}"]
+                        - set: [sdx, { "+": [sdx, 1] }]
+                  - call: [log.error, "Korpus-Woerter ohne Token:${satz}"]
+            - return: fehlt.len
+
+      - def:
+          name: wort_pruefen
+          args: [[tle, list<string>], [feld, i32], [fehlt, list<string>]]
+          body:
+            - decl: [roh, string, { at: [tle, { "-": [feld, 1] }] }]
+            - decl: [wrt, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [wrt.len, 0] }, then: [{ return: }] }
+            - decl: [tid, i32, { call: [<.fge.tok, wrt] }]
+            - if: { condition: { ge: [tid, 0] }, then: [{ return: }] }
+            - if:
+                condition: { eq: [{ call: [fehlt.contains, wrt] }, 0] }
+                then: [{ call: [fehlt.push, wrt] }]

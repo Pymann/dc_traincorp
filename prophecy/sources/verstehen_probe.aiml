@@ -1,0 +1,156 @@
+# Schlussfolgert das Modell, oder schlaegt es nur nach?
+#
+# prophecy/sources/treffer_quote.aiml misst auf dem TRAININGSKORPUS.  Das sagt,
+# ob das Modell behalten hat, was man ihm zeigte -- nicht, ob es etwas
+# verstanden hat.  Ein Nachschlagewerk und ein Modell mit gelernten
+# Tag-Bedeutungen sind dort nicht zu unterscheiden, beide koennen 49 % liefern.
+#
+# Diese Probe trennt sie.  Sie baut aus bekannten Beispielen Beutel, die so NIE
+# im Korpus standen, deren richtige Antwort aber bekannt ist:
+#
+#   B  ein Tag fehlt        -- der Spieler hat ein Material nicht
+#   C  ein fremdes Tag dazu -- im Rucksack liegt noch anderes Zeug
+#
+# Haelt die Vorhersage, wurden Bedeutungen gelernt.  Bricht sie ein, war es
+# Auswendiglernen auf exakte Beutel.
+#
+# D fragt, ob die Zuversicht etwas wert ist.  Heute prueft sie NIEMAND:
+# sources/server/discovery.aiml schreibt last_pred_p nur ins Protokoll, und
+# jeder Beutel bekommt einen Rezeptnamen.  Ernten zusammengewuerfelte Beutel
+# dieselbe Zuversicht wie echte, ist dieser Wert als Schranke unbrauchbar.
+- import: "prophecy/sources/inference.aiml"
+
+- class:
+    name: VerstehensProbe
+    members:
+      - [beutel, list<string>]
+      - [solls,  list<string>]
+    methods:
+      - def:
+          name: korpus_lesen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [roh.starts_with, "sample "] }, 1] }
+                      then:
+                        - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
+                        - if:
+                            condition: { ge: [spalten.len, 3] }
+                            then:
+                              - decl: [bag_roh, string, { at: [spalten, 1] }]
+                              - decl: [soll_roh, string, { at: [spalten, 2] }]
+                              - call: [<.beutel.push, { call: [bag_roh.trim] }]
+                              - call: [<.solls.push, { call: [soll_roh.trim] }]
+            - return: <.beutel.len
+
+      # Beutel ohne das Tag an Stelle `welche`.  Leer, wenn der Beutel zu kurz
+      # ist -- aus einem Ein-Tag-Beutel kann man nichts weglassen.
+      - def:
+          name: ohne_tag
+          access: public
+          args: [[bag, string], [welche, i32]]
+          return: string
+          body:
+            - decl: [teile, list<string>, { call: [bag.split, " "] }]
+            - if: { condition: { lt: [teile.len, 2] }, then: [{ return: "" }] }
+            - decl: [raus, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - decl: [tag, string, { at: [teile, idx] }]
+                  - if:
+                      condition: { "&&": [{ neq: [idx, welche] }, { gt: [tag.len, 0] }] }
+                      then:
+                        - if:
+                            condition: { eq: [raus.len, 0] }
+                            then: [{ set: [raus, tag] }]
+                            else: [{ set: [raus, "${raus} ${tag}"] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: raus
+
+      - def:
+          name: hat_tag
+          access: public
+          args: [[bag, string], [tag, string]]
+          return: i32
+          body:
+            - decl: [teile, list<string>, { call: [bag.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - if: { condition: { eq: [{ at: [teile, idx] }, tag] }, then: [{ return: 1 }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: 0
+
+      # Ein Tag aus einer ANDEREN Zeile, das in `bag` noch nicht steht.
+      # Deterministisch gewaehlt, damit die Probe wiederholbar bleibt.
+      - def:
+          name: fremdes_tag
+          access: public
+          args: [[bag, string], [pos, i32]]
+          return: string
+          body:
+            - decl: [zahl, i32, <.beutel.len]
+            - if: { condition: { lt: [zahl, 2] }, then: [{ return: "" }] }
+            - decl: [versuch, i32, 0]
+            - while:
+                condition: { lt: [versuch, 8] }
+                body:
+                  - decl: [schritt, i32, { "*": [{ "+": [versuch, 1] }, 401] }]
+                  - decl: [andere, i32, { "%": [{ "+": [pos, schritt] }, zahl] }]
+                  - decl: [fremd_bag, string, { at: [<.beutel, andere] }]
+                  - decl: [teile, list<string>, { call: [fremd_bag.split, " "] }]
+                  - if:
+                      condition: { gt: [teile.len, 0] }
+                      then:
+                        - decl: [kand, string, { at: [teile, 0] }]
+                        - if:
+                            condition: { "&&": [{ gt: [kand.len, 0] }, { eq: [{ call: [<.hat_tag, bag, kand] }, 0] }] }
+                            then: [{ return: kand }]
+                  - set: [versuch, { "+": [versuch, 1] }]
+            - return: ""
+
+      # Beutel, der aus Tags DREI verschiedener Zeilen zusammengewuerfelt ist:
+      # hat keine richtige Antwort, das Modell liefert trotzdem eine.
+      - def:
+          name: wirr_beutel
+          access: public
+          args: [[pos, i32]]
+          return: string
+          body:
+            - decl: [zahl, i32, <.beutel.len]
+            - decl: [raus, string, ""]
+            - decl: [stueck, i32, 0]
+            - while:
+                condition: { lt: [stueck, 4] }
+                body:
+                  - decl: [schritt, i32, { "*": [{ "+": [stueck, 1] }, 307] }]
+                  - decl: [andere, i32, { "%": [{ "+": [pos, schritt] }, zahl] }]
+                  - decl: [fremd_bag, string, { at: [<.beutel, andere] }]
+                  - decl: [teile, list<string>, { call: [fremd_bag.split, " "] }]
+                  - if:
+                      condition: { gt: [teile.len, 0] }
+                      then:
+                        - decl: [kand, string, { at: [teile, 0] }]
+                        - if:
+                            condition: { "&&": [{ gt: [kand.len, 0] }, { eq: [{ call: [<.hat_tag, raus, kand] }, 0] }] }
+                            then:
+                              - if:
+                                  condition: { eq: [raus.len, 0] }
+                                  then: [{ set: [raus, kand] }]
+                                  else: [{ set: [raus, "${raus} ${kand}"] }]
+                  - set: [stueck, { "+": [stueck, 1] }]
+            - return: raus

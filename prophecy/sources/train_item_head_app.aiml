@@ -1,0 +1,667 @@
+# Prophecy item_head training — softmax over recipe-ids on items.txt sample
+# corpus. Foundation embedding is frozen (loaded but not updated).
+#
+# Pipeline:
+#   1. Load atlas + vocab + pretrained embedding
+#   2. Parse itemgen/data/items.txt:
+#        - `recipe | <id> | ...`  → recipe_vocab + index
+#        - `sample | <input-toks> | <recipe-id> | ...` → train sample
+#   3. Resolve input-tokens via current_priority (from header) → list<i32>
+#   4. Build BagBackbone + SoftmaxOutputHead("recipe")
+#   5. Train N epochs: encode → forward_logits → CE → backward → adam → zero_grad
+#   6. Save backbone + recipe_head weights
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/heads.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+- import: "prophecy/sources/aufteilung.aiml"
+
+# Reuse tokenize_line + is_skip_token + is_record_marker + skip_count_after_marker
+# + parse_priority_header from corpus_loader.aiml.
+
+# Die Domaenen-Reihenfolge des Korpus gehoert zu den Gewichten.
+- decl: [item_priority_name, string, "prophecy_item_head_priority"]
+
+- class:
+    name: ItemHeadTrainer
+    members:
+      # Hyperparams
+      - [n_epochs,        i32, 1200]
+      # 0.005 je Einzelbeispiel erschlug die relu-Schicht (0 von 64 wach,
+      # Gradient exakt 0, Abnahme 2,6 %).  Gemessen frisch auf 200 Epochen:
+      # 0.0005 + Stapel 32 -> 18,9 %, 0.0001 -> 3,8 % (untertrainiert).
+      - [learn_rate,      f32, 0.0005]
+      - [adam_b1,         f32, 0.9]
+      - [adam_b2,         f32, 0.999]
+      - [adam_eps,        f32, 0.00000001]
+      - [log_every,       i32, 20]
+      - [save_every,      i32, 50]
+      - [hidden_dim,      i32, 64]
+      # Adam je EINZELBEISPIEL bei lr 0.005 sprang ueber das Minimum: der Verlust
+      # fiel nur an den Lernraten-Halbierungen und stand dazwischen bitgleich
+      # (5.96747 bei Epoche 320 UND 480, gemessen 21.11.2026).
+      - [stapel,          i32, 32]
+      # DC_EMB_MIT=1 trainiert die Einbettung mit.  Beim Chance-Kopf stieg die
+      # erklaerte Streuung dadurch von 0,05 auf 0,70 (chance-kopf-encoder-lehre).
+      - [emb_mit,         i32, 0]
+      - [grad_gezeigt,    i32, 0]
+      - [beste_verlust,   f32, 0.0]
+      - [hat_beste,       i32, 0]
+      # State
+      - [atlas_kv,        Kv<string:TagAtlasEntry>]
+      - [embedder,        ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
+      - [backbone,        BagBackbone]
+      - [recipe_head,     SoftmaxOutputHead]
+      # Recipe vocab (softmax output classes)
+      - [recipe_vocab,    list<string>]
+      - [recipe_index,    map<string:i32>]
+      # Training data
+      - [current_priority, list<string>]
+      - [train_inputs,    list<string>]   # space-joined atlas keys per sample
+      - [train_targets,   list<i32>]      # recipe-id index per sample
+      - [train_input_ids, list<list<i32>>] # cached vocab ids per sample
+      # 0 lernen / 1 pruefen / 2 testen -- aus der Zeile, nicht aus dem Zufall
+      # (Plan Punkt 7, prophecy/sources/aufteilung.aiml).
+      - [teil_liste,      list<i32>]
+
+    methods:
+      # ── Resolve a plain token via current_priority (like CorpusLoader) ─────
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - decl: [n_prio, i32, <.current_priority.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [<.current_priority, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_tag] }, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_name] }, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_adj] }, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      # ── Resolve a list of plain tokens → list<i32> vocab ids ───────────────
+      - def:
+          name: tokens_to_ids
+          args: [[tokens, list<string>]]
+          return: list<i32>
+          body:
+            - decl: [out,   list<i32>]
+            - decl: [n_tok, i32, tokens.len]
+            - decl: [idx,   i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [tok_str, string, { at: [tokens, idx] }]
+                  - decl: [key,     string, { call: [<.resolve_token, tok_str] }]
+                  - if:
+                      condition: { gt: [key.len, 0] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [<.embedder.vocab_index.contains, key] }, 1] }
+                            then:
+                              - decl: [tid, i32, { call: [<.embedder.vocab_index.get, key] }]
+                              - call: [out.push, tid]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # ── Add a recipe-id to the output vocab (idempotent) ───────────────────
+      - def:
+          name: add_recipe
+          args: [[rid, string]]
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_index.contains, rid] }, 0] }
+                then:
+                  - decl: [new_idx, i32, <.recipe_vocab.len]
+                  - call: [<.recipe_vocab.push, rid]
+                  - call: [<.recipe_index.put, rid, new_idx]
+
+      # ── Parse items.txt: collect recipes + sample-rows ─────────────────────
+      - def:
+          name: parse_corpus
+          args: [[file_path, string]]
+          static_off: ["str_cmp"]
+          body:
+            - call: [log.info, "parsing corpus: ${file_path}"]
+            - decl: [text, string, { call: [io.read_file, file_path] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "  empty or missing"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln,  i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  # Priority header
+                  - decl: [maybe_hdr, list<string>, { call: [parse_priority_header, ln_str] }]
+                  - if:
+                      condition: { gt: [maybe_hdr.len, 0] }
+                      then:
+                        - set: [<.current_priority, maybe_hdr]
+                        - call: [log.info, "  applied domain_priority: ${maybe_hdr.len} domains"]
+                  # Skip blanks + comments
+                  - decl: [is_comment, i32, { call: [ln_str.starts_with, "#"] }]
+                  - if:
+                      condition: { "&&": [{ gt: [ln_str.len, 0] }, { neq: [is_comment, 1] }] }
+                      then:
+                        # Record-type by first column
+                        - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+                        - if:
+                            condition: { gt: [cols.len, 0] }
+                            then:
+                              - decl: [first_raw, string, { at: [cols, 0] }]
+                              - decl: [first_str, string, { call: [first_raw.trim] }]
+                              # recipe | <id> | ... — add to recipe vocab
+                              - if:
+                                  condition: { "&&": [{ eq: [first_str, "recipe"] }, { gt: [cols.len, 1] }] }
+                                  then:
+                                    - decl: [rid_raw, string, { at: [cols, 1] }]
+                                    - decl: [rid_str, string, { call: [rid_raw.trim] }]
+                                    - call: [<.add_recipe, rid_str]
+                              # sample | <inputs> | <recipe-id> | ...
+                              - if:
+                                  condition: { "&&": [{ eq: [first_str, "sample"] }, { gt: [cols.len, 2] }] }
+                                  then:
+                                    - decl: [inputs_raw, string, { at: [cols, 1] }]
+                                    - decl: [inputs_str, string, { call: [inputs_raw.trim] }]
+                                    - decl: [rid_raw,    string, { at: [cols, 2] }]
+                                    - decl: [rid_str,    string, { call: [rid_raw.trim] }]
+                                    # Make sure target recipe is in vocab
+                                    - call: [<.add_recipe, rid_str]
+                                    - decl: [target_idx, i32, { call: [<.recipe_index.get, rid_str] }]
+                                    - call: [<.train_inputs.push,  inputs_str]
+                                    - call: [<.train_targets.push, target_idx]
+                                    - call: [<.teil_liste.push, { call: [teil_von, ln_str] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+            - call: [log.info, "  recipes=${<.recipe_vocab.len} samples=${<.train_inputs.len}"]
+
+      # ── Convert all train_inputs to cached vocab-id lists ──────────────────
+      - def:
+          name: cache_input_ids
+          args: []
+          body:
+            - decl: [n_smp, i32, <.train_inputs.len]
+            - decl: [idx,   i32, 0]
+            - while:
+                condition: { lt: [idx, n_smp] }
+                body:
+                  - decl: [input_str, string, { at: [<.train_inputs, idx] }]
+                  - decl: [toks,      list<string>, { call: [tokenize_line, input_str] }]
+                  - decl: [ids,       list<i32>, { call: [<.tokens_to_ids, toks] }]
+                  - call: [<.train_input_ids.push, ids]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [log.info, "  cached ${<.train_input_ids.len} input id-lists"]
+
+      # ── Train loop ─────────────────────────────────────────────────────────
+      - def:
+          name: train
+          args: []
+          body:
+            - decl: [n_recipes,  i32, <.recipe_vocab.len]
+            - decl: [n_samples,  i32, <.train_input_ids.len]
+            - call: [log.info, "training: n_recipes=${n_recipes} n_samples=${n_samples} n_epochs=${<.n_epochs}"]
+            # Adam moments for: backbone(w1,b1) + recipe_head(weight,bias)
+            # Foundation embedding is FROZEN — not in adam.
+            - decl: [m_w1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [v_w1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [m_b1, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [v_b1, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [m_rw, tensor, { call: [tensor.zeros, <.hidden_dim, n_recipes] }]
+            - decl: [v_rw, tensor, { call: [tensor.zeros, <.hidden_dim, n_recipes] }]
+            - decl: [m_rb, tensor, { call: [tensor.zeros, n_recipes] }]
+            - decl: [v_rb, tensor, { call: [tensor.zeros, n_recipes] }]
+            - decl: [m_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
+            - decl: [v_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
+            - call: [m_emb.keep]
+            - call: [v_emb.keep]
+            - call: [m_w1.keep]
+            - call: [v_w1.keep]
+            - call: [m_b1.keep]
+            - call: [v_b1.keep]
+            - call: [m_rw.keep]
+            - call: [v_rw.keep]
+            - call: [m_rb.keep]
+            - call: [v_rb.keep]
+            - decl: [global_step, i32, 0]
+            - decl: [epoch, i32, 0]
+            - while:
+                condition: { lt: [epoch, <.n_epochs] }
+                body:
+                  - decl: [total_loss, f32, 0.0]
+                  - decl: [n_trained,  i32, 0]
+                  - decl: [s_idx,      i32, 0]
+                  - decl: [im_stapel,  i32, 0]
+                  - decl: [ep_f,       f32, epoch]
+                  - decl: [lr_teiler,  f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
+                  - decl: [lr_e,       f32, { "/": [<.learn_rate, lr_teiler] }]
+                  - while:
+                      condition: { lt: [s_idx, n_samples] }
+                      body:
+                        - decl: [ids,    list<i32>, { at: [<.train_input_ids, s_idx] }]
+                        - decl: [n_ids,  i32, ids.len]
+                        - decl: [target, i32, { at: [<.train_targets, s_idx] }]
+                        - decl: [teil,   i32, { at: [<.teil_liste, s_idx] }]
+                        - if: { condition: { neq: [teil, 0] }, then: [{ set: [n_ids, 0] }] }
+                        - if:
+                            condition: { gt: [n_ids, 0] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              # Build target tensor (one-hot 1×n_recipes)
+                              - decl: [target_t, tensor, { call: [tensor.zeros, 1, n_recipes] }]
+                              - call: [target_t.set, target, 1.0]
+                              # Encode via backbone (uses frozen foundation.emb internally)
+                              - decl: [hidden, tensor, { call: [<.backbone.encode_bag, ids] }]
+                              - decl: [logits, tensor, { call: [<.recipe_head.forward_logits, hidden] }]
+                              - decl: [loss,   tensor, { call: [<.recipe_head.compute_loss, logits, target_t] }]
+                              - call: [tensor.backward, loss]
+                              - if:
+                                  condition: { eq: [<.grad_gezeigt, 0] }
+                                  then:
+                                    - set: [<.grad_gezeigt, 1]
+                                    - call: [<.gradient_zeigen, hidden]
+                              - set: [im_stapel, { "+": [im_stapel, 1] }]
+                              - if:
+                                  condition: { gte: [im_stapel, <.stapel] }
+                                  then:
+                                    - set: [global_step, { "+": [global_step, 1] }]
+                                    - call: [tensor.adam_step, <.backbone.weight_1,  m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.backbone.bias_1,    m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.recipe_head.weight, m_rw, v_rw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.recipe_head.bias,   m_rb, v_rb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - if:
+                                        condition: { eq: [<.emb_mit, 1] }
+                                        then:
+                                          - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [<.backbone.weight_1.zero_grad]
+                                    - call: [<.backbone.bias_1.zero_grad]
+                                    - call: [<.recipe_head.weight.zero_grad]
+                                    - call: [<.recipe_head.bias.zero_grad]
+                                    - set: [im_stapel, 0]
+                              # Die Einbettung bekommt Gradient, wird aber nicht
+                              # geschritten -> jedes Mal leeren, sonst waechst sie mit.
+                              - call: [<.embedder.emb.zero_grad]
+                              # Accumulate
+                              - decl: [lv_var, f32, { call: [loss.get, 0] }]
+                              - set: [total_loss, { "+": [total_loss, lv_var] }]
+                              - set: [n_trained, { "+": [n_trained, 1] }]
+                        - set: [s_idx, { "+": [s_idx, 1] }]
+                  # Rest des letzten, unvollstaendigen Stapels.
+                  - if:
+                      condition: { gt: [im_stapel, 0] }
+                      then:
+                        - set: [global_step, { "+": [global_step, 1] }]
+                        - call: [tensor.adam_step, <.backbone.weight_1,  m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.backbone.bias_1,    m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.recipe_head.weight, m_rw, v_rw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.recipe_head.bias,   m_rb, v_rb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - if:
+                            condition: { eq: [<.emb_mit, 1] }
+                            then:
+                              - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [<.backbone.weight_1.zero_grad]
+                        - call: [<.backbone.bias_1.zero_grad]
+                        - call: [<.recipe_head.weight.zero_grad]
+                        - call: [<.recipe_head.bias.zero_grad]
+                  - decl: [n_tf, f32, n_trained]
+                  - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
+                  - if:
+                      condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
+                      then:
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} lr=${lr_e} avg_loss=${avg} samples=${n_trained}"]
+                  # Nur ein BESSERER Stand wird gesichert -- vorher sicherte der
+                  # Lauf jede 50. Epoche und `run` am Ende unbedingt.
+                  - decl: [besser, i32, 0]
+                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if:
+                      condition: { eq: [besser, 1] }
+                      then:
+                        - set: [<.beste_verlust, avg]
+                        - set: [<.hat_beste, 1]
+                        - call: [<.backbone.save_weights]
+                        - call: [<.recipe_head.save_params]
+                  - set: [epoch, { "+": [epoch, 1] }]
+
+      # ── Save recipe vocab to its own kvwal (needed at inference) ───────────
+      # Wieviele der zurueckgehaltenen Zeilen trifft der Kopf?  Ohne diese Zahl
+      # sagt der Trainingsverlust nichts: 5,85 ueber 259 Klassen liegt genau auf
+      # Zufallsniveau (ln 259 = 5,56), und das fiel ueber Wochen niemandem auf.
+      - def:
+          name: bewerten
+          access: public
+          args: [[teil_soll, i32], [was, string]]
+          body:
+            - decl: [n_smp,    i32, <.train_input_ids.len]
+            - decl: [n_rec,    i32, <.recipe_vocab.len]
+            - decl: [getroffen, i32, 0]
+            - decl: [gezaehlt,  i32, 0]
+            - decl: [s_idx,     i32, 0]
+            # Eine Trefferquote allein verraet einen Kopf nicht, der immer
+            # dieselbe Klasse sagt: 118 von 4537 ist dann nicht Lernen, sondern
+            # die Haeufigkeit der haeufigsten Klasse (gemessen 21.11.2026).
+            - decl: [vorh_zahl, list<i32>]
+            - decl: [ziel_zahl, list<i32>]
+            - decl: [f_idx, i32, 0]
+            - while:
+                condition: { lt: [f_idx, n_rec] }
+                body:
+                  - call: [vorh_zahl.push, 0]
+                  - call: [ziel_zahl.push, 0]
+                  - set: [f_idx, { "+": [f_idx, 1] }]
+            - while:
+                condition: { lt: [s_idx, n_smp] }
+                body:
+                  - decl: [teil,   i32, { at: [<.teil_liste, s_idx] }]
+                  - decl: [ids,    list<i32>, { at: [<.train_input_ids, s_idx] }]
+                  - decl: [target, i32, { at: [<.train_targets, s_idx] }]
+                  - set: [s_idx, { "+": [s_idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ eq: [teil, teil_soll] }, { gt: [ids.len, 0] }] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [hidden, tensor, { call: [<.backbone.encode_bag, ids] }]
+                        - decl: [logits, tensor, { call: [<.recipe_head.forward_logits, hidden] }]
+                        - decl: [bester,  i32, 0]
+                        - decl: [best_wert, f32, { call: [logits.get, 0] }]
+                        - decl: [r_idx, i32, 1]
+                        - while:
+                            condition: { lt: [r_idx, n_rec] }
+                            body:
+                              - decl: [wert, f32, { call: [logits.get, r_idx] }]
+                              - if:
+                                  condition: { gt: [wert, best_wert] }
+                                  then:
+                                    - set: [best_wert, wert]
+                                    - set: [bester, r_idx]
+                              - set: [r_idx, { "+": [r_idx, 1] }]
+                        - if: { condition: { eq: [bester, target] }, then: [{ set: [getroffen, { "+": [getroffen, 1] }] }] }
+                        - set: [gezaehlt, { "+": [gezaehlt, 1] }]
+                        - idx: [vorh_zahl, bester, { "+": [{ at: [vorh_zahl, bester] }, 1] }]
+                        - idx: [ziel_zahl, target, { "+": [{ at: [ziel_zahl, target] }, 1] }]
+            - if:
+                condition: { lt: [gezaehlt, 1] }
+                then:
+                  - call: [log.warn, "${was}: keine Zeilen"]
+                  - return: 0
+            - decl: [tr_f, f32, getroffen]
+            - decl: [ge_f, f32, gezaehlt]
+            - decl: [quote, f32, { "/": [tr_f, ge_f] }]
+            - decl: [rec_f, f32, n_rec]
+            - decl: [zufall, f32, { "/": [1.0, rec_f] }]
+            - call: [log.info, "${was}: ${getroffen} von ${gezaehlt} richtig (${quote}) -- Zufall waere ${zufall}"]
+            # Sagt der Kopf ueberhaupt mehr als eine Klasse, und wie weit ist er
+            # von "immer die haeufigste" entfernt?
+            - decl: [verschieden, i32, 0]
+            - decl: [haeufigste,  i32, 0]
+            - decl: [z_idx,       i32, 0]
+            - while:
+                condition: { lt: [z_idx, n_rec] }
+                body:
+                  - decl: [v_anz, i32, { at: [vorh_zahl, z_idx] }]
+                  - decl: [z_anz, i32, { at: [ziel_zahl, z_idx] }]
+                  - if: { condition: { gt: [v_anz, 0] }, then: [{ set: [verschieden, { "+": [verschieden, 1] }] }] }
+                  - if: { condition: { gt: [z_anz, haeufigste] }, then: [{ set: [haeufigste, z_anz] }] }
+                  - set: [z_idx, { "+": [z_idx, 1] }]
+            - decl: [hf_f,   f32, haeufigste]
+            - decl: [hf_quote, f32, { "/": [hf_f, ge_f] }]
+            - call: [log.info, "${was}: ${verschieden} von ${n_rec} Klassen ueberhaupt vorhergesagt -- immer die haeufigste waere ${hf_quote}"]
+
+      - def:
+          name: save_recipe_vocab
+          args: []
+          body:
+            - decl: [kv_var, Kv<string:string>, { call: [db.open_kv, "prophecy_item_head_vocab", {persist: true}] }]
+            - decl: [n_rec,  i32, <.recipe_vocab.len]
+            - decl: [blob,   string, ""]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_rec] }
+                body:
+                  - decl: [rid, string, { at: [<.recipe_vocab, idx] }]
+                  - if:
+                      condition: { gt: [idx, 0] }
+                      then: [{ set: [blob, "${blob}|${rid}"] }]
+                      else: [{ set: [blob, rid] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [kv_var.set, "recipes", blob]
+            - call: [log.info, "saved ${n_rec} recipe labels to prophecy_item_head_vocab.kvwal"]
+
+      # Ein Adam-Schritt ueber 42600 Aufrufe bewegte die Einbettung nicht EINE
+      # Stelle (gemessen 21.11.2026).  Adam bewegt nichts, wenn der Gradient
+      # null ist -- also erst nachsehen, ob ueberhaupt einer ankommt.
+      - def:
+          name: gradient_zeigen
+          access: public
+          args: [[hid, tensor]]
+          body:
+            - decl: [ge_emb, tensor, { call: [<.embedder.emb.grad] }]
+            - decl: [ge_w1,  tensor, { call: [<.backbone.weight_1.grad] }]
+            - decl: [n_emb,  i32, { "*": [<.embedder.n_tokens, <.embedder.d_embed] }]
+            - decl: [n_w1,   i32, { "*": [<.embedder.d_embed, <.hidden_dim] }]
+            - decl: [sum_emb, f32, 0.0]
+            - decl: [sum_w1,  f32, 0.0]
+            - decl: [g_idx, i32, 0]
+            - while:
+                condition: { lt: [g_idx, n_emb] }
+                body:
+                  - decl: [wert, f32, { call: [ge_emb.get, g_idx] }]
+                  - set: [sum_emb, { "+": [sum_emb, { call: [math.abs, wert] }] }]
+                  - set: [g_idx, { "+": [g_idx, 1] }]
+            - set: [g_idx, 0]
+            - while:
+                condition: { lt: [g_idx, n_w1] }
+                body:
+                  - decl: [wert, f32, { call: [ge_w1.get, g_idx] }]
+                  - set: [sum_w1, { "+": [sum_w1, { call: [math.abs, wert] }] }]
+                  - set: [g_idx, { "+": [g_idx, 1] }]
+            # Gegenprobe: der AUSGABEkopf muss Gradient bekommen, sonst misst
+            # diese Diagnose falsch (der Verlust fiel ja von 7,38 auf 5,84).
+            - decl: [ge_rw,  tensor, { call: [<.recipe_head.weight.grad] }]
+            - decl: [n_rw,   i32, { "*": [<.hidden_dim, <.recipe_vocab.len] }]
+            - decl: [sum_rw, f32, 0.0]
+            - set: [g_idx, 0]
+            - while:
+                condition: { lt: [g_idx, n_rw] }
+                body:
+                  - decl: [wert, f32, { call: [ge_rw.get, g_idx] }]
+                  - set: [sum_rw, { "+": [sum_rw, { call: [math.abs, wert] }] }]
+                  - set: [g_idx, { "+": [g_idx, 1] }]
+            - decl: [grad_an,  i32, { call: [<.embedder.emb.requires_grad] }]
+            - decl: [grad_w1,  i32, { call: [<.backbone.weight_1.requires_grad] }]
+            - decl: [grad_rw,  i32, { call: [<.recipe_head.weight.requires_grad] }]
+            - call: [log.info, "Gradient nach erstem backward:"]
+            - call: [log.info, "  emb       |g|=${sum_emb} (${n_emb} Werte, requires_grad=${grad_an})"]
+            - call: [log.info, "  weight_1  |g|=${sum_w1} (${n_w1} Werte, requires_grad=${grad_w1})"]
+            - call: [log.info, "  recipe_w  |g|=${sum_rw} (${n_rw} Werte, requires_grad=${grad_rw})"]
+            # Ist relu tot?  Dann ist hidden ueberall 0, und damit sind die
+            # Gradienten von recipe_w, weight_1 UND emb zwingend 0 -- nur der
+            # Ausgabe-Bias lernt noch, also genau die Klassenverteilung.
+            - decl: [wach,    i32, 0]
+            - decl: [sum_hid, f32, 0.0]
+            - decl: [h_idx,   i32, 0]
+            - while:
+                condition: { lt: [h_idx, <.hidden_dim] }
+                body:
+                  - decl: [hwert, f32, { call: [hid.get, h_idx] }]
+                  - if: { condition: { gt: [hwert, 0.0] }, then: [{ set: [wach, { "+": [wach, 1] }] }] }
+                  - set: [sum_hid, { "+": [sum_hid, { call: [math.abs, hwert] }] }]
+                  - set: [h_idx, { "+": [h_idx, 1] }]
+            - call: [log.info, "  hidden: ${wach} von ${<.hidden_dim} Einheiten wach, |hidden|=${sum_hid}"]
+
+      # Traegt die Darstellung die Information ueberhaupt?  Zwei Beispiele mit
+      # DERSELBEN Marken-Tuete und verschiedenem Rezept kann kein Modell
+      # trennen, das nur die Tuete sieht -- das ist die Obergrenze, gegen die
+      # jede Trefferquote zu lesen ist.
+      - def:
+          name: kennzahlen
+          access: public
+          args: []
+          body:
+            - decl: [n_smp,   i32, <.train_input_ids.len]
+            - decl: [erstes,  map<string:i32>]
+            - decl: [eindeutig, map<string:i32>]
+            - decl: [s_idx,   i32, 0]
+            - decl: [leer,    i32, 0]
+            - while:
+                condition: { lt: [s_idx, n_smp] }
+                body:
+                  - decl: [ids,    list<i32>, { at: [<.train_input_ids, s_idx] }]
+                  - decl: [target, i32, { at: [<.train_targets, s_idx] }]
+                  - set: [s_idx, { "+": [s_idx, 1] }]
+                  - if:
+                      condition: { lt: [ids.len, 1] }
+                      then:
+                        - set: [leer, { "+": [leer, 1] }]
+                  - if:
+                      condition: { gt: [ids.len, 0] }
+                      then:
+                        # Die Tuete ist eine MENGE: sortiert ergibt sie denselben
+                        # Schluessel, egal in welcher Reihenfolge sie kam.
+                        - decl: [sortiert, list<i32>, { call: [sys.clone, ids] }]
+                        - call: [sortiert.sort]
+                        - decl: [schluessel, string, ""]
+                        - decl: [k_idx, i32, 0]
+                        - while:
+                            condition: { lt: [k_idx, sortiert.len] }
+                            body:
+                              - decl: [tid, i32, { at: [sortiert, k_idx] }]
+                              - set: [schluessel, "${schluessel}.${tid}"]
+                              - set: [k_idx, { "+": [k_idx, 1] }]
+                        - if:
+                            condition: { eq: [{ call: [erstes.contains, schluessel] }, 0] }
+                            then:
+                              - call: [erstes.put, schluessel, target]
+                              - call: [eindeutig.put, schluessel, 1]
+                        - if:
+                            condition: { eq: [{ call: [erstes.contains, schluessel] }, 1] }
+                            then:
+                              - decl: [frueher, i32, { call: [erstes.get, schluessel] }]
+                              - if:
+                                  condition: { neq: [frueher, target] }
+                                  then:
+                                    - call: [eindeutig.put, schluessel, 0]
+            - decl: [n_tueten,  i32, erstes.len]
+            - decl: [mehrdeutig, i32, 0]
+            - decl: [schl_liste, list<string>, { call: [eindeutig.keys] }]
+            - decl: [l_idx, i32, 0]
+            - while:
+                condition: { lt: [l_idx, schl_liste.len] }
+                body:
+                  - decl: [schl_ein, string, { at: [schl_liste, l_idx] }]
+                  - if:
+                      condition: { eq: [{ call: [eindeutig.get, schl_ein] }, 0] }
+                      then:
+                        - set: [mehrdeutig, { "+": [mehrdeutig, 1] }]
+                  - set: [l_idx, { "+": [l_idx, 1] }]
+            - call: [log.info, "Darstellung: ${n_smp} Beispiele, ${leer} ohne Marken, ${n_tueten} verschiedene Marken-Tueten, davon ${mehrdeutig} mit mehr als einem Rezept"]
+
+      # ── Top-level run ──────────────────────────────────────────────────────
+      - def:
+          name: run
+          args: []
+          body:
+            - call: [log.info, "ItemHead training starting…"]
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_LR"] }, 1] }
+                then:
+                  - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
+                  - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_STAPEL"] }, 1] }
+                then:
+                  - decl: [s_txt, string, { call: [umg.get, "DC_STAPEL"] }]
+                  - set: [<.stapel, { call: [s_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EMB_MIT"] }, 1] }
+                then:
+                  - set: [<.emb_mit, 1]
+                  - call: [log.info, "Einbettung wird MITtrainiert (DC_EMB_MIT)"]
+            # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
+            # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
+            - set: [<.embedder, { new: TagEmbedding }]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "vocab load failed — run prophecy_build + pretrain first"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            # Gegen eine zufaellige oder fremde Tabelle zu trainieren ist
+            # verlorene Zeit (gemessen 19./20.11.: zwei Stunden).  Darum hier
+            # Schluss, nicht erst in der Abnahme.
+            - if:
+                condition: { "||": [{ eq: [<.embedder.unvereinbar, 1] }, { eq: [<.embedder.zufaellig, 1] }] }
+                then:
+                  - call: [log.error, "Einbettung ist zufaellig oder gehoert nicht zu diesem Wortschatz — erst ./prophecy_pretrain. Abbruch."]
+                  - return: 0      # loads pretrained emb + dec
+            - call: [log.info, "foundation: ${<.embedder.n_tokens} tokens × d=${<.embedder.d_embed}"]
+
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+
+            - call: [<.parse_corpus, "itemgen/data/items_augmented.txt"]
+
+            # Ohne das loest die Inferenz in einer ANDEREN Ordnung auf als
+
+            # das Training -- derselbe Fehler, der den world_entity-Kopf
+
+            # am 12.11.2026 von 4 auf 6 von 7 richtigen Proben gehoben hat.
+
+            - call: [priority_save, item_priority_name, <.current_priority]
+            - call: [<.cache_input_ids]
+
+            # Backbone + recipe_head setup
+            - set: [<.backbone.foundation, <.embedder]
+            - set: [<.backbone.hidden_dim, <.hidden_dim]
+            - call: [<.backbone.init_model]
+            - set: [<.recipe_head.head_id_str,   "recipe"]
+            - set: [<.recipe_head.n_outputs_val, <.recipe_vocab.len]
+            - call: [<.recipe_head.init_params, <.hidden_dim]
+            - call: [<.recipe_head.requires_grad_on]
+
+            - call: [<.kennzahlen]
+            - call: [<.train]
+            # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
+            # Wozu diese Gewichte gehoeren (Spec modell_manifest_2026-11-20.md):
+            # `grundlage` ist der Abdruck der Einbettung, mit der hier gerechnet
+            # wurde -- ohne ihn sieht man einem Kopf nicht an, ob er zu ihr passt.
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, <.embedder.wortschatz_fp]
+            - set: [satz.n_marken,   <.embedder.n_tokens]
+            - set: [satz.d_wert,     <.embedder.d_embed]
+            - set: [satz.grundlage,  <.embedder.wortschatz_fp]
+            - set: [satz.korpus,     { call: [manifest_fp_datei, "itemgen/data/items_augmented.txt"] }]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    "train_item_head"]
+            - call: [manifest_ablegen, "prophecy_head_outputs", satz]
+            - call: [<.save_recipe_vocab]
+            # Erst sichern, dann messen -- eine abstuerzende Messung darf keine
+            # Gewichte kosten.
+            - call: [<.bewerten, 0, "Training"]
+            - call: [<.bewerten, 2, "Abnahme (nicht trainiert)"]
+            - call: [log.info, "ItemHead training done."]
+

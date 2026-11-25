@@ -1,0 +1,13 @@
+# Einstiegspunkt.  Die Klasse PretrainSession liegt in pretrain_app.aiml, damit `main`
+# ein Modul von ausserhalb komponiert (spec/49 §15) statt alles selbst zu tragen.
+
+- import: "prophecy/sources/pretrain_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [session, ptr<PretrainSession>, { new: PretrainSession }]
+      - call: [session.run]
+      - return: 0

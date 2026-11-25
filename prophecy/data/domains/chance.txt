@@ -1,0 +1,48 @@
+# Domaenen-Reihenfolge des Korpus `chance`.
+# Sie entscheidet, auf welchen Atlas-Schluessel ein blankes Wort zeigt
+# (corpus_loader parse_priority_header).  Uebernommen aus dem Kopf der
+# bisherigen Datei, damit kein Wort seine Domaene verliert -- gekuerzt hatte
+# ich sie am 21.11.2026, und das Korpus-Gate fand sofort 94 Woerter ohne Token.
+# Eine Zeile je Domaene, in dieser Reihenfolge.
+cross:element
+items:combat_archetypes
+items:universal_tags
+items:item_only_tags
+items:weapon_tags
+items:armor_tags
+items:helmet_tags
+items:boots_tags
+items:gloves_tags
+items:trouser_tags
+items:bracer_tags
+items:cape_tags
+items:amulet_tags
+items:ring_tags
+items:rune_tags
+items:device_tags
+items:tool_tags
+items:utility_tags
+items:socketable_tags
+items:craft_material_tags
+items:craft_recipe_tags
+items:key_tags
+common:common_tags
+terrain:terrain_only_tags
+weather:weather_only_tags
+zone:zone_tags
+realm:realm_tags
+npcs:personality
+harvestables:harvest_process
+growables:growth_process
+enemies:combat
+pets:pet_tags
+npcs
+harvestables
+growables
+pets
+items:craft_material
+items:weapon
+items:armor
+items:tool
+items:utility
+items:rune

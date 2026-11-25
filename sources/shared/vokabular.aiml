@@ -1,0 +1,88 @@
+# Das feste Vokabular des Spiels -- als Enum, nicht als freier Text.
+# Spec: doc/architecture/namensregel_2026-11-23.md
+#
+# Warum Enum und nicht Tabelle: diese Mengen sind GESCHLOSSEN und der Code
+# verzweigt darauf.  Damit faengt der Compiler jeden Tippfehler, und spec/49
+# §16 meldet jeden handgeschriebenen String-Schalter darauf.  Gemessen am
+# 23.11.2026 hatten zwei dieser Mengen je eine stille Fehlstelle:
+# `focus_breath` (Tor traf nie) und `cooking_pot` (Werkzeug traf nie).
+#
+# Offene Mengen (253 Fertigkeiten, 259 Rezepte, 753 Materialnamen) stehen
+# NICHT hier -- die kommen aus Dateien und werden vom Lader geprueft.
+#
+# `wire: true`: die Namen reisen als Text (Korpus, Metadaten, Realm-Datei) und
+# muessen darum genau so geschrieben sein wie hier.
+
+# Die acht Starter-Fertigkeiten, die Rubriken aufschliessen
+# (`foundation` in prophecy/data/skills/discover_skill_metadata.yml).
+- enum:
+    name: Fundament
+    wire: true
+    values:
+      - resource_lore:  1
+      - magic_aptitude: 2
+      - rune_sense:     3
+      - focus_breath:   4
+      - navigation:     5
+      - terrain_sense:  6
+      - animal_sense:   7
+      - tracking:       8
+
+# Die vierzehn Materialarten (die Dateien in
+# prophecy/data/names/items/craft_materials/).
+- enum:
+    name: MaterialArt
+    wire: true
+    values:
+      - metal:   1
+      - gem:     2
+      - wood:    3
+      - fiber:   4
+      - fungus:  5
+      - food:    6
+      - herb:    7
+      - animal:  8
+      - liquid:  9
+      - mineral: 10
+      - essence: 11
+      - tech:    12
+      - quantum: 13
+      - stone:   14
+
+# Die Werkzeuge, die Rezepte verlangen.  Ortsfest (steht in einem Gebaeude)
+# oder tragbar (Startkoffer oder selbst hergestellt) -- der Unterschied steht
+# in der Realm-Datei, nicht hier.
+- enum:
+    name: Werkzeug
+    wire: true
+    values:
+      - forge_bench:      1
+      - woodworker_bench: 2
+      - alchemy_station:  3
+      - jeweller_bench:   4
+      - loom:             5
+      - tanning_rack:     6
+      - calibrator:       7
+      - smithy:           8
+      - anvil:            9
+      - bone_bench:      10
+      - enchanter_table: 11
+      - weaver_bench:    12
+      - rune_stylus:     13
+      - soldering_iron:  14
+      - cooking_pot:     15
+
+# Was ein Schlag anrichtet (sources/shared/treffer_verteilung.aiml).
+- enum:
+    name: Trefferart
+    wire: true
+    values:
+      - daneben:  0
+      - streifer: 1
+      - normal:   2
+      - kritisch: 3
+
+# `Fundart` steht schon in prophecy/sources/fundarten.aiml (Keine, Growable,
+# Enemy, Npc, Harvestable, Locked, Portal, Nothing) -- hier NICHT noch einmal.
+# Zwei Aufzaehlungen desselben Namens waeren genau die zweite Wahrheit, gegen
+# die diese Datei antritt.

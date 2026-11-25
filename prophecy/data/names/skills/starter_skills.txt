@@ -1,0 +1,17 @@
+# Starter Skill IDs — the 8 skills the player can pick in the creator.
+# These are catalog skill_ids the server uses to seed Skill instances.
+#
+# NOTE: server code (sources/server/server_handlers.aiml::seed_skill) still
+# uses German IDs.  When the server is refactored to English IDs, these
+# names will match 1:1.
+
+
+# Aliases / display-derived skill-ids that appear in items.txt sample corpus
+animal_sense
+focus_breath
+magic_aptitude
+navigation
+resource_lore
+rune_sense
+terrain_sense
+tracking

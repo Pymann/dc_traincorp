@@ -1,0 +1,39 @@
+# Biological disease tags (kind=2)
+
+# Erreger
+viral
+bacterial
+fungal
+parasitic
+prionic
+sporulating
+
+# Übertragung
+airborne
+waterborne
+foodborne
+vector_borne
+bite_borne
+contact_borne
+
+# Symptom
+fever
+cough
+rash
+fatigue
+swelling
+nausea
+delirium
+respiratory_failure
+
+# Verlauf
+incubation_period
+contagious_phase
+recovery_phase
+relapsing
+
+# Wirt-Reaktion
+immune_overload
+weakened_resistance
+slow_recovery
+fast_recovery

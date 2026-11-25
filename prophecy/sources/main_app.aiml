@@ -1,0 +1,258 @@
+# Prophecy Tag-Atlas-Builder.
+#
+# Pipeline:
+#   1. Walk prophecy/data/tags/  → collect *.txt → kind="tag"
+#   2. Walk prophecy/data/names/ → collect *.txt → kind="name" oder "adj"
+#   3. Pro File: tokens lesen, Atlas-Entry bauen, in kvwal schreiben
+#   4. Statistik ausgeben (total + per-kind + per-domain + dedup-hits)
+#
+# Run aus dem datacreatures-root:
+#   source ../../exvenv/bin/activate
+#   exodus build -c exodus-prophecy.json
+#   ./prophecy_build
+#
+# Output: aiondb/prophecy_atlas.kvwal
+
+- import: "prophecy/sources/model.aiml"
+
+# ── Free helper (kein arg-sharing mit anderen funcs) ─────────────────────────
+- def:
+    name: join_parts_with_colon
+    args: [[parts, list<string>]]
+    return: string
+    body:
+      - decl: [out, string, ""]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, parts.len] }
+          body:
+            - decl: [pt_var, string, { at: [parts, idx] }]
+            - if:
+                condition: { gt: [pt_var.len, 0] }
+                then:
+                  - if:
+                      condition: { gt: [out.len, 0] }
+                      then: [{ set: [out, "${out}:${pt_var}"] }]
+                      else: [{ set: [out, pt_var] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: out
+
+# ── Builder-Klasse ───────────────────────────────────────────────────────────
+- class:
+    name: AtlasBuilder
+    members:
+      - [atlas_kv,         Kv<string:TagAtlasEntry>]
+      - [vocab_kv,         Kv<string:string>]
+      - [count_total,      i32, 0]
+      - [count_tag,        i32, 0]
+      - [count_name,       i32, 0]
+      - [count_adj,        i32, 0]
+      - [count_files,      i32, 0]
+      - [count_collisions, i32, 0]
+      - [domain_counts,    map<string:i32>]
+      - [domain_order,     list<string>]
+      - [all_keys,         list<string>]
+    methods:
+      - def:
+          name: compute_domain
+          args: [[file_p, path], [root_p, path]]
+          return: string
+          static_off: ["str_cmp"]
+          body:
+            - decl: [rel,         path,   { call: [file_p.relative_to, root_p] }]
+            - decl: [fname,       string, { call: [file_p.name] }]
+            - decl: [fstem,       string, { call: [file_p.stem] }]
+            - decl: [parent_rel,  path,   { call: [rel.parent] }]
+            - decl: [parent_str,  string, { call: [parent_rel.to_string] }]
+            - decl: [parent_parts, list<string>, { call: [parent_str.split, "/"] }]
+            - decl: [parent_dom,  string, { call: [join_parts_with_colon, parent_parts] }]
+            - decl: [is_generic, i32, 0]
+            - if:
+                condition: { eq: [fname, "adjective.txt"] }
+                then: [{ set: [is_generic, 1] }]
+            - if:
+                condition: { eq: [fname, "noun.txt"] }
+                then: [{ set: [is_generic, 1] }]
+            - if:
+                condition: { eq: [is_generic, 1] }
+                then: [{ return: parent_dom }]
+            - if:
+                condition: { eq: [parent_dom.len, 0] }
+                then: [{ return: fstem }]
+            - return: "${parent_dom}:${fstem}"
+
+      - def:
+          name: compute_kind
+          args: [[kind_root, string], [file_p, path]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [kind_root, "tag"] }
+                then: [{ return: "tag" }]
+            - decl: [fname, string, { call: [file_p.name] }]
+            - if:
+                condition: { eq: [fname, "adjective.txt"] }
+                then: [{ return: "adj" }]
+            - return: "name"
+
+      - def:
+          name: compute_stack_kind
+          args: [[kind_str, string], [name_str, string]]
+          return: string
+          body:
+            - if:
+                condition: { neq: [kind_str, "tag"] }
+                then: [{ return: "" }]
+            - decl: [is_class, i32, { call: [name_str.ends_with, "_class"] }]
+            - if:
+                condition: { eq: [is_class, 1] }
+                then: [{ return: "single" }]
+            - decl: [is_wcls, i32, { call: [name_str.starts_with, "weapon_class:"] }]
+            - if:
+                condition: { eq: [is_wcls, 1] }
+                then: [{ return: "single" }]
+            - decl: [is_elem, i32, { call: [name_str.starts_with, "element:"] }]
+            - if:
+                condition: { eq: [is_elem, 1] }
+                then: [{ return: "single" }]
+            - return: "multi"
+
+      - def:
+          name: bump_domain
+          args: [[dom_str, string]]
+          body:
+            - decl: [had_key, i32, { call: [<.domain_counts.contains, dom_str] }]
+            - if:
+                condition: { neq: [had_key, 1] }
+                then: [{ call: [<.domain_order.push, dom_str] }]
+            - decl: [cur, i32, { call: [<.domain_counts.get, dom_str] }]
+            - call: [<.domain_counts.put, dom_str, { "+": [cur, 1] }]
+
+      - def:
+          name: process_file
+          args: [[file_p, path], [root_p, path], [kind_root, string]]
+          static_off: ["str_cmp"]
+          body:
+            - decl: [file_str,   string, { call: [file_p.to_string] }]
+            - decl: [kind_str,   string, { call: [<.compute_kind, kind_root, file_p] }]
+            - decl: [domain_str, string, { call: [<.compute_domain, file_p, root_p] }]
+            - decl: [tokens,     list<string>, { call: [prp_read_token_list, file_str] }]
+            - decl: [n_tok,      i32, tokens.len]
+            - decl: [idx,        i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [tok_name, string, { at: [tokens, idx] }]
+                  - decl: [key,      string, { call: [prp_make_key, kind_str, domain_str, tok_name] }]
+                  - decl: [had_key,  i32,    { call: [<.atlas_kv.has, key] }]
+                  - if:
+                      condition: { eq: [had_key, 1] }
+                      then: [{ set: [<.count_collisions, { "+": [<.count_collisions, 1] }] }]
+                  - decl: [stack_str, string, { call: [<.compute_stack_kind, kind_str, tok_name] }]
+                  - decl: [entry, TagAtlasEntry]
+                  - set: [entry.name, tok_name]
+                  - set: [entry.kind, kind_str]
+                  - set: [entry.domain, domain_str]
+                  - set: [entry.source_path, file_str]
+                  - set: [entry.weight, 1.0]
+                  - set: [entry.stack_kind, stack_str]
+                  - call: [<.atlas_kv.set, key, entry]
+                  - call: [<.all_keys.push, key]
+                  - set: [<.count_total, { "+": [<.count_total, 1] }]
+                  - if:
+                      condition: { eq: [kind_str, "tag"] }
+                      then: [{ set: [<.count_tag, { "+": [<.count_tag, 1] }] }]
+                  - if:
+                      condition: { eq: [kind_str, "name"] }
+                      then: [{ set: [<.count_name, { "+": [<.count_name, 1] }] }]
+                  - if:
+                      condition: { eq: [kind_str, "adj"] }
+                      then: [{ set: [<.count_adj, { "+": [<.count_adj, 1] }] }]
+                  - call: [<.bump_domain, domain_str]
+                  - set: [idx, { "+": [idx, 1] }]
+            - set: [<.count_files, { "+": [<.count_files, 1] }]
+            - call: [log.info, "  [${kind_str}/${domain_str}] ${n_tok} tokens from ${file_str}"]
+
+      - def:
+          name: walk_dir
+          args: [[dir_p, path], [root_p, path], [kind_root, string]]
+          body:
+            - decl: [entries, list<path>, { call: [io.list_dir, dir_p] }]
+            - decl: [n_ent, i32, entries.len]
+            - decl: [idx,   i32, 0]
+            - while:
+                condition: { lt: [idx, n_ent] }
+                body:
+                  - decl: [entry, path, { at: [entries, idx] }]
+                  - decl: [is_d,  i32,  { call: [entry.is_dir] }]
+                  - if:
+                      condition: { eq: [is_d, 1] }
+                      then: [{ call: [<.walk_dir, entry, root_p, kind_root] }]
+                      else:
+                        - decl: [ext, string, { call: [entry.extension] }]
+                        - if:
+                            condition: { eq: [ext, ".txt"] }
+                            then: [{ call: [<.process_file, entry, root_p, kind_root] }]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      - def:
+          name: print_stats
+          args: []
+          body:
+            - call: [log.info, ""]
+            - call: [log.info, "════════ Atlas built ════════"]
+            - call: [log.info, "  files processed : ${<.count_files}"]
+            - call: [log.info, "  total entries   : ${<.count_total}"]
+            - call: [log.info, "    tag           : ${<.count_tag}"]
+            - call: [log.info, "    name          : ${<.count_name}"]
+            - call: [log.info, "    adj           : ${<.count_adj}"]
+            - call: [log.info, "  collisions      : ${<.count_collisions}"]
+            - call: [log.info, "  unique domains  : ${<.domain_order.len}"]
+            - call: [log.info, ""]
+            - call: [log.info, "Per-domain counts:"]
+            - decl: [k_idx, i32, 0]
+            - while:
+                condition: { lt: [k_idx, <.domain_order.len] }
+                body:
+                  - decl: [dom_key, string, { at: [<.domain_order, k_idx] }]
+                  - decl: [dom_cnt, i32,    { call: [<.domain_counts.get, dom_key] }]
+                  - call: [log.info, "  ${dom_key}: ${dom_cnt}"]
+                  - set: [k_idx, { "+": [k_idx, 1] }]
+
+      - def:
+          name: save_vocab_blob
+          args: []
+          body:
+            - decl: [n_keys, i32, <.all_keys.len]
+            - decl: [blob, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_keys] }
+                body:
+                  - decl: [key_str, string, { at: [<.all_keys, idx] }]
+                  - if:
+                      condition: { gt: [idx, 0] }
+                      then: [{ set: [blob, "${blob}|${key_str}"] }]
+                      else: [{ set: [blob, key_str] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [<.vocab_kv.set, "vocab", blob]
+            - call: [log.info, "saved vocab blob: ${n_keys} keys → ${prophecy_vocab_name}.kvwal"]
+
+      - def:
+          name: run
+          args: []
+          body:
+            - call: [log.info, "Prophecy Atlas Builder starting…"]
+            - call: [log.info, "  data_dir : ${prophecy_data_dir}"]
+            - call: [log.info, "  atlas    : ${prophecy_atlas_name}.kvwal"]
+            - call: [log.info, "  vocab    : ${prophecy_vocab_name}.kvwal"]
+            - decl: [tags_root,  path, { call: [path.from_string, "prophecy/data/tags"] }]
+            - decl: [names_root, path, { call: [path.from_string, "prophecy/data/names"] }]
+            - call: [log.info, "Walking prophecy/data/tags/…"]
+            - call: [<.walk_dir, tags_root, tags_root, "tag"]
+            - call: [log.info, "Walking prophecy/data/names/…"]
+            - call: [<.walk_dir, names_root, names_root, "name"]
+            - call: [<.save_vocab_blob]
+            - call: [<.print_stats]
+
+# ── Top-Level Entry ──────────────────────────────────────────────────────────

@@ -1,0 +1,189 @@
+# Der Korpus-Erzeuger.  Ausfuehrung im JIT:
+#
+#   out/aiml/aiml korpusgen/korpusgen.aiml -r -- <was> [seed]
+#
+# `was` ist `fertigkeiten`, `kampf`, `rezepte`, `chance`, `funde` oder `alles`.
+# Vorher war das scripts/generate_clustered_corpus.py; seit dem 20.11.2026
+# gehoert die Kette dem Projekt (User-Direktive: Erzeuger in aiml, JIT).
+#
+# Die drei Bauwege sind Methoden EINER Klasse, nicht drei Funktionen mit
+# demselben Argument -- die statische Pruefung hat recht: der Seed ist
+# Zustand des Erzeugers, kein Argument, das man dreimal weitergibt.
+- import: "korpusgen/sources/fertig_korpus.aiml"
+- import: "korpusgen/sources/rezept_korpus.aiml"
+- import: "korpusgen/sources/schreiber.aiml"
+- import: "korpusgen/sources/chance_korpus.aiml"
+- import: "korpusgen/sources/fund_korpus.aiml"
+- import: "korpusgen/sources/rezept_stoffe.aiml"
+
+- class:
+    name: Erzeuger
+    members:
+      - [saat, i64, 42, { access: public }]
+    methods:
+      - def:
+          name: kampf
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<FertigkeitsKorpus>, { new: FertigkeitsKorpus }]
+            - call: [bau.start, <.saat]
+            - decl: [zahl, i32, { call: [bau.kampf_bauen, 60] }]
+            - if: { condition: { eq: [zahl, 0] }, then: [{ call: [log.error, "kampf: keine Metadaten"] }, { free: bau }, { return: 0 }] }
+            - decl: [kopf, list<string>]
+            - call: [kopf.push, "Kampf-Fertigkeiten: welche Fertigkeit ein Kampf lehrt."]
+            - call: [kopf.push, "Erzeugt von korpusgen (aiml, JIT) -- seed=${<.saat}, 60 Beispiele je Fertigkeit."]
+            - call: [kopf.push, "Form: combat | <Eingabe> | <skill_id>"]
+            - call: [kopf.push, "Die Eingabe traegt Taetigkeit, Fundament, Marken, Gegenstand, Element"]
+            - call: [kopf.push, "UND den Gegner: seine Art und seine Marken (User-Wunsch 12.11.2026)."]
+            - call: [kopf.push, "Vorher stand hier keine einzige Gegnermarke -- der Server legte sie"]
+            - call: [kopf.push, "zur Laufzeit in den Beutel, und der Kopf konnte sie nicht kennen."]
+            - decl: [raus, i32, { call: [korpus_schreiben, "data/combat_skill_corpus.txt", kopf, bau.domaenen, bau.zeilen] }]
+            - free: bau
+            - return: raus
+
+      - def:
+          name: fertigkeiten
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<FertigkeitsKorpus>, { new: FertigkeitsKorpus }]
+            - call: [bau.start, <.saat]
+            - decl: [zahl, i32, { call: [bau.fertig_bauen, 60] }]
+            - if: { condition: { eq: [zahl, 0] }, then: [{ call: [log.error, "fertigkeiten: keine Metadaten"] }, { free: bau }, { return: 0 }] }
+            - decl: [kopf, list<string>]
+            - call: [kopf.push, "Entdeckbare Fertigkeiten (aktiv, passiv, mechanisch)."]
+            - call: [kopf.push, "Erzeugt von korpusgen (aiml, JIT) -- seed=${<.saat}, 60 Beispiele je Fertigkeit."]
+            - call: [kopf.push, "Form: sample | <Eingabe> | <Rubrik> | <skill_id>"]
+            - call: [kopf.push, "Quelle der Merkmale: prophecy/data/skills/discover_skill_metadata.yml"]
+            - decl: [raus, i32, { call: [korpus_schreiben, "data/skill_corpus.txt", kopf, bau.domaenen, bau.zeilen] }]
+            - free: bau
+            - return: raus
+
+      - def:
+          name: rezepte
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<RezeptKorpus>, { new: RezeptKorpus }]
+            - call: [bau.start, <.saat]
+            - decl: [gelesen, i32, { call: [bau.alte_datei_lesen, "itemgen/data/items_augmented.txt"] }]
+            - if: { condition: { eq: [gelesen, 0] }, then: [{ call: [log.error, "rezepte: nichts gelesen"] }, { free: bau }, { return: 0 }] }
+            # 32 Eingaben je Rezept statt acht (Plan Punkt 4).
+            - decl: [zahl, i32, { call: [bau.bauen, 32] }]
+            - decl: [raus, i32, { call: [bau.schreiben, "itemgen/data/items_augmented.txt", <.saat] }]
+            - if: { condition: { gt: [bau.ersetzt, 0] }, then: [{ call: [log.info, "rezepte: in ${bau.ersetzt} Clustern standen entfernte Fertigkeiten im Fundament -- ersetzt"] }] }
+            - free: bau
+            - return: raus
+
+      # Die fuenfte Spalte der Rezepte: Stoffe statt Arten (24.11.2026).
+      # Laeuft VOR `rezepte`, damit die Eingabezeilen die Namen lernen.
+      - def:
+          name: stoffe
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<RezeptStoffe>, { new: RezeptStoffe }]
+            - decl: [bereit, i32, { call: [bau.start, <.saat] }]
+            - if: { condition: { neq: [bereit, 1] }, then: [{ free: bau }, { return: 0 }] }
+            - decl: [raus, i32, { call: [bau.datei, "itemgen/data/items_augmented.txt"] }]
+            - free: bau
+            - return: raus
+
+      - def:
+          name: chance
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<ChanceKorpus>, { new: ChanceKorpus }]
+            - call: [bau.start, <.saat]
+            - decl: [zahl, i32, { call: [bau.bauen, 12000] }]
+            - if: { condition: { eq: [zahl, 0] }, then: [{ call: [log.error, "chance: keine Zeilen"] }, { free: bau }, { return: 0 }] }
+            - decl: [raus, i32, { call: [bau.schreiben, "data/combat.txt", <.saat] }]
+            - free: bau
+            - return: raus
+
+      - def:
+          name: funde
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [bau, ptr<FundKorpus>, { new: FundKorpus }]
+            - call: [bau.start, <.saat]
+            - decl: [zahl, i32, { call: [bau.bauen, 25000] }]
+            - if: { condition: { eq: [zahl, 0] }, then: [{ call: [log.error, "funde: keine Zeilen"] }, { free: bau }, { return: 0 }] }
+            - decl: [kopf, list<string>]
+            - call: [kopf.push, "Entdeckungs-Korpus: was man wo und womit findet."]
+            - call: [kopf.push, "Erzeugt von korpusgen (aiml, JIT) -- seed=${<.saat}."]
+            - call: [kopf.push, "Form: discover | <Eingabe> | <Fundart> | <Marken> | <Ertrag> | <Werkzeug> | <Name>"]
+            - call: [kopf.push, "Jede Fundart hat ein Schema; eine Zeile, die es verletzt, wird"]
+            - call: [kopf.push, "verworfen und neu gezogen (Plan Punkt 6).  Pflanzen und"]
+            - call: [kopf.push, "verschlossene Dinge tragen jetzt einen Ertrag bzw. Inhalt, und"]
+            - call: [kopf.push, "Name, Marken und Inhalt widersprechen sich nicht mehr"]
+            - call: [kopf.push, "(kein `unguarded` neben `spirit_guarded`, kein Inhalt bei `known_empty`)."]
+            - decl: [raus, i32, { call: [korpus_schreiben, "discovergen/data/discoveries_augmented.txt", kopf, bau.domaenen, bau.zeilen] }]
+            - if: { condition: { gt: [bau.verworfen, 0] }, then: [{ call: [log.info, "funde: ${bau.verworfen} Zeilen verworfen (Schema oder Widerspruch)"] }] }
+            - free: bau
+            - return: raus
+
+# Das Wort der Kommandozeile zu einer Zahl -- an EINER Stelle, damit daraus
+# kein verstreuter Zeichenketten-Vergleich wird (spec/49 §16).
+#   1 Kampf, 2 Fertigkeiten, 3 Rezepte, 4 Chance, 9 alles, 0 unbekannt
+- def:
+    name: was_code
+    args: [[wort, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [wort, "kampf"] },        then: [{ return: 1 }] }
+      - if: { condition: { eq: [wort, "fertigkeiten"] }, then: [{ return: 2 }] }
+      - if: { condition: { eq: [wort, "rezepte"] },      then: [{ return: 3 }] }
+      - if: { condition: { eq: [wort, "chance"] },       then: [{ return: 4 }] }
+      - if: { condition: { eq: [wort, "funde"] },        then: [{ return: 5 }] }
+      - if: { condition: { eq: [wort, "stoffe"] },       then: [{ return: 6 }] }
+      - if: { condition: { eq: [wort, "alles"] },        then: [{ return: 9 }] }
+      - return: 0
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [wort, string, "alles"]
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [zahl_args, i32, { call: [sys.arg_count] }]
+      - if: { condition: { ge: [zahl_args, 2] }, then: [{ set: [wort, { call: [sys.get_arg, 1] }] }] }
+      - if:
+          condition: { ge: [zahl_args, 3] }
+          then:
+            - decl: [saat_str, string, { call: [sys.get_arg, 2] }]
+            - decl: [saat_wert, i64, "${saat_str}"]
+            - if: { condition: { gt: [saat_wert, 0] }, then: [{ set: [erz.saat, saat_wert] }] }
+      - decl: [code, i32, { call: [was_code, wort] }]
+      - call: [log.info, "korpusgen: '${wort}' (${code}), seed ${erz.saat}"]
+      - if:
+          condition: { eq: [code, 0] }
+          then:
+            - call: [log.error, "korpusgen: '${wort}' kennt der Erzeuger nicht -- kampf | fertigkeiten | stoffe | rezepte | chance | funde | alles"]
+            - return: 1
+      - decl: [getan, i32, 0]
+      - if: { condition: { "||": [{ eq: [code, 1] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.kampf] }] }] }] }
+      - if: { condition: { "||": [{ eq: [code, 2] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.fertigkeiten] }] }] }] }
+      - if: { condition: { "||": [{ eq: [code, 6] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.stoffe] }] }] }] }
+      - if: { condition: { "||": [{ eq: [code, 3] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.rezepte] }] }] }] }
+      - if: { condition: { "||": [{ eq: [code, 4] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.chance] }] }] }] }
+      - if: { condition: { "||": [{ eq: [code, 5] }, { eq: [code, 9] }] }, then: [{ set: [getan, { "+": [getan, { call: [erz.funde] }] }] }] }
+      - if:
+          condition: { eq: [getan, 0] }
+          then:
+            - call: [log.error, "korpusgen: nichts erzeugt"]
+            - return: 1
+      - call: [log.info, "korpusgen: ${getan} Zeilen gesamt"]
+      - free: erz
+      - return: 0

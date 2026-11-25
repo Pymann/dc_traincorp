@@ -1,0 +1,18 @@
+# Base Actions — inherent verbs available to every creature.
+#
+# These are NOT skills.  They:
+#   - have NO tags
+#   - are not discoverable, not learnable, not equippable
+#   - are ALWAYS available when the player composes an action
+#   - form the left column of the action-composition tuple:
+#       action = base_action + skills[] + items[] + context
+#
+# Fixed set of 6.  Extension only via schema-change (e.g. new eatables
+# item-type would bring base_action "eat" — see item-economy doc).
+
+workout
+study
+breathe
+sing
+sleep
+meditate

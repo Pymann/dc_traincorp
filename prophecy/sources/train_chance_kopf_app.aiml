@@ -1,0 +1,746 @@
+# Requires: library
+# Training des Chance-Kopfes auf dem EINGEFRORENEN Transformer.
+# Spec: doc/architecture/kampf_chance_transformer_2026-11-15.md
+#
+# Zwei Durchgaenge statt einem:
+#   1. Merkmale rechnen -- jede Zeile EINMAL durch den Transformer, 64 Zahlen
+#      heraus.  Weil er eingefroren ist, aendert sich das nie.
+#   2. Den linearen Kopf darauf lernen -- volle Stapel, reine Matrixrechnung.
+#
+# Das ist nicht nur schneller als "jede Epoche durch den Transformer", es
+# haelt auch die Zusage ein: an den Transformer-Gewichten wird NICHTS
+# geaendert, und der neue Kopf liegt in einem eigenen Speicher.
+- import: "prophecy/sources/chance_kopf.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/zufall.aiml"
+
+- class:
+    name: ChanceKopfTrainer
+    members:
+      - [kopf,       ChanceKopf]
+      - [wrf,        Zufall]
+      - [n_epochs,   i32, 1500]
+      - [learn_rate, f32, 0.05]
+      - [adam_b1,    f32, 0.9]
+      - [adam_b2,    f32, 0.999]
+      - [adam_eps,   f32, 0.00000001]
+      - [log_every,  i32, 250]
+      # Jede n-te Zeile bleibt zur Abnahme draussen.
+      - [holdout_every, i32, 7]
+      - [grenze,     i32, 12000]
+      - [d_dim,      i32, 64]
+      # Merkmale flach: zahl * d_dim
+      - [merkmale,   list<f32>]
+      - [ziele,      list<f32>]
+      - [ist_test,   list<i32>]
+      - [zahl,       i32, 0]
+      - [zusatz,     list<string>]
+      # Umfeld: Gelaende- und Wettermarken, dazu ihre Elementzuordnung.
+      - [umfeld,     list<string>]
+      - [elem_karte, map<string:string>]
+      - [letzter_faktor, f32, 1.0]
+      # Die gelernte Spalte -- die Abnahme rechnet damit, ohne sie neu zu laden.
+      - [letzte_gew, tensor]
+      - [letzte_vor, f32, 0.0]
+      - [letzte_gew2, tensor]
+      # Encoder-Modus: die Folgen statt der Merkmale, und der Transformer
+      # lernt mit.  Geschrieben wird in einen EIGENEN Speicher.
+      - [mit_encoder, i32, 0]
+      - [folgen,      list<list<i32>>]
+    methods:
+      # Marken, die man "sonst noch anhat" -- Ruestung, Stiefel, Ringe.  Sie
+      # duerfen die Trefferchance NICHT verschieben, und genau das lernt der
+      # Kopf an diesen Varianten.
+      - def:
+          name: zusatz_laden
+          access: public
+          args: []
+          body:
+            - call: [<.lies_pool, "resources/tags/items/armor_tags.txt"]
+            - call: [<.lies_pool, "resources/tags/items/boots_tags.txt"]
+            - call: [<.lies_pool, "resources/tags/items/ring_tags.txt"]
+            - call: [<.lies_pool, "resources/tags/items/amulet_tags.txt"]
+            - call: [log.info, "Zusatzmarken: ${<.zusatz.len}"]
+
+      - def:
+          name: lies_pool
+          access: public
+          args: [[pfad, string]]
+          body:
+            - decl: [inhalt, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [inhalt.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [inhalt.split, "\n"] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, idx] }]
+                  - decl: [marke, string, { call: [roh.trim] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ gt: [marke.len, 0] }, { eq: [{ call: [marke.starts_with, "#"] }, 0] }] }
+                      then: [{ call: [<.zusatz.push, marke] }]
+
+      # Eine Zeile als Merkmal ablegen.
+      - def:
+          name: lege_ab
+          access: public
+          args: [[atk, string], [def_s, string], [ziel, f32], [test, i32]]
+          body:
+            - if:
+                condition: { eq: [<.mit_encoder, 1] }
+                then:
+                  # Im Encoder-Modus zaehlt die FOLGE -- Merkmale aendern sich
+                  # ja mit jedem Schritt.
+                  - decl: [ids_e, list<i32>, { call: [<.kopf.ids_von, atk, def_s] }]
+                  - if: { condition: { lt: [ids_e.len, 3] }, then: [{ return: 0 }] }
+                  - call: [<.folgen.push, ids_e]
+                  - call: [<.ziele.push, ziel]
+                  - call: [<.ist_test.push, test]
+                  - set: [<.zahl, { "+": [<.zahl, 1] }]
+                  - return: 0
+            - call: [tensor.begin_graph]
+            - decl: [mrk, tensor, { call: [<.kopf.merkmal, atk, def_s] }]
+            - if: { condition: { eq: [mrk, null] }, then: [{ return: 0 }] }
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.d_dim] }
+                body:
+                  - call: [<.merkmale.push, { call: [mrk.get, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [<.ziele.push, ziel]
+            - call: [<.ist_test.push, test]
+            - set: [<.zahl, { "+": [<.zahl, 1] }]
+
+      # Eine gekuerzte Fassung desselben Beutels: 3 bis 5 Marken.
+      - def:
+          name: kuerzen
+          access: public
+          args: [[beutel, string]]
+          return: string
+          body:
+            - decl: [teile, list<string>, { call: [beutel.split, " "] }]
+            - if: { condition: { le: [teile.len, 3] }, then: [{ return: beutel }] }
+            - decl: [wie_viele, i32, { "+": [3, { call: [<.wrf.ganzzahl, 3] }] }]
+            - decl: [raus, string, ""]
+            - decl: [genommen, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [idx, teile.len] }, { lt: [genommen, wie_viele] }] }
+                body:
+                  - decl: [wort, string, { at: [teile, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  # Jede Marke mit gleicher Wahrscheinlichkeit, damit nicht
+                  # immer die ersten drei genommen werden.
+                  - if:
+                      condition: { lt: [{ call: [<.wrf.ganzzahl, 10] }, 6] }
+                      then:
+                        - set: [raus, "${raus} ${wort}"]
+                        - set: [genommen, { "+": [genommen, 1] }]
+            - if: { condition: { eq: [genommen, 0] }, then: [{ return: beutel }] }
+            - return: { call: [raus.trim] }
+
+      # Dieselbe Waffe, plus was man sonst noch anhat.
+      - def:
+          name: bekleiden
+          access: public
+          args: [[beutel, string]]
+          return: string
+          body:
+            - if: { condition: { eq: [<.zusatz.len, 0] }, then: [{ return: beutel }] }
+            - decl: [raus, string, beutel]
+            - decl: [wie_viele, i32, { "+": [2, { call: [<.wrf.ganzzahl, 4] }] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, wie_viele] }
+                body:
+                  - decl: [pos, i32, { call: [<.wrf.ganzzahl, <.zusatz.len] }]
+                  - set: [raus, "${raus} ${{ at: [<.zusatz, pos] }}"]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: raus
+
+      # Die Witterungsregel (Spec: kampf_chance_transformer_2026-11-15.md).
+      # Die Zuordnung Marke -> Element ist TEIL der Regel und steht darum
+      # hier, nicht verstreut.
+      - def:
+          name: umfeld_laden
+          access: public
+          args: []
+          body:
+            - call: [<.lies_umfeld, "resources/tags/terrain/terrain_only_tags.txt"]
+            - call: [<.lies_umfeld, "resources/tags/weather/weather_only_tags.txt"]
+            - call: [<.elem_setzen, "water",  "clammy boggy slippery yielding muffled"]
+            - call: [<.elem_setzen, "fire",   "dry glaring flickering crackling crusted"]
+            - call: [<.elem_setzen, "air",    "stormy windless pulling open biting"]
+            - call: [<.elem_setzen, "earth",  "dusty compacted load_bearing rough bare steep"]
+            - call: [<.elem_setzen, "aether", "resonant echoing looming hazy oppressive"]
+            - call: [log.info, "Umfeldmarken: ${<.umfeld.len}, davon mit Element ${<.elem_karte.len}"]
+
+      - def:
+          name: elem_setzen
+          access: public
+          args: [[element, string], [marken, string]]
+          body:
+            - decl: [teile, list<string>, { call: [marken.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - call: [<.elem_karte.put, { at: [teile, idx] }, element]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      - def:
+          name: lies_umfeld
+          access: public
+          args: [[pfad, string]]
+          body:
+            - decl: [inhalt, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [inhalt.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [inhalt.split, "\n"] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, idx] }]
+                  - decl: [marke, string, { call: [roh.trim] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ gt: [marke.len, 0] }, { eq: [{ call: [marke.starts_with, "#"] }, 0] }] }
+                      then: [{ call: [<.umfeld.push, marke] }]
+
+      # Welches Element traegt der Angreifer?  "" = keines.
+      - def:
+          name: element_von
+          access: public
+          args: [[beutel, string]]
+          return: string
+          static_off: ["str_cmp"]
+          body:
+            - decl: [teile, list<string>, { call: [beutel.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, teile.len] }
+                body:
+                  - decl: [wort, string, { at: [teile, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if: { condition: { eq: [wort, "fire"] },   then: [{ return: "fire" }] }
+                  - if: { condition: { eq: [wort, "water"] },  then: [{ return: "water" }] }
+                  - if: { condition: { eq: [wort, "earth"] },  then: [{ return: "earth" }] }
+                  - if: { condition: { eq: [wort, "air"] },    then: [{ return: "air" }] }
+                  - if: { condition: { eq: [wort, "aether"] }, then: [{ return: "aether" }] }
+            - return: ""
+
+      # Die vierte Variante: dieselbe Paarung IM UMFELD.  Der Zielwert folgt
+      # der Witterungsregel -- fremdes Element schwaecht, das eigene traegt.
+      # Liefert den Beutel; der verschobene Zielwert steht danach in
+      # `letzter_faktor`.
+      - def:
+          name: bewittern
+          access: public
+          args: [[beutel, string]]
+          return: string
+          body:
+            - if: { condition: { eq: [<.umfeld.len, 0] }, then: [{ set: [<.letzter_faktor, 1.0] }, { return: beutel }] }
+            - decl: [mein, string, { call: [<.element_von, beutel] }]
+            - decl: [raus, string, beutel]
+            - decl: [faktor, f32, 1.0]
+            - decl: [wie_viele, i32, { "+": [3, { call: [<.wrf.ganzzahl, 4] }] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, wie_viele] }
+                body:
+                  - decl: [pos, i32, { call: [<.wrf.ganzzahl, <.umfeld.len] }]
+                  - decl: [marke, string, { at: [<.umfeld, pos] }]
+                  - set: [raus, "${raus} ${marke}"]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [hat, i32, { call: [<.elem_karte.contains, marke] }]
+                  - if:
+                      condition: { eq: [hat, 0] }
+                      then: [{ set: [faktor, { "*": [faktor, 0.98] }] }]
+                      else:
+                        - decl: [elem, string, { call: [<.elem_karte.get, marke] }]
+                        - if:
+                            condition: { "&&": [{ gt: [mein.len, 0] }, { eq: [elem, mein] }] }
+                            then: [{ set: [faktor, { "*": [faktor, 1.04] }] }]
+                            else: [{ set: [faktor, { "*": [faktor, 0.93] }] }]
+            - set: [<.letzter_faktor, faktor]
+            - return: raus
+
+      - def:
+          name: lies_korpus
+          access: public
+          args: [[pfad, string]]
+          body:
+            - decl: [inhalt, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [inhalt.len, 0] }, then: [{ call: [log.error, "'${pfad}' nicht lesbar"] }, { return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [inhalt.split, "\n"] }]
+            - decl: [gelesen, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [idx, zeilen.len] }, { lt: [gelesen, <.grenze] }] }
+                body:
+                  - decl: [roh_z, string, { at: [zeilen, idx] }]
+                  - decl: [zeile, string, { call: [roh_z.trim] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [teile, list<string>, { call: [zeile.split, "|"] }]
+                  - if:
+                      condition: { ge: [teile.len, 3] }
+                      then:
+                        - decl: [atk_r, string, { at: [teile, 0] }]
+                        - decl: [def_r, string, { at: [teile, 1] }]
+                        - decl: [zie_r, string, { at: [teile, 2] }]
+                        - decl: [atk, string, { call: [atk_r.trim] }]
+                        - decl: [def_s, string, { call: [def_r.trim] }]
+                        - decl: [zie_s, string, { call: [zie_r.trim] }]
+                        - decl: [ziel, f32, { call: [zie_s.parse_f32] }]
+                        - decl: [erste, list<string>, { call: [atk.split, " "] }]
+                        - decl: [kopf_w, string, { at: [erste, 0] }]
+                        - if:
+                            condition: { eq: [{ call: [kopf_w.contains, "_"] }, 0] }
+                            then:
+                              - set: [gelesen, { "+": [gelesen, 1] }]
+                              - decl: [test, i32, 0]
+                              - if:
+                                  condition: { eq: [{ "%": [gelesen, <.holdout_every] }, 0] }
+                                  then: [{ set: [test, 1] }]
+                              - call: [<.lege_ab, atk, def_s, ziel, test]
+                              # Dieselbe Waffe, kuerzer beschrieben -- gleicher
+                              # Zielwert.  Das ist die Lehre gegen den
+                              # gemessenen Laengen-Effekt.
+                              - call: [<.lege_ab, { call: [<.kuerzen, atk] }, def_s, ziel, test]
+                              # Dieselbe Waffe, plus Garderobe -- ebenfalls
+                              # gleicher Zielwert.
+                              - call: [<.lege_ab, { call: [<.bekleiden, atk] }, def_s, ziel, test]
+                              # Dieselbe Paarung IM UMFELD -- hier verschiebt
+                              # sich der Zielwert nach der Witterungsregel.
+                              - decl: [mit_wetter, string, { call: [<.bewittern, atk] }]
+                              - decl: [ziel_w, f32, { call: [math.clamp, { "*": [ziel, <.letzter_faktor] }, 0.02, 0.98] }]
+                              - call: [<.lege_ab, mit_wetter, def_s, ziel_w, test]
+            - call: [log.info, "Korpus: ${gelesen} Zeilen → ${<.zahl} Merkmale (mit Kuerzung und Garderobe)"]
+
+      # Die Merkmale als Matrix, Ziele als Spalte -- nur die Trainingszeilen.
+      - def:
+          name: stapel
+          access: public
+          args: [[test_teil, i32]]
+          return: tensor
+          body:
+            - decl: [wie_viele, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.zahl] }
+                body:
+                  - if: { condition: { eq: [{ at: [<.ist_test, idx] }, test_teil] }, then: [{ set: [wie_viele, { "+": [wie_viele, 1] }] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [raus, tensor, { call: [tensor.zeros, wie_viele, <.d_dim] }]
+            - decl: [pos, i32, 0]
+            - set: [idx, 0]
+            - while:
+                condition: { lt: [idx, <.zahl] }
+                body:
+                  - if:
+                      condition: { eq: [{ at: [<.ist_test, idx] }, test_teil] }
+                      then:
+                        - decl: [basis, i32, { "*": [idx, <.d_dim] }]
+                        - decl: [spalte, i32, 0]
+                        - while:
+                            condition: { lt: [spalte, <.d_dim] }
+                            body:
+                              - call: [raus.set, { "+": [{ "*": [pos, <.d_dim] }, spalte] }, { at: [<.merkmale, { "+": [basis, spalte] }] }]
+                              - set: [spalte, { "+": [spalte, 1] }]
+                        - set: [pos, { "+": [pos, 1] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: raus
+
+      - def:
+          name: wie_viele
+          access: public
+          args: [[test_teil, i32]]
+          return: i32
+          body:
+            - decl: [zahl_t, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.zahl] }
+                body:
+                  - if: { condition: { eq: [{ at: [<.ist_test, idx] }, test_teil] }, then: [{ set: [zahl_t, { "+": [zahl_t, 1] }] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: zahl_t
+
+      - def:
+          name: ziel_spalte
+          access: public
+          args: [[test_teil, i32]]
+          return: tensor
+          body:
+            - decl: [wie_viele, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.zahl] }
+                body:
+                  - if: { condition: { eq: [{ at: [<.ist_test, idx] }, test_teil] }, then: [{ set: [wie_viele, { "+": [wie_viele, 1] }] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [raus, tensor, { call: [tensor.zeros, wie_viele, 1] }]
+            - decl: [pos, i32, 0]
+            - set: [idx, 0]
+            - while:
+                condition: { lt: [idx, <.zahl] }
+                body:
+                  - if:
+                      condition: { eq: [{ at: [<.ist_test, idx] }, test_teil] }
+                      then:
+                        - call: [raus.set, pos, { at: [<.ziele, idx] }]
+                        - set: [pos, { "+": [pos, 1] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: raus
+
+      # Voller Stapel, reine Matrixrechnung -- der Transformer ist hier schon
+      # erledigt, es lernt nur noch die 64x1-Spalte plus Vorspann.
+      - def:
+          name: trainiere
+          access: public
+          args: []
+          body:
+            - decl: [n_tr, i32, { call: [<.wie_viele, 0] }]
+            - call: [log.info, "Training: ${n_tr} Zeilen, ${<.n_epochs} Epochen, Lernrate ${<.learn_rate}"]
+            - decl: [h_dim, i32, <.kopf.verborgen_dim]
+            - decl: [gew, tensor, { call: [tensor.randn_ex, 0.0, 0.05, <.d_dim, h_dim] }]
+            - decl: [gew2, tensor, { call: [tensor.randn_ex, 0.0, 0.05, { "+": [h_dim, 1] }, 1] }]
+            - call: [gew.set_requires_grad, 1]
+            - call: [gew2.set_requires_grad, 1]
+            - decl: [m_w, tensor, { call: [tensor.zeros, <.d_dim, h_dim] }]
+            - decl: [v_w, tensor, { call: [tensor.zeros, <.d_dim, h_dim] }]
+            - decl: [m_2, tensor, { call: [tensor.zeros, { "+": [h_dim, 1] }, 1] }]
+            - decl: [v_2, tensor, { call: [tensor.zeros, { "+": [h_dim, 1] }, 1] }]
+            - decl: [epoche, i32, 0]
+            - while:
+                condition: { lt: [epoche, <.n_epochs] }
+                body:
+                  - call: [tensor.begin_graph]
+                  # Stapel INNERHALB des Graphen bauen: ein Tensor ohne
+                  # Gradient lebt nur bis zum naechsten `begin_graph`.  Davor
+                  # gebaut, war die Merkmalsmatrix in der Epoche tot, und je
+                  # nach Reihenfolge stuerzte sum, transpose oder matmul
+                  # (gemessen 15.11.2026 -- die Probe `tensor_probe` zeigt,
+                  # dass dieselben Formen AUSSERHALB eines Graphen tragen).
+                  - decl: [merk, tensor, { call: [<.stapel, 0] }]
+                  - decl: [ziel, tensor, { call: [<.ziel_spalte, 0] }]
+                  # Der Vorspann steckt als konstante Spalte im Merkmal --
+                  # kein `add` mit (n,1)+(1), das stuerzte.
+                  # Zwei Schichten: relu(Merkmal x W1), konstante Spalte dran,
+                  # dann x W2.  Dieselbe Rechnung wie `ChanceKopf.rechnen`.
+                  - decl: [vor, tensor, { call: [tensor.matmul, merk, gew] }]
+                  - decl: [aktiv, tensor, { call: [tensor.relu, vor] }]
+                  - decl: [eins_s, tensor, { call: [tensor.ones, n_tr, 1] }]
+                  - decl: [mit_eins, tensor, { call: [tensor.concat, aktiv, eins_s, 1] }]
+                  - decl: [roh, tensor, { call: [tensor.matmul, mit_eins, gew2] }]
+                  - decl: [fehler_roh, tensor, { call: [tensor.sub, roh, ziel] }]
+                  # Auf den MITTLEREN Fehler skalieren: die Summe allein macht
+                  # den Gradienten n-mal zu gross (gemessen: erklaerte
+                  # Streuung -0,16 statt > 0).  `tensor.mean` stuerzt, also
+                  # wird elementweise mit 1/sqrt(n) multipliziert -- das
+                  # Quadrat davon ist der Mittelwert.
+                  - decl: [n_f, f32, n_tr]
+                  - decl: [faktor, f32, { "/": [1.0, { call: [math.sqrt, n_f] }] }]
+                  - decl: [skala, tensor, { call: [tensor.zeros, n_tr, 1] }]
+                  - decl: [sdx, i32, 0]
+                  - while:
+                      condition: { lt: [sdx, n_tr] }
+                      body:
+                        - call: [skala.set, sdx, faktor]
+                        - set: [sdx, { "+": [sdx, 1] }]
+                  - decl: [fehler, tensor, { call: [tensor.mul, fehler_roh, skala] }]
+                  # Summe der Quadrate als MATMUL: fehlerᵀ · fehler.
+                  # `tensor.sum(t, -1)` und `tensor.mean(t, -1)` stuerzen beide
+                  # ueber einem (n x 1)-Tensor (aiml_tensor_sum / _mean,
+                  # Signal 11) -- gemessen 15.11.2026 mit n = 1029.  Matmul
+                  # rechnet dasselbe und ist geprueft.
+                  - decl: [quer, tensor, { call: [tensor.transpose, fehler, 0, 1] }]
+                  - decl: [verlust, tensor, { call: [tensor.matmul, quer, fehler] }]
+                  - call: [tensor.backward, verlust]
+                  - set: [epoche, { "+": [epoche, 1] }]
+                  - call: [tensor.adam_step, gew, m_w, v_w, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, epoche]
+                  - call: [tensor.adam_step, gew2, m_2, v_2, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, epoche]
+                  - call: [gew.zero_grad]
+                  - call: [gew2.zero_grad]
+                  - if:
+                      condition: { eq: [{ "%": [epoche, <.log_every] }, 0] }
+                      then:
+                        - decl: [lv_wert, f32, { call: [verlust.get, 0] }]
+                        # `verlust` IST schon der mittlere Fehler: der Fehler
+                        # wurde mit 1/sqrt(n) skaliert, fehlerᵀ·fehler ist
+                        # also die Summe der Quadrate GETEILT durch n.  Noch
+                        # einmal durch n geteilt log das 1,14e-06, wo in
+                        # Wahrheit 0,047 steht -- ein scheinbarer Fortschritt,
+                        # der keiner war (20.11.2026).
+                        - decl: [je_zeile, f32, lv_wert]
+                        - call: [log.info, "  Epoche ${epoche}/${<.n_epochs} Verlust je Zeile ${je_zeile}"]
+            - set: [<.letzte_gew, gew]
+            - set: [<.letzte_gew2, gew2]
+            - call: [<.kopf.kopf_setzen, gew, gew2]
+            - call: [tensor.save, gew, chance_kopf_speicher, "kopf_w"]
+            - call: [tensor.save, gew2, chance_kopf_speicher, "kopf_w2"]
+            - call: [log.info, "Kopf gesichert → '${chance_kopf_speicher}'"]
+
+      # Abnahme auf dem Teil, der NICHT trainiert wurde.
+      - def:
+          name: bewerten
+          access: public
+          args: [[test_teil, i32], [was, string]]
+          body:
+            - decl: [n_z, i32, { call: [<.wie_viele, test_teil] }]
+            - if: { condition: { lt: [n_z, 1] }, then: [{ call: [log.warn, "${was}: keine Zeilen"] }, { return: 0 }] }
+            - call: [tensor.begin_graph]
+            - decl: [merk, tensor, { call: [<.stapel, test_teil] }]
+            - decl: [ziel, tensor, { call: [<.ziel_spalte, test_teil] }]
+            - decl: [vor_a, tensor, { call: [tensor.matmul, merk, <.letzte_gew] }]
+            - decl: [akt_a, tensor, { call: [tensor.relu, vor_a] }]
+            - decl: [eins_a, tensor, { call: [tensor.ones, n_z, 1] }]
+            - decl: [mit_a, tensor, { call: [tensor.concat, akt_a, eins_a, 1] }]
+            - decl: [roh, tensor, { call: [tensor.matmul, mit_a, <.letzte_gew2] }]
+            - decl: [summe_f, f32, 0.0]
+            - decl: [summe_z, f32, 0.0]
+            - decl: [quad_z, f32, 0.0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_z] }
+                body:
+                  - decl: [ist, f32, { call: [roh.get, idx] }]
+                  - decl: [soll, f32, { call: [ziel.get, idx] }]
+                  - decl: [diff, f32, { "-": [ist, soll] }]
+                  - set: [summe_f, { "+": [summe_f, { "*": [diff, diff] }] }]
+                  - set: [summe_z, { "+": [summe_z, soll] }]
+                  - set: [quad_z, { "+": [quad_z, { "*": [soll, soll] }] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [n_f, f32, n_z]
+            - decl: [mse, f32, { "/": [summe_f, n_f] }]
+            - decl: [mittel, f32, { "/": [summe_z, n_f] }]
+            - decl: [streu, f32, { "-": [{ "/": [quad_z, n_f] }, { "*": [mittel, mittel] }] }]
+            - decl: [erkl, f32, 0.0]
+            - if: { condition: { gt: [streu, 0.0] }, then: [{ set: [erkl, { "-": [1.0, { "/": [mse, streu] }] }] }] }
+            - call: [log.info, "${was}: ${n_z} Zeilen · RMSE ${{ call: [math.sqrt, mse] }} · erklaerte Streuung ${erkl}"]
+
+      # Tragen die Merkmale ueberhaupt Unterschiede?  Ohne Streuung in der
+      # Eingabe kann kein Kopf etwas lernen -- das waere dann nicht der Kopf,
+      # sondern die Darstellung.
+      - def:
+          name: merkmale_pruefen
+          access: public
+          args: []
+          body:
+            - decl: [summe, f32, 0.0]
+            - decl: [quad, f32, 0.0]
+            - decl: [spalte, i32, 0]
+            - decl: [streu_ges, f32, 0.0]
+            - while:
+                condition: { lt: [spalte, <.d_dim] }
+                body:
+                  - set: [summe, 0.0]
+                  - set: [quad, 0.0]
+                  - decl: [idx, i32, 0]
+                  - while:
+                      condition: { lt: [idx, <.zahl] }
+                      body:
+                        - decl: [wert, f32, { at: [<.merkmale, { "+": [{ "*": [idx, <.d_dim] }, spalte] }] }]
+                        - set: [summe, { "+": [summe, wert] }]
+                        - set: [quad, { "+": [quad, { "*": [wert, wert] }] }]
+                        - set: [idx, { "+": [idx, 1] }]
+                  - decl: [n_f, f32, <.zahl]
+                  - decl: [mit, f32, { "/": [summe, n_f] }]
+                  - decl: [var, f32, { "-": [{ "/": [quad, n_f] }, { "*": [mit, mit] }] }]
+                  - if: { condition: { gt: [var, 0.0] }, then: [{ set: [streu_ges, { "+": [streu_ges, { call: [math.sqrt, var] }] }] }] }
+                  - set: [spalte, { "+": [spalte, 1] }]
+            - decl: [d_f, f32, <.d_dim]
+            - decl: [im_mittel, f32, { "/": [streu_ges, d_f] }]
+            - call: [log.info, "Merkmale: mittlere Streuung je Spalte ${im_mittel}"]
+            # Abstand zweier sehr verschiedener Zeilen.
+            - if:
+                condition: { gt: [<.zahl, 3] }
+                then:
+                  - decl: [dist, f32, 0.0]
+                  - decl: [sdx, i32, 0]
+                  - while:
+                      condition: { lt: [sdx, <.d_dim] }
+                      body:
+                        - decl: [a_w, f32, { at: [<.merkmale, sdx] }]
+                        - decl: [b_w, f32, { at: [<.merkmale, { "+": [{ "*": [3, <.d_dim] }, sdx] }] }]
+                        - decl: [dif, f32, { "-": [a_w, b_w] }]
+                        - set: [dist, { "+": [dist, { "*": [dif, dif] }] }]
+                        - set: [sdx, { "+": [sdx, 1] }]
+                  - decl: [weit, f32, { call: [math.sqrt, dist] }]
+                  - call: [log.info, "Abstand Zeile 0 zu Zeile 3: ${weit}"]
+
+      # ── Encoder-Training ────────────────────────────────────────────────
+      # Je Zeile EIN Vorwaerts- und Rueckwaertsschritt durch den Transformer.
+      # Teuer, aber es ist der einzige Weg, dem Encoder die Paarungen
+      # beizubringen -- die eingefrorene Fassung traegt sie nicht (gemessen:
+      # erklaerte Streuung 0,05 gegen 0,78 des alten Kopfes).
+      - def:
+          name: trainiere_encoder
+          access: public
+          args: []
+          body:
+            - decl: [h_dim, i32, <.kopf.verborgen_dim]
+            - decl: [gew, tensor, { call: [tensor.randn_ex, 0.0, 0.05, <.d_dim, h_dim] }]
+            - decl: [gew2, tensor, { call: [tensor.randn_ex, 0.0, 0.05, { "+": [h_dim, 1] }, 1] }]
+            - call: [gew.set_requires_grad, 1]
+            - call: [gew2.set_requires_grad, 1]
+            - decl: [m_w, tensor, { call: [tensor.zeros, <.d_dim, h_dim] }]
+            - decl: [v_w, tensor, { call: [tensor.zeros, <.d_dim, h_dim] }]
+            - decl: [m_2, tensor, { call: [tensor.zeros, { "+": [h_dim, 1] }, 1] }]
+            - decl: [v_2, tensor, { call: [tensor.zeros, { "+": [h_dim, 1] }, 1] }]
+            - call: [<.kopf.kopf_setzen, gew, gew2]
+            - call: [log.info, "Encoder-Training: ${<.folgen.len} Folgen, ${<.n_epochs} Epochen"]
+            - decl: [schritt_nr, i32, 0]
+            - decl: [epoche, i32, 0]
+            - while:
+                condition: { lt: [epoche, <.n_epochs] }
+                body:
+                  - set: [epoche, { "+": [epoche, 1] }]
+                  - decl: [summe, f32, 0.0]
+                  - decl: [gezaehlt, i32, 0]
+                  - decl: [idx, i32, 0]
+                  - while:
+                      condition: { lt: [idx, <.folgen.len] }
+                      body:
+                        - decl: [ids, list<i32>, { at: [<.folgen, idx] }]
+                        - decl: [soll, f32, { at: [<.ziele, idx] }]
+                        - decl: [test, i32, { at: [<.ist_test, idx] }]
+                        - set: [idx, { "+": [idx, 1] }]
+                        - if:
+                            condition: { "&&": [{ eq: [test, 0] }, { gt: [ids.len, 2] }] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              - decl: [mrk, tensor, { call: [<.kopf.merkmal_ids, ids] }]
+                              - decl: [vor, tensor, { call: [tensor.matmul, mrk, gew] }]
+                              - decl: [aktiv, tensor, { call: [tensor.relu, vor] }]
+                              - decl: [eins_s, tensor, { call: [tensor.ones, 1, 1] }]
+                              - decl: [mit_eins, tensor, { call: [tensor.concat, aktiv, eins_s, 1] }]
+                              - decl: [roh, tensor, { call: [tensor.matmul, mit_eins, gew2] }]
+                              - decl: [ziel_t, tensor, { call: [tensor.zeros, 1, 1] }]
+                              - call: [ziel_t.set, 0, soll]
+                              - decl: [fehler, tensor, { call: [tensor.sub, roh, ziel_t] }]
+                              - decl: [quad, tensor, { call: [tensor.mul, fehler, fehler] }]
+                              - call: [tensor.backward, quad]
+                              - set: [schritt_nr, { "+": [schritt_nr, 1] }]
+                              - call: [tensor.adam_step, gew, m_w, v_w, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, schritt_nr]
+                              - call: [tensor.adam_step, gew2, m_2, v_2, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, schritt_nr]
+                              - call: [gew.zero_grad]
+                              - call: [gew2.zero_grad]
+                              - call: [<.kopf.encoder_schritt, <.learn_rate]
+                              - set: [summe, { "+": [summe, { call: [quad.get, 0] }] }]
+                              - set: [gezaehlt, { "+": [gezaehlt, 1] }]
+                  - decl: [n_g, f32, gezaehlt]
+                  - decl: [mittel_v, f32, { "/": [summe, n_g] }]
+                  - call: [log.info, "  Epoche ${epoche}/${<.n_epochs}: ${gezaehlt} Zeilen, Verlust ${mittel_v}"]
+                  - call: [tensor.save, gew, chance_kopf_speicher, "kopf_w"]
+                  - call: [tensor.save, gew2, chance_kopf_speicher, "kopf_w2"]
+                  # Wozu diese Gewichte gehoeren (Spec
+                  # modell_manifest_2026-11-20.md).
+                  - decl: [satz, ManifestSatz]
+                  - set: [satz.wortschatz, { call: [<.kopf.fge.wortschatz_fp] }]
+                  - set: [satz.n_marken,   <.kopf.n_wort]
+                  - set: [satz.d_wert,     <.kopf.mdl.d_modell]
+                  - set: [satz.grundlage,  { call: [<.kopf.fge.wortschatz_fp] }]
+                  - set: [satz.korpus,     { call: [manifest_fp_datei, "data/combat.txt"] }]
+                  - set: [satz.zeit,       { call: [time.now] }]
+                  - set: [satz.trainer,    "train_chance_kopf"]
+                  - call: [manifest_ablegen, chance_kopf_speicher, satz]
+                  - call: [<.kopf.encoder_sichern]
+                  - call: [log.info, "  Kopf + Encoder gesichert → '${chance_kopf_speicher}' / '${chance_encoder_speicher}'"]
+                  # Die Abnahme stand bisher NACH allen Epochen -- bei 1500 Epochen von
+                  # je 5,6 Minuten wurde sie nie erreicht.  Der zurueckgehaltene Teil
+                  # wird darum jede Epoche gemessen: nur so ist zu sehen, ob der Lauf
+                  # noch besser wird oder nur noch den Trainingsteil auswendig lernt.
+                  - call: [<.bewerten_encoder, 1, "  Abnahme nach Epoche ${epoche}"]
+            - set: [<.letzte_gew, gew]
+            - set: [<.letzte_gew2, gew2]
+
+      # Abnahme im Encoder-Modus: je Folge einmal vorwaerts, ohne Gradient.
+      - def:
+          name: bewerten_encoder
+          access: public
+          args: [[test_teil, i32], [was, string]]
+          body:
+            - decl: [summe_f, f32, 0.0]
+            - decl: [summe_z, f32, 0.0]
+            - decl: [quad_z, f32, 0.0]
+            - decl: [zahl_z, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.folgen.len] }
+                body:
+                  - decl: [ids, list<i32>, { at: [<.folgen, idx] }]
+                  - decl: [soll, f32, { at: [<.ziele, idx] }]
+                  - decl: [test, i32, { at: [<.ist_test, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ eq: [test, test_teil] }, { gt: [ids.len, 2] }] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [mrk, tensor, { call: [<.kopf.merkmal_ids, ids] }]
+                        - decl: [ist, f32, { call: [<.kopf.rechnen, mrk] }]
+                        - decl: [diff, f32, { "-": [ist, soll] }]
+                        - set: [summe_f, { "+": [summe_f, { "*": [diff, diff] }] }]
+                        - set: [summe_z, { "+": [summe_z, soll] }]
+                        - set: [quad_z, { "+": [quad_z, { "*": [soll, soll] }] }]
+                        - set: [zahl_z, { "+": [zahl_z, 1] }]
+            - if: { condition: { lt: [zahl_z, 1] }, then: [{ return: 0 }] }
+            - decl: [n_f, f32, zahl_z]
+            - decl: [mse, f32, { "/": [summe_f, n_f] }]
+            - decl: [mittel, f32, { "/": [summe_z, n_f] }]
+            - decl: [streu, f32, { "-": [{ "/": [quad_z, n_f] }, { "*": [mittel, mittel] }] }]
+            - decl: [erkl, f32, 0.0]
+            - if: { condition: { gt: [streu, 0.0] }, then: [{ set: [erkl, { "-": [1.0, { "/": [mse, streu] }] }] }] }
+            - decl: [rmse, f32, { call: [math.sqrt, mse] }]
+            - call: [log.info, "${was}: ${zahl_z} Zeilen · RMSE ${rmse} · erklaerte Streuung ${erkl}"]
+
+      - def:
+          name: run
+          access: public
+          args: []
+          body:
+            - call: [<.wrf.setze, 20261115]
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "CS_ENCODER"] }, 1] }
+                then: [{ set: [<.mit_encoder, 1] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "CS_ZEILEN"] }, 1] }
+                then:
+                  - decl: [z_txt, string, { call: [umg.get, "CS_ZEILEN"] }]
+                  - set: [<.grenze, { call: [z_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "CS_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "CS_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - decl: [ok_k, i32, { call: [<.kopf.init] }]
+            - if: { condition: { neq: [ok_k, 1] }, then: [{ call: [log.error, "ChanceKopf nicht bereit"] }, { return: 0 }] }
+            - set: [<.d_dim, { call: [<.kopf.breite] }]
+            - call: [log.info, "ChanceKopf: d=${<.d_dim}, Wortschatz ${<.kopf.n_wort}"]
+            # Loesen die Marken ueberhaupt auf?  Ohne das steht in jeder
+            # Folge nur die Aufgabenmarke, und alle Merkmale sind gleich.
+            - decl: [probe_ids, list<i32>, { call: [<.kopf.ids_von, "edged mud-caked terrifying massive silk stone aether", "shock-aspect minimal-threat guarding"] }]
+            - call: [log.info, "Probefolge: ${probe_ids.len} Token (erwartet 12: 7 + Trenner + 3 + Aufgabe)"]
+            - call: [<.zusatz_laden]
+            - call: [<.umfeld_laden]
+            - call: [<.lies_korpus, "data/combat.txt"]
+            - if: { condition: { lt: [<.zahl, 10] }, then: [{ call: [log.error, "zu wenig Merkmale"] }, { return: 0 }] }
+            - if:
+                condition: { eq: [<.mit_encoder, 1] }
+                then:
+                  # Eigener Speicher fuer die Encoder-Gewichte: `init` hat die
+                  # bestehenden als STARTPUNKT geladen, ab jetzt geht jedes
+                  # Sichern woanders hin.  Der laufende Transformer bleibt,
+                  # wie er ist.
+                  - call: [<.kopf.encoder_speicher_setzen, chance_encoder_speicher]
+                  - set: [<.learn_rate, 0.0005]
+                  - call: [<.trainiere_encoder]
+                  - call: [<.bewerten_encoder, 0, "Training"]
+                  - call: [<.bewerten_encoder, 1, "Abnahme (nicht trainiert)"]
+                  - return: 0
+            - call: [<.merkmale_pruefen]
+            - call: [<.trainiere]
+            - call: [<.bewerten, 0, "Training"]
+            - call: [<.bewerten, 1, "Abnahme (nicht trainiert)"]

@@ -1,0 +1,21 @@
+scroll
+tome
+codex
+tablet
+etching
+diagram
+formula
+pattern
+manuscript
+parchment
+sketch
+schematic
+blueprint
+ledger
+treatise
+
+# tech / data-realm
+data_blueprint
+schematic_disk
+holo_pattern
+code_fragment

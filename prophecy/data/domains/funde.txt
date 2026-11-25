@@ -1,0 +1,53 @@
+# Domaenen-Reihenfolge des Korpus `funde`.
+# Sie entscheidet, auf welchen Atlas-Schluessel ein blankes Wort zeigt
+# (corpus_loader parse_priority_header).  Uebernommen aus dem Kopf der
+# bisherigen Datei, damit kein Wort seine Domaene verliert -- gekuerzt hatte
+# ich sie am 21.11.2026, und das Korpus-Gate fand sofort 94 Woerter ohne Token.
+# Eine Zeile je Domaene, in dieser Reihenfolge.
+terrain:terrain_only_tags
+actions:base_actions
+skills:starter_skills
+weather:weather_only_tags
+zone:zone_tags
+harvestables
+portals
+items:item_only_tags
+enemies
+npcs
+locked_things
+cross:element
+common:common_tags
+items:universal_tags
+items:armor_tags
+skills
+portals:stability
+items:craft_recipe_tags
+skills:base_skills
+realm:realm_tags
+pets
+pets:pet_tags
+diseases
+items:weapon_tags
+items:ring_tags
+synthetic:cluster_extras
+npcs:personality
+harvestables:harvest_process
+growables
+locked_things:lock_kind
+items:tool
+items:starter_items
+items:craft_material
+items:craft_materials:metal
+items:craft_materials:wood
+items:craft_materials:fiber
+items:craft_materials:gem
+items:craft_materials:liquid
+items:craft_materials:tech
+items:craft_materials:essence
+items:craft_materials:herb
+items:craft_materials:animal
+items:craft_materials:stone
+items:craft_materials:mineral
+items:craft_materials:quantum
+items:craft_materials:fungus
+items:craft_materials:food

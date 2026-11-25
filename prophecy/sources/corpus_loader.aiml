@@ -1,0 +1,431 @@
+# Prophecy Corpus-Loader.
+#
+# Liest ein Korpus-File (combat.txt, items.txt, discoveries.txt, ...) und
+# resolved jeden Token via prophecy_atlas zu einem (kind, domain, name)-
+# Tupel.  Liefert Stats: total / resolved / unresolved + Top-Unresolved-
+# Sample.
+#
+# Korpus-Files deklarieren ihre Domain-Priority im Header:
+#   # @domain_priority: items:armor_tags, items:weapon_tags, common, material
+# Reihenfolge zählt — erste Domain die matched gewinnt.
+#
+# Importable für künftige Foundation-Trainings-Loops.
+
+- import: "prophecy/sources/model.aiml"
+
+# ── Skip-Filter: nur Separatoren + Counts + Floats ───────────────────────────
+# Record-Marker (def/recipe/skill/discover/sample) bleiben drin und werden
+# vom load_file State-Machine behandelt um die nachfolgenden Row-IDs zu
+# überspringen.
+- def:
+    name: is_skip_token
+    args: [[tok_str, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [tok_str.len, 0] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "="] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "|"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "-"] }, then: [{ return: 1 }] }
+      # Counts wie x1, x2, x3, x4, x5, x10 — Multipliers in Recipe-Lines
+      - if: { condition: { eq: [tok_str, "x1"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x2"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x3"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x4"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x5"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x6"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x7"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x8"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x9"] },  then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x10"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x11"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x12"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x13"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x14"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x15"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x16"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x17"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x18"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x19"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x20"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x21"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x22"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x23"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x24"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x25"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x26"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x27"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x28"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x29"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "x30"] }, then: [{ return: 1 }] }
+      # Recipe-Selbst-Referenzen (Output-IDs in sample-lines)
+      - decl: [is_rec_id, i32, { call: [tok_str.starts_with, "recipe-"] }]
+      - if: { condition: { eq: [is_rec_id, 1] }, then: [{ return: 1 }] }
+      # Floats (combat-scores) wie 0.40, 0.55, 1.0
+      - decl: [is_f0, i32, { call: [tok_str.starts_with, "0."] }]
+      - if: { condition: { eq: [is_f0, 1] }, then: [{ return: 1 }] }
+      - decl: [is_f1, i32, { call: [tok_str.starts_with, "1."] }]
+      - if: { condition: { eq: [is_f1, 1] }, then: [{ return: 1 }] }
+      # Bracket-Annotations [name=X,type=Y] aus combat.txt
+      - decl: [is_lbrack, i32, { call: [tok_str.starts_with, "["] }]
+      - if: { condition: { eq: [is_lbrack, 1] }, then: [{ return: 1 }] }
+      - decl: [is_rbrack, i32, { call: [tok_str.ends_with, "]"] }]
+      - if: { condition: { eq: [is_rbrack, 1] }, then: [{ return: 1 }] }
+      - decl: [is_name_eq, i32, { call: [tok_str.starts_with, "name="] }]
+      - if: { condition: { eq: [is_name_eq, 1] }, then: [{ return: 1 }] }
+      - decl: [is_type_eq, i32, { call: [tok_str.starts_with, "type="] }]
+      - if: { condition: { eq: [is_type_eq, 1] }, then: [{ return: 1 }] }
+      - return: 0
+
+# Row-Marker mit nachfolgender Skip-Count (recipe-id ist bereits via
+# is_skip_token gefiltert, x1 auch — also pending=1 reicht für recipe um
+# nur den output-name zu skippen):
+#   def      → 1 (row-id)
+#   recipe   → 1 (output-name; row-id + count separat gefiltert)
+#   skill    → -1 (Rest-der-Zeile: hat prose-description die nicht embedded werden soll)
+#   discover → 0 (col-1 sind echte Tags)
+#   sample   → 0 (col-1 sind echte input-tokens)
+- def:
+    name: skip_count_after_marker
+    args: [[tok_str, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [tok_str, "def"] },      then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "recipe"] },   then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "skill"] },    then: [{ return: -1 }] }
+      - return: 0
+
+- def:
+    name: is_record_marker
+    args: [[tok_str, string]]
+    return: i32
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [tok_str, "def"] },      then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "recipe"] },   then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "skill"] },    then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "discover"] }, then: [{ return: 1 }] }
+      - if: { condition: { eq: [tok_str, "sample"] },   then: [{ return: 1 }] }
+      - return: 0
+
+# Spalten am Rand abschneiden.  Fuer die beiden Fertigkeits-Korpora:
+#   sample | <Eingabe> | <Rubrik> | <skill-id>
+#   combat | <Eingabe> | <skill-id>
+# Die erste Spalte nennt die AUFGABE, die letzte das LABEL -- beides gehoert
+# nicht in einen Beutel, den das Vortraining rekonstruieren soll (sonst lernt
+# die Einbettung das Label als Zusammenhang seiner eigenen Eingabe).
+- def:
+    name: spalten_schnitt
+    args: [[text, string], [erste, i32], [letzte, i32]]
+    return: string
+    body:
+      - decl: [spalten, list<string>, { call: [text.split, "|"] }]
+      - decl: [von, i32, 0]
+      - decl: [bis, i32, spalten.len]
+      - if: { condition: { neq: [erste, 0] }, then: [{ set: [von, 1] }] }
+      - if: { condition: { neq: [letzte, 0] }, then: [{ set: [bis, { "-": [bis, 1] }] }] }
+      - if: { condition: { ge: [von, bis] }, then: [{ return: "" }] }
+      - decl: [raus, string, ""]
+      - decl: [idx, i32, von]
+      - while:
+          condition: { lt: [idx, bis] }
+          body:
+            - decl: [eine, string, { at: [spalten, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { eq: [raus.len, 0] }
+                then: [{ set: [raus, eine] }]
+                else: [{ set: [raus, "${raus}|${eine}"] }]
+      - return: raus
+
+# Tokenizer: split line auf | → , → whitespace und trim.  Filter applied.
+- def:
+    name: tokenize_line
+    args: [[ln_str, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - if: { condition: { eq: [ln_str.len, 0] }, then: [{ return: out }] }
+      - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+      - decl: [n_col, i32, cols.len]
+      - decl: [c_idx, i32, 0]
+      - while:
+          condition: { lt: [c_idx, n_col] }
+          body:
+            - decl: [col_str, string, { at: [cols, c_idx] }]
+            - decl: [items_in_col, list<string>, { call: [col_str.split, ","] }]
+            - decl: [n_it, i32, items_in_col.len]
+            - decl: [i_idx, i32, 0]
+            - while:
+                condition: { lt: [i_idx, n_it] }
+                body:
+                  - decl: [item_str, string, { at: [items_in_col, i_idx] }]
+                  - decl: [words_in_item, list<string>, { call: [item_str.split, " "] }]
+                  - decl: [n_wo, i32, words_in_item.len]
+                  - decl: [w_idx, i32, 0]
+                  - while:
+                      condition: { lt: [w_idx, n_wo] }
+                      body:
+                        - decl: [raw, string, { at: [words_in_item, w_idx] }]
+                        - decl: [tok_clean, string, { call: [raw.trim] }]
+                        - decl: [skip_flag, i32, { call: [is_skip_token, tok_clean] }]
+                        - if:
+                            condition: { eq: [skip_flag, 0] }
+                            then: [{ call: [out.push, tok_clean] }]
+                        - set: [w_idx, { "+": [w_idx, 1] }]
+                  - set: [i_idx, { "+": [i_idx, 1] }]
+            - set: [c_idx, { "+": [c_idx, 1] }]
+      - return: out
+
+# Helper: prüft ob eine Zeile ein Header-Comment mit @domain_priority ist.
+# Erwartet Format: "# @domain_priority: <dom1>, <dom2>, ..."
+- def:
+    name: parse_priority_header
+    args: [[ln_str, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - decl: [starts_hash, i32, { call: [ln_str.starts_with, "#"] }]
+      - if: { condition: { neq: [starts_hash, 1] }, then: [{ return: out }] }
+      - decl: [contains_anno, i32, { call: [ln_str.starts_with, "# @domain_priority:"] }]
+      - if:
+          condition: { neq: [contains_anno, 1] }
+          then: [{ return: out }]
+      - decl: [parts, list<string>, { call: [ln_str.split, ":"] }]
+      - if: { condition: { lt: [parts.len, 2] }, then: [{ return: out }] }
+      - decl: [tail, string, { at: [parts, 1] }]
+      # tail kann noch ":" enthalten (z.B. items:armor_tags) — rejoin der weiteren parts
+      - decl: [idx, i32, 2]
+      - while:
+          condition: { lt: [idx, parts.len] }
+          body:
+            - decl: [more, string, { at: [parts, idx] }]
+            - set: [tail, "${tail}:${more}"]
+            - set: [idx, { "+": [idx, 1] }]
+      - decl: [doms, list<string>, { call: [tail.split, ","] }]
+      - decl: [n_dom, i32, doms.len]
+      - decl: [d_idx, i32, 0]
+      - while:
+          condition: { lt: [d_idx, n_dom] }
+          body:
+            - decl: [raw_dom, string, { at: [doms, d_idx] }]
+            - decl: [trim_dom, string, { call: [raw_dom.trim] }]
+            - if:
+                condition: { gt: [trim_dom.len, 0] }
+                then: [{ call: [out.push, trim_dom] }]
+            - set: [d_idx, { "+": [d_idx, 1] }]
+      - return: out
+
+# ── CorpusLoader-Klasse ──────────────────────────────────────────────────────
+- class:
+    name: CorpusLoader
+    members:
+      - [atlas,              Kv<string:TagAtlasEntry>]
+      - [current_priority,   list<string>]
+      - [count_lines,        i32, 0]
+      - [count_tokens,       i32, 0]
+      - [count_resolved,     i32, 0]
+      - [count_unresolved,   i32, 0]
+      - [unresolved_counts,  map<string:i32>]
+      - [unresolved_order,   list<string>]
+      # Bag-Collection (für Foundation-Pretrain): jede Zeile resolved-keys
+      # wird zu einem space-separated bag string gesammelt.
+      - [collect_bags,       i32, 0]
+      # Randspalten wegschneiden (Aufgabenwort vorn, Label hinten).
+      - [schnitt_erste,      i32, 0]
+      - [schnitt_letzte,     i32, 0]
+      - [collected_bags,     list<string>]
+      - [current_bag,        string, ""]
+    methods:
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - decl: [n_prio, i32, <.current_priority.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [<.current_priority, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - decl: [hit_tag, i32, { call: [<.atlas.has, key_tag] }]
+                  - if:
+                      condition: { eq: [hit_tag, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - decl: [hit_name, i32, { call: [<.atlas.has, key_name] }]
+                  - if:
+                      condition: { eq: [hit_name, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - decl: [hit_adj, i32, { call: [<.atlas.has, key_adj] }]
+                  - if:
+                      condition: { eq: [hit_adj, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      - def:
+          name: bump_unresolved
+          args: [[tok_str, string]]
+          body:
+            - decl: [had_key, i32, { call: [<.unresolved_counts.contains, tok_str] }]
+            - if:
+                condition: { neq: [had_key, 1] }
+                then: [{ call: [<.unresolved_order.push, tok_str] }]
+            - decl: [cur, i32, { call: [<.unresolved_counts.get, tok_str] }]
+            - call: [<.unresolved_counts.put, tok_str, { "+": [cur, 1] }]
+
+      - def:
+          name: load_file
+          args: [[file_p, path]]
+          body:
+            - decl: [file_str, string, { call: [file_p.to_string] }]
+            - call: [log.info, "Loading corpus: ${file_str}"]
+            - decl: [text, string, { call: [io.read_file, file_str] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.warn, "  empty or missing: ${file_str}"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln, i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  - decl: [maybe_hdr, list<string>, { call: [parse_priority_header, ln_str] }]
+                  - if:
+                      condition: { gt: [maybe_hdr.len, 0] }
+                      then:
+                        - set: [<.current_priority, maybe_hdr]
+                        - call: [log.info, "  applied domain_priority: ${maybe_hdr.len} domains"]
+                  - decl: [is_comment, i32, { call: [ln_str.starts_with, "#"] }]
+                  - if:
+                      condition: { "&&": [{ gt: [ln_str.len, 0] }, { neq: [is_comment, 1] }] }
+                      then:
+                        - set: [<.count_lines, { "+": [<.count_lines, 1] }]
+                        - set: [<.current_bag, ""]
+                        - decl: [zeile_roh, string, ln_str]
+                        - if:
+                            condition: { "||": [{ neq: [<.schnitt_erste, 0] }, { neq: [<.schnitt_letzte, 0] }] }
+                            then: [{ set: [zeile_roh, { call: [spalten_schnitt, ln_str, <.schnitt_erste, <.schnitt_letzte] }] }]
+                        - decl: [toks, list<string>, { call: [tokenize_line, zeile_roh] }]
+                        - decl: [n_tok, i32, toks.len]
+                        - decl: [t_idx, i32, 0]
+                        # pending_skips:  0 = normal,  >0 = skip N,  <0 = skip rest of line
+                        - decl: [pending_skips, i32, 0]
+                        - while:
+                            condition: { lt: [t_idx, n_tok] }
+                            body:
+                              - decl: [tok_str, string, { at: [toks, t_idx] }]
+                              - decl: [is_marker, i32, { call: [is_record_marker, tok_str] }]
+                              - if:
+                                  condition: { lt: [pending_skips, 0] }
+                                  then: []   # skip rest of line, do nothing
+                                  else:
+                                    - if:
+                                        condition: { gt: [pending_skips, 0] }
+                                        then:
+                                          - set: [pending_skips, { "-": [pending_skips, 1] }]
+                                        else:
+                                          - if:
+                                              condition: { eq: [is_marker, 1] }
+                                              then:
+                                                - decl: [n_skip, i32, { call: [skip_count_after_marker, tok_str] }]
+                                                - set: [pending_skips, n_skip]
+                                              else:
+                                                - set: [<.count_tokens, { "+": [<.count_tokens, 1] }]
+                                                - decl: [key, string, { call: [<.resolve_token, tok_str] }]
+                                                - if:
+                                                    condition: { gt: [key.len, 0] }
+                                                    then:
+                                                      - set: [<.count_resolved, { "+": [<.count_resolved, 1] }]
+                                                      - if:
+                                                          condition: { eq: [<.collect_bags, 1] }
+                                                          then:
+                                                            - if:
+                                                                condition: { gt: [<.current_bag.len, 0] }
+                                                                then: [{ set: [<.current_bag, "${<.current_bag} ${key}"] }]
+                                                                else: [{ set: [<.current_bag, key] }]
+                                                    else:
+                                                      - set: [<.count_unresolved, { "+": [<.count_unresolved, 1] }]
+                                                      - call: [<.bump_unresolved, tok_str]
+                              - set: [t_idx, { "+": [t_idx, 1] }]
+                        - if:
+                            condition: { "&&": [{ eq: [<.collect_bags, 1] }, { gt: [<.current_bag.len, 0] }] }
+                            then: [{ call: [<.collected_bags.push, <.current_bag] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+
+      - def:
+          name: print_stats
+          args: []
+          body:
+            - call: [log.info, ""]
+            - call: [log.info, "════════ Corpus stats ════════"]
+            - call: [log.info, "  lines processed   : ${<.count_lines}"]
+            - call: [log.info, "  total tokens      : ${<.count_tokens}"]
+            - call: [log.info, "  resolved          : ${<.count_resolved}"]
+            - call: [log.info, "  unresolved        : ${<.count_unresolved}"]
+            - call: [log.info, "  unresolved unique : ${<.unresolved_order.len}"]
+            - call: [log.info, ""]
+            - call: [log.info, "Top unresolved tokens (up to 30):"]
+            - decl: [show_n, i32, 30]
+            - if: { condition: { lt: [<.unresolved_order.len, show_n] }, then: [{ set: [show_n, <.unresolved_order.len] }] }
+            - decl: [u_idx, i32, 0]
+            - while:
+                condition: { lt: [u_idx, show_n] }
+                body:
+                  - decl: [u_tok, string, { at: [<.unresolved_order, u_idx] }]
+                  - decl: [u_cnt, i32, { call: [<.unresolved_counts.get, u_tok] }]
+                  - call: [log.info, "  ${u_tok} (×${u_cnt})"]
+                  - set: [u_idx, { "+": [u_idx, 1] }]
+
+# ── Auflösungs-Reihenfolge ablegen und laden ────────────────────────────────
+# Die Reihenfolge gehoert zu den Gewichten: loest die Produktion ein Token in
+# einer anderen Domaene auf als das Training, liest der Kopf ein fremdes
+# Vokabel-Wort.  Am 11.11.2026 betraf das 71 % der Tokens des combat-Korpus
+# (die Inferenz pflegte eine eigene, abweichende Liste).  Darum legt der
+# Trainer den Korpus-Header ab, und die Inferenz laedt ihn.
+- def:
+    name: priority_save
+    args: [[store, string], [prio, list<string>]]
+    body:
+      - decl: [kv_prio, Kv<string:string>, { call: [db.open_kv, store, {persist: true}] }]
+      - decl: [blob, string, ""]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, prio.len] }
+          body:
+            - decl: [dom_str, string, { at: [prio, idx] }]
+            - if:
+                condition: { eq: [idx, 0] }
+                then: [{ set: [blob, dom_str] }]
+                else: [{ set: [blob, "${blob},${dom_str}"] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - call: [kv_prio.set, "domain_priority", blob]
+      - call: [log.info, "domain_priority → '${store}' (${prio.len} Domaenen)"]
+
+- def:
+    name: priority_load
+    args: [[store, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - decl: [kv_prio, Kv<string:string>, { call: [db.open_kv, store, {persist: true}] }]
+      - decl: [blob, string, { call: [kv_prio.get, "domain_priority"] }]
+      - if: { condition: { eq: [blob.len, 0] }, then: [{ return: out }] }
+      - decl: [doms, list<string>, { call: [blob.split, ","] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, doms.len] }
+          body:
+            - decl: [raw_dom, string, { at: [doms, idx] }]
+            - decl: [dom_str, string, { call: [raw_dom.trim] }]
+            - if: { condition: { gt: [dom_str.len, 0] }, then: [{ call: [out.push, dom_str] }] }
+            - set: [idx, { "+": [idx, 1] }]
+      - return: out

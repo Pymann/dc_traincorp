@@ -1,0 +1,212 @@
+# Prophecy Heads — task-specific MLPs over the shared TagEmbedding.
+#
+# Composition pattern:
+#   - BagBackbone        — shared input encoder (bag-of-tags → hidden vec)
+#   - OutputHead interface — one output slot (softmax / BCE / regression)
+#   - Concrete impls:
+#       SoftmaxOutputHead  → categorical (e.g. recipe-id)
+#       BCEOutputHead      → multi-label  (e.g. predicted tags)
+#       RegressionOutputHead → scalar    (e.g. combat-score)
+#
+# A task module (item_head, skill_head, …) instantiates ONE BagBackbone +
+# N OutputHeads. Training is a fixed loop in `train_step` of the module —
+# encode → each head.forward_logits(hidden) → sum losses → backward →
+# adam → zero_grad.
+#
+# This way new heads/tasks reuse:
+#   - Vocab + embedding (from TagEmbedding)
+#   - Backbone MLP (BagBackbone)
+#   - Output adapters via OutputHead interface
+
+- import: "prophecy/sources/output_head.aiml"
+- import: "prophecy/sources/bag_backbone.aiml"
+- import: "prophecy/sources/head_tensors.aiml"
+
+# ── SoftmaxOutputHead — categorical (CE loss) ────────────────────────────────
+- class:
+    name: SoftmaxOutputHead
+    implements: [OutputHead]
+    members:
+      - [head_id_str,   string]
+      - [weights_name,  string, "prophecy_head_outputs"]
+      - [n_outputs_val, i32]
+      - [weight,        tensor]    # hidden × n_outputs
+      - [bias,          tensor]    # n_outputs
+    methods:
+      - def: { name: head_id,   return: string, args: [], body: [{ return: <.head_id_str }] }
+      - def: { name: n_outputs, return: i32,    args: [], body: [{ return: <.n_outputs_val }] }
+      - def:
+          name: init_params
+          args: [[hidden_dim, i32]]
+          return: i32
+          body:
+            - decl: [key_w, string, "${<.head_id_str}_w"]
+            - decl: [key_b, string, "${<.head_id_str}_b"]
+            - set: [<.weight, { call: [head_load_or_randn_2d, <.weights_name, key_w, hidden_dim, <.n_outputs_val, 0.3] }]
+            - set: [<.bias,   { call: [head_load_or_zeros_1d, <.weights_name, key_b, <.n_outputs_val] }]
+            # spec/50 §14.1: geladene Gewichte haben requires_grad=0, solange nur
+            # init_params lief (Inferenz).  Ohne keep sammelt begin_graph sie ein
+            # und forward_logits liest Freigegebenes.
+            - call: [<.weight.keep]
+            - call: [<.bias.keep]
+            - return: 1
+      - def:
+          name: save_params
+          args: []
+          return: i32
+          body:
+            - call: [tensor.save, <.weight, <.weights_name, "${<.head_id_str}_w"]
+            - call: [tensor.save, <.bias,   <.weights_name, "${<.head_id_str}_b"]
+            - return: 1
+      - def:
+          name: requires_grad_on
+          args: []
+          return: i32
+          body:
+            - call: [<.weight.set_requires_grad, 1]
+            - call: [<.bias.set_requires_grad, 1]
+            - return: 1
+      - def:
+          name: forward_logits
+          args: [[hidden, tensor]]
+          return: tensor
+          body:
+            - decl: [mm_tn,   tensor, { call: [tensor.matmul, hidden, <.weight] }]
+            - decl: [mb_tn,  tensor, { call: [tensor.add,    mm_tn,      <.bias] }]
+            - return: mb_tn
+      # CE loss: target_data should be a 1×n_outputs one-hot tensor
+      - def:
+          name: compute_loss
+          args: [[logits, tensor], [target_data, tensor]]
+          return: tensor
+          body:
+            - decl: [probs, tensor, { call: [tensor.softmax, logits, 1] }]
+            - decl: [logp,  tensor, { call: [tensor.log, probs] }]
+            - decl: [tlp,   tensor, { call: [tensor.mul, logp, target_data] }]
+            - decl: [neg,   tensor, { call: [tensor.neg, tlp] }]
+            - decl: [loss,  tensor, { call: [tensor.sum, neg, -1] }]
+            - return: loss
+
+# ── BCEOutputHead — multi-label (BCE-with-logits loss) ───────────────────────
+- class:
+    name: BCEOutputHead
+    implements: [OutputHead]
+    members:
+      - [head_id_str,   string]
+      - [weights_name,  string, "prophecy_head_outputs"]
+      - [n_outputs_val, i32]
+      - [weight,        tensor]
+      - [bias,          tensor]
+    methods:
+      - def: { name: head_id,   return: string, args: [], body: [{ return: <.head_id_str }] }
+      - def: { name: n_outputs, return: i32,    args: [], body: [{ return: <.n_outputs_val }] }
+      - def:
+          name: init_params
+          args: [[hidden_dim, i32]]
+          return: i32
+          body:
+            - set: [<.weight, { call: [head_load_or_randn_2d, <.weights_name, "${<.head_id_str}_w", hidden_dim, <.n_outputs_val, 0.3] }]
+            - set: [<.bias,   { call: [head_load_or_zeros_1d, <.weights_name, "${<.head_id_str}_b", <.n_outputs_val] }]
+            - call: [<.weight.keep]
+            - call: [<.bias.keep]
+            - return: 1
+      - def:
+          name: save_params
+          args: []
+          return: i32
+          body:
+            - call: [tensor.save, <.weight, <.weights_name, "${<.head_id_str}_w"]
+            - call: [tensor.save, <.bias,   <.weights_name, "${<.head_id_str}_b"]
+            - return: 1
+      - def:
+          name: requires_grad_on
+          args: []
+          return: i32
+          body:
+            - call: [<.weight.set_requires_grad, 1]
+            - call: [<.bias.set_requires_grad, 1]
+            - return: 1
+      - def:
+          name: forward_logits
+          args: [[hidden, tensor]]
+          return: tensor
+          body:
+            - decl: [mm_tn,   tensor, { call: [tensor.matmul, hidden, <.weight] }]
+            - decl: [mb_tn,  tensor, { call: [tensor.add,    mm_tn,      <.bias] }]
+            - return: mb_tn
+      # BCE-with-logits: relu(x) - x*y + log(1+exp(-|x|))
+      - def:
+          name: compute_loss
+          args: [[logits, tensor], [target_data, tensor]]
+          return: tensor
+          body:
+            - decl: [r_tn,   tensor, { call: [tensor.relu, logits] }]
+            - decl: [xy_tn,  tensor, { call: [tensor.mul,  logits, target_data] }]
+            - decl: [ax_tn,  tensor, { call: [tensor.abs,  logits] }]
+            - decl: [nax, tensor, { call: [tensor.neg,  ax_tn] }]
+            - decl: [enax, tensor, { call: [tensor.exp, nax] }]
+            - decl: [ones, tensor, { call: [tensor.ones, <.n_outputs_val] }]
+            - decl: [ep1,  tensor, { call: [tensor.add,  enax, ones] }]
+            - decl: [lp_tn,   tensor, { call: [tensor.log,  ep1] }]
+            - decl: [rmxy, tensor, { call: [tensor.sub,  r_tn, xy_tn] }]
+            - decl: [per,  tensor, { call: [tensor.add,  rmxy, lp_tn] }]
+            - decl: [loss, tensor, { call: [tensor.sum,  per, -1] }]
+            - return: loss
+
+# ── RegressionOutputHead — scalar output (MSE loss) ──────────────────────────
+- class:
+    name: RegressionOutputHead
+    implements: [OutputHead]
+    members:
+      - [head_id_str,   string]
+      - [weights_name,  string, "prophecy_head_outputs"]
+      - [n_outputs_val, i32, 1]
+      - [weight,        tensor]
+      - [bias,          tensor]
+    methods:
+      - def: { name: head_id,   return: string, args: [], body: [{ return: <.head_id_str }] }
+      - def: { name: n_outputs, return: i32,    args: [], body: [{ return: <.n_outputs_val }] }
+      - def:
+          name: init_params
+          args: [[hidden_dim, i32]]
+          return: i32
+          body:
+            - set: [<.weight, { call: [head_load_or_randn_2d, <.weights_name, "${<.head_id_str}_w", hidden_dim, <.n_outputs_val, 0.3] }]
+            - set: [<.bias,   { call: [head_load_or_zeros_1d, <.weights_name, "${<.head_id_str}_b", <.n_outputs_val] }]
+            - call: [<.weight.keep]
+            - call: [<.bias.keep]
+            - return: 1
+      - def:
+          name: save_params
+          args: []
+          return: i32
+          body:
+            - call: [tensor.save, <.weight, <.weights_name, "${<.head_id_str}_w"]
+            - call: [tensor.save, <.bias,   <.weights_name, "${<.head_id_str}_b"]
+            - return: 1
+      - def:
+          name: requires_grad_on
+          args: []
+          return: i32
+          body:
+            - call: [<.weight.set_requires_grad, 1]
+            - call: [<.bias.set_requires_grad, 1]
+            - return: 1
+      - def:
+          name: forward_logits
+          args: [[hidden, tensor]]
+          return: tensor
+          body:
+            - decl: [mm_tn,   tensor, { call: [tensor.matmul, hidden, <.weight] }]
+            - decl: [mb_tn,  tensor, { call: [tensor.add,    mm_tn,      <.bias] }]
+            - return: mb_tn
+      # MSE = mean((logits - target)^2). For n_outputs_val=1 this is scalar.
+      - def:
+          name: compute_loss
+          args: [[logits, tensor], [target_data, tensor]]
+          return: tensor
+          body:
+            - decl: [diff, tensor, { call: [tensor.sub, logits, target_data] }]
+            - decl: [sq_tn,   tensor, { call: [tensor.mul, diff, diff] }]
+            - decl: [loss, tensor, { call: [tensor.sum, sq_tn, -1] }]
+            - return: loss

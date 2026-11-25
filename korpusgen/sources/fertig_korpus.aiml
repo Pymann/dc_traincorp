@@ -1,0 +1,275 @@
+# Die zwei Fertigkeits-Korpora.
+#
+#   data/skill_corpus.txt         sample | <Eingabe> | <Rubrik> | <skill-id>
+#   data/combat_skill_corpus.txt  combat | <Eingabe> | <skill-id>
+#
+# Beide Beutel kommen aus den Metadaten der Fertigkeit selbst
+# (prophecy/data/skills/*.yml): Taetigkeit, Fundament, Gegenstaende, Marken,
+# Element, Werkzeug, dazu ein Geschwister aus derselben Rubrik bzw. Kategorie.
+#
+# NEU gegenueber dem Python-Erzeuger (User-Wunsch 12.11.2026, "auch von der
+# Gegnerart sollen erlernte skills abhaengen"): der Kampf-Beutel traegt die
+# GEGNERART und die Aspektmarke des Gegners.  Vorher stand im Korpus keine
+# einzige Gegnermarke -- der Server legte sie zur Laufzeit in den Beutel
+# (build_combat_tag_bag), und der Kopf konnte sie nicht kennen; sie fielen in
+# `tokenize_bag_cskill` still weg.  Darum steht `enemies:combat` jetzt auch in
+# der Domaenen-Reihenfolge der Kopfzeile.
+- import: "korpusgen/sources/topf.aiml"
+- import: "korpusgen/sources/ziehen.aiml"
+
+# Welche Gegnerarten zu einer Kategorie gehoeren.  Lesart: an diesen Gegnern
+# lernt man diese Art von Fertigkeit.
+# Welche Gegnerarten zu einer Kategorie gehoeren.  Lesart: an diesen Gegnern
+# lernt man diese Art von Fertigkeit.
+#
+# Gebaut statt als Literal zurueckgegeben: ein `return: [...]` auf einer
+# Listenfunktion gibt in aiml heute Muell zurueck und stuerzt danach ab
+# (gemessen 20.11.2026, Probe: len=1768256100, dann SIGSEGV in
+# aiml_list_handle_incref).  Befund an aiml, nicht an den Daten.
+- def:
+    name: arten_fuer_kategorie
+    args: [[kategorie, string]]
+    return: list<string>
+    static_off: ["str_cmp"]
+    body:
+      - decl: [raus, list<string>]
+      - if:
+          condition: { eq: [kategorie, "beast"] }
+          then: [{ call: [raus.push, "beast"] }, { call: [raus.push, "beast"] }, { call: [raus.push, "hazard"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "tech"] }
+          then: [{ call: [raus.push, "construct"] }, { call: [raus.push, "construct"] }, { call: [raus.push, "boss"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "nature"] }
+          then: [{ call: [raus.push, "beast"] }, { call: [raus.push, "hazard"] }, { call: [raus.push, "hazard"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "arcane"] }
+          then: [{ call: [raus.push, "wraith"] }, { call: [raus.push, "wraith"] }, { call: [raus.push, "boss"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "elemental"] }
+          then: [{ call: [raus.push, "wraith"] }, { call: [raus.push, "hazard"] }, { call: [raus.push, "beast"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "cataclysm"] }
+          then: [{ call: [raus.push, "boss"] }, { call: [raus.push, "wraith"] }, { call: [raus.push, "construct"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "realmbreaker"] }
+          then: [{ call: [raus.push, "boss"] }, { call: [raus.push, "boss"] }, { call: [raus.push, "wraith"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "ranged"] }
+          then: [{ call: [raus.push, "wraith"] }, { call: [raus.push, "beast"] }, { call: [raus.push, "construct"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "mobility"] }
+          then: [{ call: [raus.push, "beast"] }, { call: [raus.push, "wraith"] }, { call: [raus.push, "hazard"] }, { return: raus }]
+      - if:
+          condition: { eq: [kategorie, "defense"] }
+          then: [{ call: [raus.push, "construct"] }, { call: [raus.push, "beast"] }, { call: [raus.push, "boss"] }, { return: raus }]
+      # Die drei Nahkampf-Kategorien und alles Unbekannte: was zuschlaegt.
+      - call: [raus.push, "beast"]
+      - call: [raus.push, "construct"]
+      - call: [raus.push, "hazard"]
+      - return: raus
+
+# Die Aspektmarke zu einem Element -- dieselbe Zuordnung wie im Chance-Korpus
+# (ASPEKT_ELEMENT, nur umgekehrt gelesen).
+- def:
+    name: aspekt_marke
+    args: [[element, string]]
+    return: string
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [element, "fire"] },   then: [{ return: "fire_aspect" }] }
+      - if: { condition: { eq: [element, "water"] },  then: [{ return: "cold_aspect" }] }
+      - if: { condition: { eq: [element, "air"] },    then: [{ return: "shock_aspect" }] }
+      - if: { condition: { eq: [element, "earth"] },  then: [{ return: "shard_aspect" }] }
+      - if: { condition: { eq: [element, "aether"] }, then: [{ return: "shadow_aspect" }] }
+      - return: ""
+
+- class:
+    name: FertigkeitsKorpus
+    members:
+      - [zie,        ptr<Zieher>, null]
+      - [taetig,     list<string>]          # die sechs Grundtaetigkeiten
+      - [gegner_marken, list<string>]       # prophecy/data/tags/enemies/combat.txt
+      - [zeilen,     list<string>, null, { access: public }]
+      - [domaenen,   list<string>, null, { access: public }]
+    methods:
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          body:
+            - set: [<.zie, { new: Zieher }]
+            - call: [<.zie.start, saat]
+            - set: [<.taetig, { call: [topf_lesen, "prophecy/data/names/actions/base_actions.txt"] }]
+            - set: [<.gegner_marken, { call: [topf_lesen, "prophecy/data/tags/enemies/combat.txt"] }]
+            - call: [log.info, "korpusgen: ${<.taetig.len} Taetigkeiten, ${<.gegner_marken.len} Gegnermarken"]
+
+      # Marken eines Feldes mit Wahrscheinlichkeit und Hoechstzahl in den
+      # Beutel legen.
+      - def:
+          name: dazu
+          access: public
+          args: [[beutel, list<string>], [werte, list<string>], [wahrsch, f32], [hoechstens, i32]]
+          body:
+            - if: { condition: { eq: [werte.len, 0] }, then: [{ return: 0 }] }
+            - if: { condition: { eq: [{ call: [<.zie.muenze, wahrsch] }, 0] }, then: [{ return: 0 }] }
+            - decl: [wie_viele, i32, { call: [<.zie.spanne, 1, hoechstens] }]
+            - decl: [gezogen, list<string>, { call: [<.zie.mehrere, werte, wie_viele] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, gezogen.len] }
+                body:
+                  - call: [beutel.push, { at: [gezogen, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      # Ein Geschwister aus derselben Gruppe -- aber NIE die Fertigkeit selbst.
+      - def:
+          name: geschwister_dazu
+          access: public
+          args: [[beutel, list<string>], [gruppe, list<string>], [selbst, string], [wahrsch, f32]]
+          body:
+            - if: { condition: { le: [gruppe.len, 1] }, then: [{ return: 0 }] }
+            - if: { condition: { eq: [{ call: [<.zie.muenze, wahrsch] }, 0] }, then: [{ return: 0 }] }
+            - decl: [eins, string, { call: [<.zie.eines, gruppe] }]
+            - if: { condition: { "&&": [{ gt: [eins.len, 0] }, { neq: [eins, selbst] }] }, then: [{ call: [beutel.push, eins] }] }
+
+      # ── Eine Zeile des Kampf-Korpus ──
+      - def:
+          name: kampf_zeile
+          access: public
+          args: [[satz, ref<Satz>], [gruppe, list<string>]]
+          return: string
+          body:
+            - decl: [beutel, list<string>]
+            - call: [beutel.push, { call: [<.zie.eines, <.taetig] }]
+            - decl: [fundament, string, { call: [satz_feld, satz, "foundation"] }]
+            - if: { condition: { gt: [fundament.len, 0] }, then: [{ call: [beutel.push, fundament] }] }
+            - decl: [marken, list<string>, { call: [satz_liste, satz, "skill_tags"] }]
+            - call: [<.dazu, beutel, marken, 1.0, 3]
+            - decl: [stuecke, list<string>, { call: [satz_liste, satz, "item_name_required"] }]
+            - call: [<.dazu, beutel, stuecke, 0.85, 1]
+            - decl: [elemente, list<string>, { call: [satz_liste, satz, "element_tags"] }]
+            - call: [<.dazu, beutel, elemente, 0.7, 2]
+            # ── Der Gegner, an dem man das lernt ──
+            - decl: [kategorie, string, { call: [satz_feld, satz, "category"] }]
+            - decl: [arten, list<string>, { call: [arten_fuer_kategorie, kategorie] }]
+            - if:
+                condition: { eq: [{ call: [<.zie.muenze, 0.8] }, 1] }
+                then: [{ call: [beutel.push, { call: [<.zie.eines, arten] }] }]
+            # Hat die Fertigkeit ein Element, kommt der passende Aspekt dazu:
+            # an einem Feuerwesen lernt man Feuerzauber.
+            - if:
+                condition: { "&&": [{ gt: [elemente.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.6] }, 1] }] }
+                then:
+                  - decl: [erst_elem, string, { at: [elemente, 0] }]
+                  - decl: [aspekt, string, { call: [aspekt_marke, erst_elem] }]
+                  - if: { condition: { gt: [aspekt.len, 0] }, then: [{ call: [beutel.push, aspekt] }] }
+            - call: [<.dazu, beutel, <.gegner_marken, 0.75, 2]
+            - call: [<.geschwister_dazu, beutel, gruppe, satz.kennung, 0.35]
+            - decl: [sauber, list<string>, { call: [nur_einmal, beutel] }]
+            - decl: [gemischt, list<string>, { call: [<.zie.mischen, sauber] }]
+            - return: "combat | ${{ call: [zeile_aus, gemischt] }} | ${satz.kennung}"
+
+      # ── Eine Zeile des Entdeckungs-Fertigkeits-Korpus ──
+      - def:
+          name: fertig_zeile
+          access: public
+          args: [[satz, ref<Satz>], [gruppe, list<string>]]
+          return: string
+          body:
+            - decl: [beutel, list<string>]
+            - decl: [taten, list<string>, { call: [satz_liste, satz, "base_actions"] }]
+            - if:
+                condition: { gt: [taten.len, 0] }
+                then: [{ call: [beutel.push, { call: [<.zie.eines, taten] }] }]
+                else: [{ call: [beutel.push, { call: [<.zie.eines, <.taetig] }] }]
+            - decl: [fundament, string, { call: [satz_feld, satz, "foundation"] }]
+            - if:
+                condition: { "&&": [{ gt: [fundament.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.85] }, 1] }] }
+                then: [{ call: [beutel.push, fundament] }]
+            - decl: [stuecke, list<string>, { call: [satz_liste, satz, "item_name_required"] }]
+            - call: [<.dazu, beutel, stuecke, 0.9, 2]
+            - decl: [marken, list<string>, { call: [satz_liste, satz, "skill_tags"] }]
+            - call: [<.dazu, beutel, marken, 0.8, 2]
+            - decl: [elemente, list<string>, { call: [satz_liste, satz, "element_tags"] }]
+            - call: [<.dazu, beutel, elemente, 0.6, 1]
+            - decl: [werkzeug, list<string>, { call: [satz_liste, satz, "tools"] }]
+            - call: [<.dazu, beutel, werkzeug, 0.5, 1]
+            - call: [<.geschwister_dazu, beutel, gruppe, satz.kennung, 0.3]
+            - decl: [sauber, list<string>, { call: [nur_einmal, beutel] }]
+            - decl: [gemischt, list<string>, { call: [<.zie.mischen, sauber] }]
+            - decl: [rubrik, string, { call: [satz_feld, satz, "rubric"] }]
+            - return: "sample | ${{ call: [zeile_aus, gemischt] }} | ${rubrik} | ${satz.kennung}"
+
+      # Alle Kennungen, deren Gruppenfeld denselben Wert hat.
+      - def:
+          name: gruppe_von
+          access: public
+          args: [[saetze, list<Satz>], [feld, string], [wert, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, saetze.len] }
+                body:
+                  - decl: [eins, ref<Satz>, { at: [saetze, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [satz_feld, eins, feld] }, wert] }
+                      then: [{ call: [raus.push, eins.kennung] }]
+            - return: raus
+
+      - def:
+          name: kampf_bauen
+          access: public
+          args: [[je_fertigkeit, i32]]
+          return: i32
+          body:
+            - decl: [saetze, list<Satz>, { call: [metadaten_lesen, "prophecy/data/skills/combat_skill_metadata.yml"] }]
+            - if: { condition: { eq: [saetze.len, 0] }, then: [{ return: 0 }] }
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, saetze.len] }
+                body:
+                  - decl: [satz, ref<Satz>, { at: [saetze, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [kategorie, string, { call: [satz_feld, satz, "category"] }]
+                  - decl: [gruppe, list<string>, { call: [<.gruppe_von, saetze, "category", kategorie] }]
+                  - decl: [lauf, i32, 0]
+                  - while:
+                      condition: { lt: [lauf, je_fertigkeit] }
+                      body:
+                        - call: [<.zeilen.push, { call: [<.kampf_zeile, satz, gruppe] }]
+                        - set: [lauf, { "+": [lauf, 1] }]
+            # Die Domaenen-Reihenfolge liegt als DATEN daneben
+            # (prophecy/data/domains/kampf.txt).
+            - set: [<.domaenen, { call: [topf_lesen, "prophecy/data/domains/kampf.txt"] }]
+            - return: saetze.len
+
+      - def:
+          name: fertig_bauen
+          access: public
+          args: [[je_fertigkeit, i32]]
+          return: i32
+          body:
+            - decl: [saetze, list<Satz>, { call: [metadaten_lesen, "prophecy/data/skills/discover_skill_metadata.yml"] }]
+            - if: { condition: { eq: [saetze.len, 0] }, then: [{ return: 0 }] }
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, saetze.len] }
+                body:
+                  - decl: [satz, ref<Satz>, { at: [saetze, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - decl: [rubrik, string, { call: [satz_feld, satz, "rubric"] }]
+                  - decl: [gruppe, list<string>, { call: [<.gruppe_von, saetze, "rubric", rubrik] }]
+                  - decl: [lauf, i32, 0]
+                  - while:
+                      condition: { lt: [lauf, je_fertigkeit] }
+                      body:
+                        - call: [<.zeilen.push, { call: [<.fertig_zeile, satz, gruppe] }]
+                        - set: [lauf, { "+": [lauf, 1] }]
+            # Die Domaenen-Reihenfolge liegt als DATEN daneben
+            # (prophecy/data/domains/fertigkeiten.txt).
+            - set: [<.domaenen, { call: [topf_lesen, "prophecy/data/domains/fertigkeiten.txt"] }]
+            - return: saetze.len

@@ -1,0 +1,37 @@
+# Universal disease tags — domain-übergreifend, jede Disease kann diese
+# zusätzlich zu den kind-spezifischen tragen.
+
+# Severity-Level
+minor
+moderate
+severe
+critical
+fatal_pending
+
+# Verlauf
+acute
+chronic
+recurring
+progressive
+stable
+remitting
+
+# Verbreitung
+contagious
+non_contagious
+inheritable
+zone_bound
+weather_dependent
+
+# Beeinflussung
+treatable
+hard_to_treat
+incurable
+slows_with_rest
+slows_with_skill
+
+# Sichtbarkeit
+visible_symptoms
+hidden
+late_onset
+immediate_onset

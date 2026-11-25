@@ -1,0 +1,731 @@
+# Prophecy world_entity_head training — 4-output composite head trained on
+# discovergen/data/discoveries.txt.  Matches the original discovergen
+# 4-head architecture but riding on the shared TagEmbedding foundation.
+#
+# Outputs:
+#   1. entity_type  (Softmax CE, 7-way: harvestable | growable | npc | enemy |
+#                                       portal | locked | nothing)
+#   2. tags         (BCE multi-label — entity-process tags)
+#   3. yields       (BCE multi-label — craft-material yield pool)
+#   4. name_tokens  (BCE multi-label — adjective+noun building blocks)
+#
+# Foundation embedding frozen (loaded from prophecy_embedding_weights).
+# Each head + backbone trained with manual Adam + zero_grad.
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/heads.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+- import: "prophecy/sources/aufteilung.aiml"
+
+# ── Vocabulary keys (saved alongside head weights) ───────────────────────────
+- decl: [we_vocab_name, string, "prophecy_world_entity_head_vocab"]
+
+# Wohin die Domaenen-Reihenfolge des Korpus gehoert: zu den Gewichten.
+- decl: [we_priority_name, string, "prophecy_world_entity_priority"]
+
+- class:
+    name: WorldEntityHeadTrainer
+    members:
+      # Hyperparams — n_epochs 40→60 + lr 0.001→0.003 nach mode-collapse-Fix:
+      # name_head konvergierte vorher bei 40 epochs nicht (avg_loss=10.25),
+      # mit re-balanced bucket-corpus + mehr epochs + Faktor-3-lr lernt es jetzt
+      # die (world × name)-Mappings.  60 epochs reichen (loss konvergiert bei
+      # ~13 schon ab E60).  w_name 0.5→1.0 weil das der head ist
+      # den der Discover-Server für Namen nutzt.
+      - [n_epochs,     i32, 60]
+      - [learn_rate,   f32, 0.003]
+      - [adam_b1,      f32, 0.9]
+      - [adam_b2,      f32, 0.999]
+      - [adam_eps,     f32, 0.00000001]
+      - [log_every,    i32, 1]
+      - [save_every,   i32, 10]
+      - [beste_verlust,   f32, 0.0]
+      - [hat_beste,       i32, 0]
+      - [hidden_dim,   i32, 64]
+      # Loss weights — entity_type primary (1.0), name also 1.0 (it's the
+      # head consumed by the Server for display names), aux heads at 0.5.
+      - [w_entity,     f32, 1.0]
+      - [w_tags,       f32, 0.5]
+      - [w_yields,     f32, 0.5]
+      - [w_name,       f32, 1.0]
+      # State
+      - [atlas_kv,     Kv<string:TagAtlasEntry>]
+      - [embedder,     ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
+      - [backbone,     BagBackbone]
+      # Eigener Rumpf NUR fuer die Fundart.  Mit dem gemeinsamen Rumpf wurde
+      # die verborgene Schicht vom Namens-Kopf (451 Ausgaenge) bestimmt, und
+      # der Fundart-Kopf (7 Ausgaenge) kollabierte auf eine einzige Klasse:
+      # am 11.11.2026 sagte er fuer JEDE Eingabe "locked", der Gesamtverlust
+      # stand ab Epoche 3 still.
+      - [et_body,      BagBackbone]
+      - [et_head,      SoftmaxOutputHead]
+      - [tag_head,     BCEOutputHead]
+      - [yield_head,   BCEOutputHead]
+      - [name_head,    BCEOutputHead]
+      # Wieviel vom Korpus kommt ueberhaupt am Modell an?  input_str_to_ids
+      # verwarf bis zum 12.11.2026 jedes nicht aufloesbare Token STILL --
+      # dieselbe blinde Stelle, die den combat_score-Kopf 71 % seiner Tokens
+      # gekostet hat.  Jetzt wird gezaehlt und am Ende gemeldet.
+      - [tok_ges,      i32, 0]
+      - [fehl_atlas,   i32, 0]   # kein Atlas-Schluessel in keiner Domaene
+      - [fehl_vocab,   i32, 0]   # Atlas kennt es, der Einbetter nicht
+      - [fehl_proben,  list<string>]   # die ersten unaufloesbaren, zum Nachsehen
+      # Per-head vocabs
+      - [et_vocab,     list<string>]
+      - [et_index,     map<string:i32>]
+      - [tag_vocab,    list<string>]
+      - [tag_index,    map<string:i32>]
+      - [yield_vocab,  list<string>]
+      - [yield_index,  map<string:i32>]
+      - [name_vocab,   list<string>]
+      - [name_index,   map<string:i32>]
+      # Per-sample state (current_priority + cached ids)
+      - [current_priority, list<string>]
+      - [train_input_ids,  list<list<i32>>]
+      - [train_et_target,  list<i32>]
+      - [train_tag_ids,    list<list<i32>>]
+      - [train_yield_ids,  list<list<i32>>]
+      - [train_name_ids,   list<list<i32>>]
+      # 0 lernen / 1 pruefen / 2 testen (Plan Punkt 7, aufteilung.aiml).
+      - [teil_liste,       list<i32>]
+
+    methods:
+      # ── Vocab helper: add token if missing, return its index ──────────────
+      - def:
+          name: vocab_add
+          args: [[vocab_list, list<string>], [vocab_idx, map<string:i32>], [tok, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [vocab_idx.contains, tok] }, 1] }
+                then: [{ return: { call: [vocab_idx.get, tok] } }]
+            - decl: [new_idx, i32, vocab_list.len]
+            - call: [vocab_list.push, tok]
+            - call: [vocab_idx.put, tok, new_idx]
+            - return: new_idx
+
+      # ── Resolve plain token via current_priority + atlas ──────────────────
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - decl: [n_prio, i32, <.current_priority.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [<.current_priority, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_tag] }, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_name] }, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_adj] }, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      # ── Convert input-token-string → list<i32> embedder vocab ids ─────────
+      - def:
+          name: input_str_to_ids
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [toks, list<string>, { call: [input_str.split, " "] }]
+            - decl: [n_tok, i32, toks.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [raw, string, { at: [toks, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tok.len, 0] }
+                      then:
+                        - set: [<.tok_ges, { "+": [<.tok_ges, 1] }]
+                        - decl: [key, string, { call: [<.resolve_token, tok] }]
+                        - if:
+                            condition: { gt: [key.len, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.embedder.vocab_index.contains, key] }, 1] }
+                                  then:
+                                    - decl: [tid, i32, { call: [<.embedder.vocab_index.get, key] }]
+                                    - call: [out.push, tid]
+                                  else: [{ set: [<.fehl_vocab, { "+": [<.fehl_vocab, 1] }] }]
+                            else:
+                              - set: [<.fehl_atlas, { "+": [<.fehl_atlas, 1] }]
+                              - if:
+                                  condition: { lt: [<.fehl_proben.len, 40] }
+                                  then:
+                                    - decl: [schon_da, i32, 0]
+                                    - decl: [fpos, i32, 0]
+                                    - while:
+                                        condition: { lt: [fpos, <.fehl_proben.len] }
+                                        body:
+                                          - if: { condition: { eq: [{ at: [<.fehl_proben, fpos] }, tok] }, then: [{ set: [schon_da, 1] }] }
+                                          - set: [fpos, { "+": [fpos, 1] }]
+                                    - if: { condition: { eq: [schon_da, 0] }, then: [{ call: [<.fehl_proben.push, tok] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # ── Per-vocab add (no class-member-as-arg pattern — see Note in csv_add_to_vocab) ─
+      - def:
+          name: vocab_add_tag
+          args: [[tok, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.tag_index.contains, tok] }, 1] }
+                then: [{ return: { call: [<.tag_index.get, tok] } }]
+            - decl: [new_idx, i32, <.tag_vocab.len]
+            - call: [<.tag_vocab.push, tok]
+            - call: [<.tag_index.put, tok, new_idx]
+            - return: new_idx
+
+      - def:
+          name: vocab_add_yield
+          args: [[tok, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.yield_index.contains, tok] }, 1] }
+                then: [{ return: { call: [<.yield_index.get, tok] } }]
+            - decl: [new_idx, i32, <.yield_vocab.len]
+            - call: [<.yield_vocab.push, tok]
+            - call: [<.yield_index.put, tok, new_idx]
+            - return: new_idx
+
+      - def:
+          name: vocab_add_name
+          args: [[tok, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.name_index.contains, tok] }, 1] }
+                then: [{ return: { call: [<.name_index.get, tok] } }]
+            - decl: [new_idx, i32, <.name_vocab.len]
+            - call: [<.name_vocab.push, tok]
+            - call: [<.name_index.put, tok, new_idx]
+            - return: new_idx
+
+      - def:
+          name: vocab_add_et
+          args: [[tok, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.et_index.contains, tok] }, 1] }
+                then: [{ return: { call: [<.et_index.get, tok] } }]
+            - decl: [new_idx, i32, <.et_vocab.len]
+            - call: [<.et_vocab.push, tok]
+            - call: [<.et_index.put, tok, new_idx]
+            - return: new_idx
+
+      # ── Convert comma-separated CSV column → list<i32> indices into vocab ─
+      # Adds new tokens to vocab as they appear.  Strips "xN" count suffix.
+      # NOTE: per-target dispatch via target_kind switch instead of taking
+      # vocab_list+vocab_idx as method args — the latter pattern triggers
+      # runtime heap corruption (similar to fixed Bug #3, but our coercion
+      # only handles simple VariableExpr, not class-member args yet).
+      - def:
+          name: csv_add_to_vocab
+          args: [[csv_str, string], [target_kind, string]]
+          return: list<i32>
+          static_off: ["str_cmp"]
+          body:
+            - decl: [out, list<i32>]
+            - decl: [parts, list<string>, { call: [csv_str.split, ","] }]
+            - decl: [n_p, i32, parts.len]
+            - decl: [p_idx, i32, 0]
+            - while:
+                condition: { lt: [p_idx, n_p] }
+                body:
+                  - decl: [raw, string, { at: [parts, p_idx] }]
+                  - decl: [tr_part, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tr_part.len, 0] }
+                      then:
+                        - decl: [words, list<string>, { call: [tr_part.split, " "] }]
+                        - decl: [tok, string, { at: [words, 0] }]
+                        - decl: [clean, string, { call: [tok.trim] }]
+                        - if:
+                            condition: { gt: [clean.len, 0] }
+                            then:
+                              - decl: [v_idx, i32, -1]
+                              - if:
+                                  condition: { eq: [target_kind, "tags"] }
+                                  then:
+                                    - set: [v_idx, { call: [<.vocab_add_tag, clean] }]
+                              - if:
+                                  condition: { eq: [target_kind, "yields"] }
+                                  then:
+                                    - set: [v_idx, { call: [<.vocab_add_yield, clean] }]
+                              - if:
+                                  condition: { eq: [target_kind, "names"] }
+                                  then:
+                                    - set: [v_idx, { call: [<.vocab_add_name, clean] }]
+                              - if:
+                                  condition: { ge: [v_idx, 0] }
+                                  then: [{ call: [out.push, v_idx] }]
+                  - set: [p_idx, { "+": [p_idx, 1] }]
+            - return: out
+
+      # ── Parse discoveries.txt ──────────────────────────────────────────────
+      - def:
+          name: parse_corpus
+          args: [[file_path, string], [max_rows, i32]]
+          body:
+            - call: [log.info, "parsing corpus: ${file_path} (max_rows=${max_rows})"]
+            - decl: [text, string, { call: [io.read_file, file_path] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "  empty or missing"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln, i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - decl: [n_kept, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  - decl: [maybe_hdr, list<string>, { call: [parse_priority_header, ln_str] }]
+                  - if:
+                      condition: { gt: [maybe_hdr.len, 0] }
+                      then:
+                        - set: [<.current_priority, maybe_hdr]
+                        - call: [log.info, "  applied domain_priority: ${maybe_hdr.len} domains"]
+                  - decl: [is_comment, i32, { call: [ln_str.starts_with, "#"] }]
+                  - decl: [is_row, i32, 0]
+                  - if:
+                      condition: { "&&": [{ gt: [ln_str.len, 0] }, { neq: [is_comment, 1] }] }
+                      then:
+                        - if:
+                            condition: { lt: [n_kept, max_rows] }
+                            then: [{ set: [is_row, 1] }]
+                  - if:
+                      condition: { eq: [is_row, 1] }
+                      then:
+                        - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+                        - decl: [enough_cols, i32, 0]
+                        - if: { condition: { ge: [cols.len, 7] }, then: [{ set: [enough_cols, 1] }] }
+                        - decl: [is_discover, i32, 0]
+                        - if:
+                            condition: { eq: [enough_cols, 1] }
+                            then:
+                              - decl: [c0_raw, string, { at: [cols, 0] }]
+                              - decl: [c0_str, string, { call: [c0_raw.trim] }]
+                              - if:
+                                  condition: { eq: [c0_str, "discover"] }
+                                  then: [{ set: [is_discover, 1] }]
+                        - if:
+                            condition: { eq: [is_discover, 1] }
+                            then:
+                              # col 1 input-tags, col 2 entity-type, col 3 out-tags,
+                              # col 4 yields, col 5 tools (skip), col 6 name-tokens
+                              - decl: [input_raw, string, { at: [cols, 1] }]
+                              - decl: [input_str, string, { call: [input_raw.trim] }]
+                              - decl: [et_raw,    string, { at: [cols, 2] }]
+                              - decl: [et_str,    string, { call: [et_raw.trim] }]
+                              - decl: [tags_raw,  string, { at: [cols, 3] }]
+                              - decl: [tags_str,  string, { call: [tags_raw.trim] }]
+                              - decl: [yld_raw,   string, { at: [cols, 4] }]
+                              - decl: [yld_str,   string, { call: [yld_raw.trim] }]
+                              - decl: [name_raw,  string, { at: [cols, 6] }]
+                              - decl: [name_str,  string, { call: [name_raw.trim] }]
+                              # Build per-sample data
+                              - decl: [in_ids,  list<i32>, { call: [<.input_str_to_ids, input_str] }]
+                              - decl: [et_idx,  i32, { call: [<.vocab_add_et, et_str] }]
+                              - decl: [tag_ids, list<i32>, { call: [<.csv_add_to_vocab, tags_str, "tags"] }]
+                              - decl: [yld_ids, list<i32>, { call: [<.csv_add_to_vocab, yld_str, "yields"] }]
+                              - decl: [nm_ids,  list<i32>, { call: [<.csv_add_to_vocab, name_str, "names"] }]
+                              - call: [<.train_input_ids.push, in_ids]
+                              - call: [<.train_et_target.push, et_idx]
+                              - call: [<.train_tag_ids.push, tag_ids]
+                              - call: [<.train_yield_ids.push, yld_ids]
+                              - call: [<.train_name_ids.push, nm_ids]
+                              - call: [<.teil_liste.push, { call: [teil_von, ln_str] }]
+                              - set: [n_kept, { "+": [n_kept, 1] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+            - call: [log.info, "  kept=${n_kept} entity_types=${<.et_vocab.len} tags=${<.tag_vocab.len} yields=${<.yield_vocab.len} names=${<.name_vocab.len}"]
+            - call: [log.info, "  Tokens ${<.tok_ges} · ohne Atlas-Domaene ${<.fehl_atlas} · nicht im Vokabular ${<.fehl_vocab}"]
+            - decl: [fzeig, i32, 0]
+            - decl: [fliste, string, ""]
+            - while:
+                condition: { lt: [fzeig, <.fehl_proben.len] }
+                body:
+                  - set: [fliste, "${fliste} ${{ at: [<.fehl_proben, fzeig] }}"]
+                  - set: [fzeig, { "+": [fzeig, 1] }]
+            - if: { condition: { gt: [<.fehl_proben.len, 0] }, then: [{ call: [log.warn, "  unaufloesbar (Auswahl):${fliste}"] }] }
+
+      # ── Helper: join a list<string> into pipe-delimited blob ───────────────
+      - def:
+          name: build_vocab_blob
+          args: [[vocab_list, list<string>]]
+          return: string
+          body:
+            - decl: [n_v, i32, vocab_list.len]
+            - decl: [blob, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_v] }
+                body:
+                  - decl: [tok, string, { at: [vocab_list, idx] }]
+                  - if:
+                      condition: { gt: [idx, 0] }
+                      then: [{ set: [blob, "${blob}|${tok}"] }]
+                      else: [{ set: [blob, tok] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: blob
+
+      # ── Save all per-head vocabs into one kvwal ────────────────────────────
+      - def:
+          name: save_vocabs
+          args: []
+          body:
+            - decl: [kv_var, Kv<string:string>, { call: [db.open_kv, we_vocab_name, {persist: true}] }]
+            - decl: [et_blob,  string, { call: [<.build_vocab_blob, <.et_vocab] }]
+            - decl: [tag_blob, string, { call: [<.build_vocab_blob, <.tag_vocab] }]
+            - decl: [yld_blob, string, { call: [<.build_vocab_blob, <.yield_vocab] }]
+            - decl: [nm_blob,  string, { call: [<.build_vocab_blob, <.name_vocab] }]
+            - call: [kv_var.set, "entity_type", et_blob]
+            - call: [kv_var.set, "tags",        tag_blob]
+            - call: [kv_var.set, "yields",      yld_blob]
+            - call: [kv_var.set, "names",       nm_blob]
+            - call: [log.info, "saved 4 vocabs (et=${<.et_vocab.len} tag=${<.tag_vocab.len} yld=${<.yield_vocab.len} nm=${<.name_vocab.len}) → '${we_vocab_name}'"]
+
+      # ── Training loop ──────────────────────────────────────────────────────
+      - def:
+          name: train
+          args: []
+          body:
+            - decl: [n_samples,  i32, <.train_input_ids.len]
+            - decl: [n_et, i32, <.et_vocab.len]
+            - decl: [n_tag, i32, <.tag_vocab.len]
+            - decl: [n_yld, i32, <.yield_vocab.len]
+            - decl: [n_nm,  i32, <.name_vocab.len]
+            - call: [log.info, "training: n_samples=${n_samples} et=${n_et} tag=${n_tag} yld=${n_yld} nm=${n_nm} n_epochs=${<.n_epochs}"]
+            # Adam moments — backbone + 4 heads, foundation frozen
+            - decl: [m_w1,  tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [v_w1,  tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [m_b1,  tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [v_b1,  tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [m_eb1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [v_eb1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [m_ebb, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [v_ebb, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [m_etw, tensor, { call: [tensor.zeros, <.hidden_dim, n_et] }]
+            - decl: [v_etw, tensor, { call: [tensor.zeros, <.hidden_dim, n_et] }]
+            - decl: [m_etb, tensor, { call: [tensor.zeros, n_et] }]
+            - decl: [v_etb, tensor, { call: [tensor.zeros, n_et] }]
+            - decl: [m_tgw, tensor, { call: [tensor.zeros, <.hidden_dim, n_tag] }]
+            - decl: [v_tgw, tensor, { call: [tensor.zeros, <.hidden_dim, n_tag] }]
+            - decl: [m_tgb, tensor, { call: [tensor.zeros, n_tag] }]
+            - decl: [v_tgb, tensor, { call: [tensor.zeros, n_tag] }]
+            - decl: [m_ylw, tensor, { call: [tensor.zeros, <.hidden_dim, n_yld] }]
+            - decl: [v_ylw, tensor, { call: [tensor.zeros, <.hidden_dim, n_yld] }]
+            - decl: [m_ylb, tensor, { call: [tensor.zeros, n_yld] }]
+            - decl: [v_ylb, tensor, { call: [tensor.zeros, n_yld] }]
+            - decl: [m_nmw, tensor, { call: [tensor.zeros, <.hidden_dim, n_nm] }]
+            - decl: [v_nmw, tensor, { call: [tensor.zeros, <.hidden_dim, n_nm] }]
+            - decl: [m_nmb, tensor, { call: [tensor.zeros, n_nm] }]
+            - decl: [v_nmb, tensor, { call: [tensor.zeros, n_nm] }]
+            - decl: [global_step, i32, 0]
+            - decl: [epoch, i32, 0]
+            - while:
+                condition: { lt: [epoch, <.n_epochs] }
+                body:
+                  - decl: [total_loss, f32, 0.0]
+                  # Eigener Zaehler: der Gesamtverlust wird vom Namens-Kopf
+                  # beherrscht und verriet nicht, ob die Fundart lernt.
+                  - decl: [et_total, f32, 0.0]
+                  - decl: [n_trained,  i32, 0]
+                  - decl: [s_idx,      i32, 0]
+                  - while:
+                      condition: { lt: [s_idx, n_samples] }
+                      body:
+                        - decl: [in_ids, list<i32>, { at: [<.train_input_ids, s_idx] }]
+                        - decl: [n_in, i32, in_ids.len]
+                        - if:
+                            condition: { "&&": [{ gt: [n_in, 0] }, { eq: [{ at: [<.teil_liste, s_idx] }, 0] }] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              # Encode
+                              - decl: [hidden, tensor, { call: [<.backbone.encode_bag, in_ids] }]
+                              - decl: [hidden_et, tensor, { call: [<.et_body.encode_bag, in_ids] }]
+                              # Build target tensors
+                              - decl: [et_idx, i32, { at: [<.train_et_target, s_idx] }]
+                              - decl: [et_target, tensor, { call: [tensor.zeros, 1, n_et] }]
+                              - call: [et_target.set, et_idx, 1.0]
+                              - decl: [tag_target, tensor, { call: [tensor.zeros, 1, n_tag] }]
+                              - decl: [tag_ids, list<i32>, { at: [<.train_tag_ids, s_idx] }]
+                              - decl: [n_t, i32, tag_ids.len]
+                              - decl: [t_i, i32, 0]
+                              - while:
+                                  condition: { lt: [t_i, n_t] }
+                                  body:
+                                    - decl: [t_idx, i32, { at: [tag_ids, t_i] }]
+                                    - call: [tag_target.set, t_idx, 1.0]
+                                    - set: [t_i, { "+": [t_i, 1] }]
+                              - decl: [yld_target, tensor, { call: [tensor.zeros, 1, n_yld] }]
+                              - decl: [yld_ids, list<i32>, { at: [<.train_yield_ids, s_idx] }]
+                              - decl: [n_y, i32, yld_ids.len]
+                              - decl: [y_i, i32, 0]
+                              - while:
+                                  condition: { lt: [y_i, n_y] }
+                                  body:
+                                    - decl: [y_idx, i32, { at: [yld_ids, y_i] }]
+                                    - call: [yld_target.set, y_idx, 1.0]
+                                    - set: [y_i, { "+": [y_i, 1] }]
+                              - decl: [nm_target, tensor, { call: [tensor.zeros, 1, n_nm] }]
+                              - decl: [nm_ids, list<i32>, { at: [<.train_name_ids, s_idx] }]
+                              - decl: [n_n, i32, nm_ids.len]
+                              - decl: [n_i, i32, 0]
+                              - while:
+                                  condition: { lt: [n_i, n_n] }
+                                  body:
+                                    - decl: [n_idx, i32, { at: [nm_ids, n_i] }]
+                                    - call: [nm_target.set, n_idx, 1.0]
+                                    - set: [n_i, { "+": [n_i, 1] }]
+                              # Forward each head
+                              - decl: [et_logits,  tensor, { call: [<.et_head.forward_logits, hidden_et] }]
+                              - decl: [tag_logits, tensor, { call: [<.tag_head.forward_logits, hidden] }]
+                              - decl: [yld_logits, tensor, { call: [<.yield_head.forward_logits, hidden] }]
+                              - decl: [nm_logits,  tensor, { call: [<.name_head.forward_logits, hidden] }]
+                              # Losses (weighted)
+                              - decl: [et_loss,  tensor, { call: [<.et_head.compute_loss, et_logits, et_target] }]
+                              - decl: [tag_loss, tensor, { call: [<.tag_head.compute_loss, tag_logits, tag_target] }]
+                              - decl: [yld_loss, tensor, { call: [<.yield_head.compute_loss, yld_logits, yld_target] }]
+                              - decl: [nm_loss,  tensor, { call: [<.name_head.compute_loss, nm_logits, nm_target] }]
+                              - decl: [tag_lw,  tensor, { call: [tensor.mul_scalar, tag_loss, <.w_tags] }]
+                              - decl: [yld_lw,  tensor, { call: [tensor.mul_scalar, yld_loss, <.w_yields] }]
+                              - decl: [nm_lw,   tensor, { call: [tensor.mul_scalar, nm_loss,  <.w_name] }]
+                              - decl: [sum_a,  tensor, { call: [tensor.add, et_loss, tag_lw] }]
+                              - decl: [sum_b,  tensor, { call: [tensor.add, sum_a,      yld_lw] }]
+                              - decl: [loss, tensor, { call: [tensor.add, sum_b,     nm_lw] }]
+                              # Backward + Adam + zero_grad
+                              - call: [tensor.backward, loss]
+                              - set: [global_step, { "+": [global_step, 1] }]
+                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_body.weight_1, m_eb1, v_eb1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_body.bias_1,   m_ebb, v_ebb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_head.weight,    m_etw, v_etw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.et_head.bias,      m_etb, v_etb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.tag_head.weight,   m_tgw, v_tgw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.tag_head.bias,     m_tgb, v_tgb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.yield_head.weight, m_ylw, v_ylw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.yield_head.bias,   m_ylb, v_ylb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.name_head.weight,  m_nmw, v_nmw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.name_head.bias,    m_nmb, v_nmb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [<.backbone.weight_1.zero_grad]
+                              - call: [<.backbone.bias_1.zero_grad]
+                              - call: [<.et_body.weight_1.zero_grad]
+                              - call: [<.et_body.bias_1.zero_grad]
+                              - call: [<.et_head.weight.zero_grad]
+                              - call: [<.et_head.bias.zero_grad]
+                              - call: [<.tag_head.weight.zero_grad]
+                              - call: [<.tag_head.bias.zero_grad]
+                              - call: [<.yield_head.weight.zero_grad]
+                              - call: [<.yield_head.bias.zero_grad]
+                              - call: [<.name_head.weight.zero_grad]
+                              - call: [<.name_head.bias.zero_grad]
+                              - call: [<.embedder.emb.zero_grad]
+                              - decl: [lv_var, f32, { call: [loss.get, 0] }]
+                              - set: [total_loss, { "+": [total_loss, lv_var] }]
+                              - set: [et_total, { "+": [et_total, { call: [et_loss.get, 0] }] }]
+                              - set: [n_trained, { "+": [n_trained, 1] }]
+                        - set: [s_idx, { "+": [s_idx, 1] }]
+                  - decl: [n_tf, f32, n_trained]
+                  - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
+                  - if:
+                      condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
+                      then:
+                        - decl: [et_avg, f32, { "/": [et_total, n_tf] }]
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} avg_loss=${avg} (Fundart ${et_avg}) samples=${n_trained}"]
+                  # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte die
+                  # Schleife jede N-te Epoche und `run` am Ende UNBEDINGT -- beim
+                  # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
+                  # Abnahme 2,6 %) ueber einen guten (13,7 %), gemessen 21.11.2026.
+                  - decl: [besser, i32, 0]
+                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if:
+                      condition: { eq: [besser, 1] }
+                      then:
+                        - set: [<.beste_verlust, avg]
+                        - set: [<.hat_beste, 1]
+                        - call: [<.backbone.save_weights]
+                        - call: [<.et_body.save_weights]
+                        - call: [<.et_head.save_params]
+                        - call: [<.tag_head.save_params]
+                        - call: [<.yield_head.save_params]
+                        - call: [<.save_vocabs]
+                        - call: [<.name_head.save_params]
+                  - set: [epoch, { "+": [epoch, 1] }]
+
+      # ── Top-level run ──────────────────────────────────────────────────────
+      # Die Fundart ist die eine Zahl, an der dieser Kopf haengt: sie entscheidet,
+      # was ueberhaupt entsteht.  Gemessen wird auf dem zurueckgehaltenen Teil
+      # (Plan Punkt 7) -- vorher gab es nur den Trainingsverlust.
+      - def:
+          name: bewerten
+          access: public
+          args: [[teil_soll, i32], [was, string]]
+          body:
+            - decl: [n_smp,     i32, <.train_input_ids.len]
+            - decl: [n_et,      i32, <.et_vocab.len]
+            - decl: [getroffen, i32, 0]
+            - decl: [gezaehlt,  i32, 0]
+            - decl: [s_idx,     i32, 0]
+            - while:
+                condition: { lt: [s_idx, n_smp] }
+                body:
+                  - decl: [teil,   i32, { at: [<.teil_liste, s_idx] }]
+                  - decl: [in_ids, list<i32>, { at: [<.train_input_ids, s_idx] }]
+                  - decl: [et_soll, i32, { at: [<.train_et_target, s_idx] }]
+                  - set: [s_idx, { "+": [s_idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ eq: [teil, teil_soll] }, { gt: [in_ids.len, 0] }] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [hidden_et, tensor, { call: [<.et_body.encode_bag, in_ids] }]
+                        - decl: [et_logits, tensor, { call: [<.et_head.forward_logits, hidden_et] }]
+                        - decl: [bester,    i32, 0]
+                        - decl: [best_wert, f32, { call: [et_logits.get, 0] }]
+                        - decl: [e_idx, i32, 1]
+                        - while:
+                            condition: { lt: [e_idx, n_et] }
+                            body:
+                              - decl: [wert, f32, { call: [et_logits.get, e_idx] }]
+                              - if:
+                                  condition: { gt: [wert, best_wert] }
+                                  then:
+                                    - set: [best_wert, wert]
+                                    - set: [bester, e_idx]
+                              - set: [e_idx, { "+": [e_idx, 1] }]
+                        - if: { condition: { eq: [bester, et_soll] }, then: [{ set: [getroffen, { "+": [getroffen, 1] }] }] }
+                        - set: [gezaehlt, { "+": [gezaehlt, 1] }]
+            - if:
+                condition: { lt: [gezaehlt, 1] }
+                then:
+                  - call: [log.warn, "${was}: keine Zeilen"]
+                  - return: 0
+            - decl: [tr_f, f32, getroffen]
+            - decl: [ge_f, f32, gezaehlt]
+            - decl: [quote, f32, { "/": [tr_f, ge_f] }]
+            - call: [log.info, "${was}: Fundart ${getroffen} von ${gezaehlt} richtig (${quote}) -- haeufigste Art waere 0.30"]
+
+      - def:
+          name: run
+          args: [[max_rows, i32]]
+          body:
+            - call: [log.info, "WorldEntityHead training starting…"]
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            # Feste Saat: dieselbe Anfangsstreuung bei jedem Lauf, damit ein
+            # Ergebnis wiederholbar ist und zwei Laeufe vergleichbar bleiben
+            # (spec/50 §17.1, splitmix64).  Ohne sie faengt zwar auch jeder
+            # Lauf gleich an -- der Vorgabewert ist eine Konstante --, aber
+            # das steht dann nirgends und kippt beim ersten Umbau.
+            - call: [tensor.seed, 20261112]
+            # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
+            # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
+            - set: [<.embedder, { new: TagEmbedding }]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "vocab load failed — run prophecy_build + pretrain first"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            # Gegen eine zufaellige oder fremde Tabelle zu trainieren ist
+            # verlorene Zeit (gemessen 19./20.11.: zwei Stunden).  Darum hier
+            # Schluss, nicht erst in der Abnahme.
+            - if:
+                condition: { "||": [{ eq: [<.embedder.unvereinbar, 1] }, { eq: [<.embedder.zufaellig, 1] }] }
+                then:
+                  - call: [log.error, "Einbettung ist zufaellig oder gehoert nicht zu diesem Wortschatz — erst ./prophecy_pretrain. Abbruch."]
+                  - return: 0
+            - call: [log.info, "foundation: ${<.embedder.n_tokens} tokens × d=${<.embedder.d_embed}"]
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+
+            # _augmented.txt = current cluster-aware corpus (10k rows, mixed
+            # world+craft perspective).  discoveries.txt ist die alte 5k-
+            # Generation davor.
+            - call: [<.parse_corpus, "discovergen/data/discoveries_augmented.txt", max_rows]
+            # Die Reihenfolge des Korpus-Headers gehoert zu den Gewichten.
+            # Ohne das loeste die Inferenz mit einer HANDGEPFLEGTEN Liste auf,
+            # der 15 Domaenen des Korpus fehlten -- darunter harvestables,
+            # enemies, growables, npcs, portals, locked_things.  Das Modell
+            # bekam damit einen anderen Beutel, als es gelernt hatte.
+            - call: [priority_save, we_priority_name, <.current_priority]
+
+            # Backbone (separate kvwal so it doesn't collide with item_head)
+            - set: [<.backbone.weights_name, "prophecy_world_entity_body"]
+            - set: [<.backbone.foundation,   <.embedder]
+            - set: [<.backbone.hidden_dim,   <.hidden_dim]
+            - call: [<.backbone.init_model]
+            # Eigener Rumpf der Fundart, eigene Gewichte.
+            - set: [<.et_body.foundation,    <.embedder]
+            - set: [<.et_body.hidden_dim,    <.hidden_dim]
+            - set: [<.et_body.weights_name,  "prophecy_world_entity_et_body"]
+            - call: [<.et_body.init_model]
+
+            # Set up heads with shared output kvwal but distinct head_id_str
+            - decl: [head_kv, string, "prophecy_world_entity_outputs"]
+            - set: [<.et_head.weights_name, head_kv]
+            - set: [<.tag_head.weights_name, head_kv]
+            - set: [<.yield_head.weights_name, head_kv]
+            - set: [<.name_head.weights_name, head_kv]
+            - set: [<.et_head.head_id_str,    "entity_type"]
+            - set: [<.et_head.n_outputs_val,  <.et_vocab.len]
+            - call: [<.et_head.init_params, <.hidden_dim]
+            - call: [<.et_head.requires_grad_on]
+            - set: [<.tag_head.head_id_str,   "tags"]
+            - set: [<.tag_head.n_outputs_val, <.tag_vocab.len]
+            - call: [<.tag_head.init_params, <.hidden_dim]
+            - call: [<.tag_head.requires_grad_on]
+            - set: [<.yield_head.head_id_str,   "yields"]
+            - set: [<.yield_head.n_outputs_val, <.yield_vocab.len]
+            - call: [<.yield_head.init_params, <.hidden_dim]
+            - call: [<.yield_head.requires_grad_on]
+            - set: [<.name_head.head_id_str,   "names"]
+            - set: [<.name_head.n_outputs_val, <.name_vocab.len]
+            - call: [<.name_head.init_params, <.hidden_dim]
+            - call: [<.name_head.requires_grad_on]
+
+            - call: [<.train]
+            # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
+            # Wozu diese Gewichte gehoeren (Spec modell_manifest_2026-11-20.md):
+            # `grundlage` ist der Abdruck der Einbettung, mit der hier gerechnet
+            # wurde -- ohne ihn sieht man einem Kopf nicht an, ob er zu ihr passt.
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, <.embedder.wortschatz_fp]
+            - set: [satz.n_marken,   <.embedder.n_tokens]
+            - set: [satz.d_wert,     <.embedder.d_embed]
+            - set: [satz.grundlage,  <.embedder.wortschatz_fp]
+            - set: [satz.korpus,     { call: [manifest_fp_datei, "discovergen/data/discoveries_augmented.txt"] }]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    "train_world_entity_head"]
+            - call: [manifest_ablegen, "prophecy_world_entity_head_outputs", satz]
+            - call: [<.save_vocabs]
+            - call: [<.bewerten, 0, "Training"]
+            - call: [<.bewerten, 2, "Abnahme (nicht trainiert)"]
+            - call: [log.info, "WorldEntityHead training done."]
+

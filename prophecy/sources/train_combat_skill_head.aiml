@@ -1,0 +1,13 @@
+# Einstiegspunkt.  Die Klasse CombatSkillHeadTrainer liegt in train_combat_skill_head_app.aiml, damit `main`
+# ein Modul von ausserhalb komponiert (spec/49 §15) statt alles selbst zu tragen.
+
+- import: "prophecy/sources/train_combat_skill_head_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [trainer, ptr<CombatSkillHeadTrainer>, { new: CombatSkillHeadTrainer }]
+      - call: [trainer.run]
+      - return: 0

@@ -1,0 +1,55 @@
+# LockedThing-OUT-Tags — Verschluss-Mechanismus, Schwierigkeit, Status.
+
+# ── Mechanismus ────────────────────────────────────────────────────────────
+mechanical_lock
+runic_seal
+qbit_seal
+arcane_seal
+magnetic_lock
+clockwork_lock
+puzzle_lock
+data_encrypted
+
+# ── Schwierigkeit ──────────────────────────────────────────────────────────
+trivial_lock
+easy_lock
+moderate_lock
+hard_lock
+master_lock
+unpickable
+
+# ── Trap ───────────────────────────────────────────────────────────────────
+no_trap
+poison_trap
+flame_trap
+shock_trap
+spore_trap
+shard_trap
+alarm_trap
+
+# ── Zustand ────────────────────────────────────────────────────────────────
+intact
+weathered
+damaged
+half_broken
+sealed_shut
+slightly_ajar
+
+# ── Alter ──────────────────────────────────────────────────────────────────
+brand_new
+recent
+old
+ancient
+prehistoric
+
+# ── Geheimhaltung ──────────────────────────────────────────────────────────
+in_plain_sight
+half_buried
+fully_hidden
+disguised
+
+# ── Verlockung ─────────────────────────────────────────────────────────────
+suspicious_marks
+rumored_treasure
+known_empty
+last_warning

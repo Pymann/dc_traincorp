@@ -1,0 +1,12 @@
+# Shared zone model.
+
+- model:
+    name: Zone
+    fields:
+      - [zone_id,     string]
+      - [name,        string]
+      - [realm_id,    string]
+      - [terrain_id,  string]
+      - [weather_id,  string]
+      - [zone_tags,   list<string>]
+      - [description, string]

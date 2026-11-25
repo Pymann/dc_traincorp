@@ -1,0 +1,49 @@
+# Kuechenregeln als DATEN -- 24.11.2026.
+#
+# Form: `<wort>: a, b, c`.  Eine Zeile je Sammelwort, `#` ist Kommentar.
+#
+# Zwei Dinge stehen hier:
+#
+# 1. `fluessig` -- was in einen Topf gehoert.  Die ART `liquid` traegt Teer,
+#    Lack, Saeure und Kuehlmittel; in einem Brotrezept ist das kein Fehler
+#    des Zufalls, sondern der Warengruppe.  Diese Namen sind alle `food`.
+#
+# 2. Die Sammelwoerter aus Gerichtsnamen.  `grain_cake` nennt kein Korn,
+#    meint aber eins; `fish_chowder` nennt keinen Fisch, meint aber einen.
+#    Steckt dagegen ein echter Stoffname im Gerichtsnamen (`rye_loaf`,
+#    `honey_bun`, `oat_porridge`), hat der Vorrang -- diese Liste greift nur,
+#    wenn das Gericht in Sammelbegriffen spricht.
+#
+# Heisst ein Schluessel wie eine ART (`liquid`, `animal`, `herb`), dann
+# ersetzt seine Liste in Kuechenrezepten den Topf dieser Art.  So steht die
+# Ausnahme als Daten da und nicht als Artvergleich im Code (spec/49 Section 16).
+# `essbar` sagt, aus welchen Arten eine Leitzutat kommen darf.
+#
+# Reihenfolge zaehlt: das erste passende Wort gewinnt, darum stehen die
+# engeren Begriffe vor den weiteren.
+essbar: food, fungus, herb
+# Was vom Tier in einen Topf gehoert.  Die ART `animal` traegt Hufe,
+# Kaeferfluegel und Schuppen -- `bone_broth` aus `beetle_wing` war die Folge.
+animal: egg, goose_egg, game_meat, poultry, mutton, bacon, lard, roe, river_fish, sea_fish, smoked_fish, cheese, curd, cream, butter, goat_milk
+liquid: goat_milk, honey, nectar, broth, cream, maple_syrup, molasses, vinegar, royal_jelly
+berry: strawberry, blackberry, elderberry, blueberry, raspberry, gooseberry
+bread: flour, bread_grain, dough, yeast
+loaf: flour, bread_grain, dough, yeast
+grain: oat, rye, wheat, barley, spelt, millet
+fruit: apple, pear, plum, cherry, apricot, fig
+nut: hazelnut, walnut, chestnut, almond, pine_nut
+root: carrot, parsnip, beetroot, turnip, radish
+seed: sunflower_seed, pumpkin_seed, flax_seed, poppy_seed, sesame
+meat: game_meat, mutton, bacon, poultry
+fish: river_fish, sea_fish, smoked_fish, roe
+milk: goat_milk, cream, curd
+sap: maple_syrup, molasses
+ration: dried_fruit, bread_grain, lard, flour
+herb: mint, sage, thyme, rosemary, lavender
+protein: protein_cube, cultured_protein, nutrient_paste
+algae: algae_cake, seaweed_leaf
+nutrient: nutrient_paste, ration_gel
+bramble: blackberry, raspberry, elderberry
+syrup: maple_syrup, molasses
+tack: bread_grain, flour, yeast
+strip: bacon, smoked_fish, game_meat

@@ -1,0 +1,38 @@
+# Shared DataCreature/NPC/Enemy attributes model.
+#
+# Hit-Counter ersetzt klassische HP seit 2026-06-15:
+#   - normal_hits_max / normal_hits_remaining: hält Tracking wie viele
+#     normale Treffer noch verträglich sind.  Normaler Hit → -1, crit → -1
+#     (zusätzlich critical_hits_remaining --).
+#   - critical_hits_max / critical_hits_remaining: separater Pool für
+#     kritische Treffer.  Wenn beide Pools auf 0 → defeated.
+#   - bulk_factor: Species-Multiplikator beim Spawn-Roll der Counter.
+#     Frog=1.0, Bear=4.0, Dino=12.0, Boss=variable.  Wird mit Level + Armor-
+#     Tags multipliziert → finaler normal/critical Pool.
+# Heilung erlaubt: erhöht *_remaining wieder (max-clamped).
+
+- model:
+    name: CharacterAttributes
+    fields:
+      - [normal_hits_max,         i32, 0]
+      - [normal_hits_remaining,   i32, 0]
+      - [critical_hits_max,       i32, 0]
+      - [critical_hits_remaining, i32, 0]
+      - [bulk_factor,             f32, 1.0]
+      - [strength,                i32, 0]
+      - [endurance,               i32, 0]
+      - [agility,                 i32, 0]
+      - [charisma,                i32, 0]
+      - [attraction,              i32, 0]
+      - [intelligence,            i32, 0]
+      - [focus,                   i32, 0]
+      - [logic,                   i32, 0]
+      - [semantics,               i32, 0]
+      - [control,                 i32, 0]
+      - [heart,                   i32, 0]
+      - [feeling,                 i32, 0]
+      - [intuition,               i32, 0]
+      - [instinct,                i32, 0]
+      - [clairvoyance,            i32, 0]
+      - [will,                    i32, 0]
+      - [power,                   i32, 0]

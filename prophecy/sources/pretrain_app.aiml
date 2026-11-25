@@ -1,0 +1,284 @@
+# Prophecy Foundation Pretrain — TagEmbedding via Autoencoder.
+#
+# Pipeline:
+#   1. Load atlas + vocab from prophecy_atlas + prophecy_vocab kvwal
+#   2. Open all 3 corpora via CorpusLoader (collect_bags=1)
+#   3. Convert each bag from atlas-key-strings → list<i32> vocab indices
+#   4. Train autoencoder N epochs:
+#        bag (multi-hot 1×n_tokens) → mean-pool via emb → 1×d_embed
+#                                  → matmul dec → 1×n_tokens logits
+#        loss = BCE-with-logits(logits, bag_multi_hot)
+#   5. Save embedding weights to prophecy_embedding_weights.kvwal
+#
+# Run aus dem datacreatures-root:
+#   exodus build -c exodus-prophecy-pretrain.json
+#   ./prophecy_pretrain
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+
+# ── PretrainSession class (encapsulates state to avoid list-as-method-arg) ──
+- class:
+    name: PretrainSession
+    members:
+      - [n_epochs,     i32, 30]
+      - [d_embed,      i32, 32]
+      - [learn_rate,   f32, 0.001]
+      - [adam_b1,      f32, 0.9]
+      - [adam_b2,      f32, 0.999]
+      - [adam_eps,     f32, 0.00000001]
+      - [log_every,    i32, 1]
+      # Wieviele Beutel EIN Adam-Schritt zusammenfasst.  `adam_step` laeuft ueber
+      # die GANZE Matrix und bewegt wegen des stehenden Impulses auch Zeilen mit
+      # Gradient 0 -- bei einem Schritt je Beutel sind das 68414 Stoesse auf
+      # jede der 5643 Marken pro Epoche.  Genau daran stieg der Verlust
+      # (18,37 -> 38,53 ueber 30 Epochen, gemessen 21.11.2026).
+      - [stapel,       i32, 64]
+      # Gesichert wird der BESTE Stand, nicht der letzte (siehe `train`).
+      - [beste_verlust, f32, 0.0]
+      - [hat_beste,     i32, 0]
+      - [embedder,     ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
+      - [atlas_kv,     Kv<string:TagAtlasEntry>]
+      - [bag_strings,  list<string>]      # raw "key1 key2 ..." per corpus row
+      - [bags_ids,     list<list<i32>>]   # vocab ids per bag, cached
+    methods:
+      - def:
+          name: collect_from
+          args: [[file_path, string], [erste, i32], [letzte, i32]]
+          body:
+            - decl: [loader, CorpusLoader]
+            - set: [loader.atlas, <.atlas_kv]
+            - set: [loader.collect_bags, 1]
+            - set: [loader.schnitt_erste,  erste]
+            - set: [loader.schnitt_letzte, letzte]
+            - decl: [file_p, path, { call: [path.from_string, file_path] }]
+            - call: [loader.load_file, file_p]
+            - call: [log.info, "  collected ${loader.collected_bags.len} bags from ${file_path}"]
+            - decl: [n_new, i32, loader.collected_bags.len]
+            - decl: [idx,   i32, 0]
+            - while:
+                condition: { lt: [idx, n_new] }
+                body:
+                  - decl: [bag_str, string, { at: [loader.collected_bags, idx] }]
+                  - call: [<.bag_strings.push, bag_str]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      - def:
+          name: convert_bags_to_ids
+          args: []
+          body:
+            - decl: [n_bags, i32, <.bag_strings.len]
+            - decl: [b_idx,  i32, 0]
+            - while:
+                condition: { lt: [b_idx, n_bags] }
+                body:
+                  - decl: [bag_str, string, { at: [<.bag_strings, b_idx] }]
+                  - decl: [keys,    list<string>, { call: [bag_str.split, " "] }]
+                  - decl: [n_keys,  i32, keys.len]
+                  - decl: [ids,     list<i32>]
+                  - decl: [k_idx,   i32, 0]
+                  - while:
+                      condition: { lt: [k_idx, n_keys] }
+                      body:
+                        - decl: [key, string, { at: [keys, k_idx] }]
+                        - if:
+                            condition: { neq: [{ call: [<.embedder.vocab_index.contains, key] }, 0] }
+                            then:
+                              - decl: [tid, i32, { call: [<.embedder.vocab_index.get, key] }]
+                              - call: [ids.push, tid]
+                        - set: [k_idx, { "+": [k_idx, 1] }]
+                  - call: [<.bags_ids.push, ids]
+                  - set: [b_idx, { "+": [b_idx, 1] }]
+
+      - def:
+          name: train
+          args: []
+          body:
+            - decl: [n_tokens, i32, <.embedder.n_tokens]
+            - decl: [n_bags,   i32, <.bags_ids.len]
+            # Adam moments
+            - decl: [m_emb, tensor, { call: [tensor.zeros, n_tokens, <.embedder.d_embed] }]
+            - decl: [v_emb, tensor, { call: [tensor.zeros, n_tokens, <.embedder.d_embed] }]
+            - decl: [m_dec, tensor, { call: [tensor.zeros, <.embedder.d_embed, n_tokens] }]
+            - decl: [v_dec, tensor, { call: [tensor.zeros, <.embedder.d_embed, n_tokens] }]
+            # Der erste Schritt kommt erst nach <.stapel Durchgaengen -- bis
+            # dahin sind m/v gewoehnliche eigene Tensoren (spec/50 §14.1).
+            - call: [m_emb.keep]
+            - call: [v_emb.keep]
+            - call: [m_dec.keep]
+            - call: [v_dec.keep]
+            - decl: [global_step, i32, 0]
+            - decl: [epoch, i32, 0]
+            - while:
+                condition: { lt: [epoch, <.n_epochs] }
+                body:
+                  - decl: [total_loss, f32, 0.0]
+                  - decl: [n_trained, i32, 0]
+                  - decl: [b_idx,     i32, 0]
+                  # Adam macht pro Schritt einen Schritt von etwa der Lernrate,
+                  # unabhaengig davon, wie klein der Gradient ist.  Bei 68414
+                  # Schritten je Epoche wandern die Gewichte so immer weiter,
+                  # und der Verlust stieg ueber 30 Epochen von 18,37 auf 38,53
+                  # (gemessen 21.11.2026).  Darum faellt die Lernrate mit der
+                  # Epoche.
+                  - decl: [ep_f, f32, epoch]
+                  # 1/(1+Epoche) bremst zu frueh: nach 6 Epochen war die Rate
+                  # schon ein Sechstel, und der Verlust fiel noch steil.  Wurzel.
+                  - decl: [lr_teiler, f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
+                  - decl: [lr_e, f32, { "/": [<.learn_rate, lr_teiler] }]
+                  - decl: [im_stapel, i32, 0]
+                  - while:
+                      condition: { lt: [b_idx, n_bags] }
+                      body:
+                        - decl: [ids,   list<i32>, { at: [<.bags_ids, b_idx] }]
+                        - decl: [n_ids, i32, ids.len]
+                        - if:
+                            condition: { gt: [n_ids, 0] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              - decl: [n_f,   f32, n_ids]
+                              - decl: [inv_n, f32, { "/": [1.0, n_f] }]
+                              - decl: [bag_input,  tensor, { call: [tensor.zeros, 1, n_tokens] }]
+                              - decl: [bag_target, tensor, { call: [tensor.zeros, 1, n_tokens] }]
+                              - decl: [i_idx, i32, 0]
+                              - while:
+                                  condition: { lt: [i_idx, n_ids] }
+                                  body:
+                                    - decl: [tid, i32, { at: [ids, i_idx] }]
+                                    - decl: [cur, f32, { call: [bag_input.get, tid] }]
+                                    - call: [bag_input.set, tid, { "+": [cur, inv_n] }]
+                                    - call: [bag_target.set, tid, 1.0]
+                                    - set: [i_idx, { "+": [i_idx, 1] }]
+                              # Forward
+                              - decl: [mean_emb, tensor, { call: [tensor.matmul, bag_input, <.embedder.emb] }]
+                              - decl: [logits,   tensor, { call: [tensor.matmul, mean_emb,  <.embedder.dec] }]
+                              # BCE-with-logits: relu(x) - x*y + log(1+exp(-|x|))
+                              - decl: [r_tn,     tensor, { call: [tensor.relu, logits] }]
+                              - decl: [xy_tn,    tensor, { call: [tensor.mul, logits, bag_target] }]
+                              - decl: [ax_tn,    tensor, { call: [tensor.abs, logits] }]
+                              - decl: [nax,      tensor, { call: [tensor.neg, ax_tn] }]
+                              - decl: [enax,     tensor, { call: [tensor.exp, nax] }]
+                              - decl: [ones,     tensor, { call: [tensor.ones, n_tokens] }]
+                              - decl: [ep1,      tensor, { call: [tensor.add, enax, ones] }]
+                              - decl: [logp1,    tensor, { call: [tensor.log, ep1] }]
+                              - decl: [rmxy,     tensor, { call: [tensor.sub, r_tn, xy_tn] }]
+                              - decl: [per_tok,  tensor, { call: [tensor.add, rmxy, logp1] }]
+                              - decl: [loss,     tensor, { call: [tensor.sum, per_tok, -1] }]
+                              # Backward + Adam + zero_grad
+                              # Rueckwaerts SAMMELT in .grad (tensor_runtime: beta=1
+                              # im sgemm), der Schritt kommt erst am Stapelende.
+                              - call: [tensor.backward, loss]
+                              - set: [im_stapel, { "+": [im_stapel, 1] }]
+                              - if:
+                                  condition: { gte: [im_stapel, <.stapel] }
+                                  then:
+                                    - set: [global_step, { "+": [global_step, 1] }]
+                                    - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.embedder.dec, m_dec, v_dec, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [<.embedder.emb.zero_grad]
+                                    - call: [<.embedder.dec.zero_grad]
+                                    - set: [im_stapel, 0]
+                              - decl: [lv_var, f32, { call: [loss.get, 0] }]
+                              - set: [total_loss, { "+": [total_loss, lv_var] }]
+                              - set: [n_trained, { "+": [n_trained, 1] }]
+                        - set: [b_idx, { "+": [b_idx, 1] }]
+                  # Rest des letzten, unvollstaendigen Stapels.
+                  - if:
+                      condition: { gt: [im_stapel, 0] }
+                      then:
+                        - set: [global_step, { "+": [global_step, 1] }]
+                        - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.embedder.dec, m_dec, v_dec, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [<.embedder.emb.zero_grad]
+                        - call: [<.embedder.dec.zero_grad]
+                  - decl: [n_tf, f32, n_trained]
+                  - decl: [avg, f32, { "/": [total_loss, n_tf] }]
+                  - call: [log.info, "epoch ${epoch}/${<.n_epochs} lr=${lr_e} avg_loss=${avg} samples=${n_trained}"]
+                  # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte der
+                  # Lauf jede 5. Epoche und am Ende unbedingt -- bei steigendem
+                  # Verlust lag damit der schlechteste Stand in der Datenbank,
+                  # und alle fuenf Koepfe wurden darauf trainiert.
+                  - decl: [besser, i32, 0]
+                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if:
+                      condition: { eq: [besser, 1] }
+                      then:
+                        - set: [<.beste_verlust, avg]
+                        - set: [<.hat_beste, 1]
+                        - call: [<.embedder.save_weights]
+                        - call: [log.info, "  Bestwert ${avg} -- gesichert"]
+                      else:
+                        - call: [log.info, "  schlechter als ${<.beste_verlust} -- NICHT gesichert"]
+                  - set: [epoch, { "+": [epoch, 1] }]
+
+      - def:
+          name: run
+          args: []
+          body:
+            - call: [log.info, "Prophecy Pretrain starting…"]
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_LR"] }, 1] }
+                then:
+                  - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
+                  - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_STAPEL"] }, 1] }
+                then:
+                  - decl: [s_txt, string, { call: [umg.get, "DC_STAPEL"] }]
+                  - set: [<.stapel, { call: [s_txt.parse_i32] }]
+            # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
+            # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
+            # new MUSS vor jedem Feldzugriff stehen -- der ptr ist bis dahin null.
+            - set: [<.embedder, { new: TagEmbedding }]
+            - set: [<.embedder.d_embed, <.d_embed]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "vocab load failed — run prophecy_build first"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            - call: [log.info, "vocab_size=${<.embedder.n_tokens} d_embed=${<.embedder.d_embed}"]
+
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+
+            - call: [<.collect_from, "data/combat.txt", 0, 0]
+            - call: [<.collect_from, "itemgen/data/items_augmented.txt", 0, 0]
+            - call: [<.collect_from, "discovergen/data/discoveries_augmented.txt", 0, 0]
+            # Die beiden Fertigkeits-Korpora fehlten (Audit 20.11.,
+            # "Classic foundation pretraining omits both skill corpora"):
+            # die gemeinsame Einbettung hatte die Marken der Fertigkeiten nie
+            # gesehen, und genau auf ihr rechnen skill_head und
+            # combat_skill_head.  Aufgabenwort und Label werden abgeschnitten.
+            - call: [<.collect_from, "data/skill_corpus.txt", 1, 1]
+            - call: [<.collect_from, "data/combat_skill_corpus.txt", 1, 1]
+            - call: [log.info, "total bags collected: ${<.bag_strings.len}"]
+
+            - call: [<.convert_bags_to_ids]
+            - call: [log.info, "converted bags → vocab ids (${<.bags_ids.len})"]
+
+            # Die Spur der drei Korpora in EINEM Abdruck: die Einzelabdruecke in
+            # gelesener Reihenfolge verketten und erneut hashen (Spec
+            # modell_manifest_2026-11-20.md).
+            - decl: [fp_kampf, string, { call: [manifest_fp_datei, "data/combat.txt"] }]
+            - decl: [fp_items, string, { call: [manifest_fp_datei, "itemgen/data/items_augmented.txt"] }]
+            - decl: [fp_funde, string, { call: [manifest_fp_datei, "discovergen/data/discoveries_augmented.txt"] }]
+            - decl: [fp_fert,  string, { call: [manifest_fp_datei, "data/skill_corpus.txt"] }]
+            - decl: [fp_kfert, string, { call: [manifest_fp_datei, "data/combat_skill_corpus.txt"] }]
+            - decl: [spur, string, "${fp_kampf}${fp_items}${fp_funde}${fp_fert}${fp_kfert}"]
+            - set: [<.embedder.korpus_fp, { call: [manifest_fp, spur] }]
+            - set: [<.embedder.trainer_name, "pretrain"]
+            # Der Abdruck steht VOR dem Training, weil jede Bestwert-Sicherung
+            # ihn ins Manifest schreibt.
+            - call: [<.train]
+            - call: [log.info, "Pretrain done. bester Verlust ${<.beste_verlust}"]
+
+# ── Top-Level Entry ──────────────────────────────────────────────────────────

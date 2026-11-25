@@ -1,0 +1,84 @@
+# Realm-Tags — Welt-Charakter eines ganzen Realms.
+# Werden im RealmFile.realm.realm_tags verwendet (siehe realm_example.json:
+# z.B. "fragmental, cultivable, quantum_biotech, meadowlike, unstable").
+# Auch Input für discovergen (Welt-Kontext).
+
+# ── Struktur / Stabilität ──────────────────────────────────────────────────
+fragmental
+unstable
+stable
+partially_stable
+crumbling
+rebuilt
+ruined
+pristine
+seeded
+settleable
+overgrown
+abandoned
+
+# ── Element / Affinität ────────────────────────────────────────────────────
+crystalline
+glass
+aetheric
+qbit_woven
+coherence_dense
+static_charged
+bloomlight_lit
+meadowlike
+forest_thick
+desert_dry
+tundra_cold
+shore_humid
+ocean_deep
+cavern_dark
+sky_lofty
+volcanic
+icy
+swampy
+sandy
+
+# ── Biotech / Cultivation ──────────────────────────────────────────────────
+cultivable
+sterile
+fertile
+poisoned
+spore_rich
+mycelial
+quantum_biotech
+fungal
+verdant
+withered
+
+# ── Tech-Niveau ────────────────────────────────────────────────────────────
+primitive
+artisanal
+forge_lit
+runic
+data_woven
+post_collapse
+ancient_machinery
+salvage_rich
+
+# ── Frontier / Settlement ──────────────────────────────────────────────────
+frontier
+contested
+neutral
+allied
+hostile
+explored
+unexplored
+mapped
+unmapped
+
+# ── Atmosphäre / Tone ──────────────────────────────────────────────────────
+serene
+restless
+melancholic
+hopeful
+dangerous
+peaceful
+mystical
+mundane
+eldritch
+shimmering

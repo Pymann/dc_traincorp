@@ -1,0 +1,102 @@
+# Prophecy — Tag Atlas: Single-Source-of-Truth Vokabular für alle gen-models
+# (siehe doc/backlog/2026-06-08_tag_foundation_architecture.md).
+#
+# Diese Datei ist die IMPORTIERBARE API:
+#   - server/client importieren `prophecy/sources/model.aiml`
+#   - Builder (prophecy/sources/main.aiml) importiert sie ebenfalls
+# Beide Sides lesen denselben Atlas-Store aus `aiondb/prophecy_atlas.kvwal`.
+#
+# Pfad-Konvention: alle hier definierten Pfade sind PROJECT-ROOT-relativ.
+# Der Server muss aus dem datacreatures-root gestartet werden (`cd
+# datacreatures && ./server`), genauso wie itemgen + discovergen das schon
+# voraussetzen.
+
+# ── Atlas-Entry-Schema ───────────────────────────────────────────────────────
+# Pro Atlas-Eintrag eine Zeile in der kvwal.  Key = "<kind>:<domain>:<name>".
+# kind ∈ {"tag", "name", "adj"}.  domain ist die kategorisierte Quelle
+# (z.B. "items:weapon", "diseases:toxic", "enemies", "pets").  name ist
+# der eigentliche Token.
+- model:
+    name: TagAtlasEntry
+    fields:
+      - [name,        string]
+      - [kind,        string]
+      - [domain,      string]
+      - [source_path, string]
+      - [weight,      f32, 1.0]
+      - [stack_kind,  string]
+
+# ── Pfad-Konstanten (project-root-relativ) ───────────────────────────────────
+# Wichtig: AionDB legt kvwal-Files standardmäßig unter aiondb/ relativ zur cwd
+# ab.  Daher hier KEIN "aiondb/" Prefix — sonst wird's "aiondb/aiondb/..."
+- decl: [prophecy_data_dir,            string, "prophecy/data"]
+- decl: [prophecy_atlas_name,          string, "prophecy_atlas"]
+- decl: [prophecy_vocab_name,          string, "prophecy_vocab"]
+- decl: [prophecy_embedding_name,      string, "prophecy_embedding_weights"]
+
+# ── Pure Helpers ─────────────────────────────────────────────────────────────
+- def:
+    name: prp_split_and_trim
+    args: [[str_val, string], [sep, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - if: { condition: { eq: [str_val.len, 0] }, then: [{ return: out }] }
+      - decl: [parts, list<string>, { call: [str_val.split, sep] }]
+      - decl: [count, i32, parts.len]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, count] }
+          body:
+            - decl: [raw, string, { at: [parts, idx] }]
+            - decl: [tr_val, string, { call: [raw.trim] }]
+            - if:
+                condition: { gt: [tr_val.len, 0] }
+                then: [{ call: [out.push, tr_val] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: out
+
+# Liest eine .txt-Datei mit einem Token pro Zeile.  Skippt leere Zeilen +
+# Kommentare (Zeile beginnt mit `#`).
+- def:
+    name: prp_read_token_list
+    args: [[path_str, string]]
+    return: list<string>
+    body:
+      - decl: [out, list<string>]
+      - decl: [text, string, { call: [io.read_file, path_str] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then: [{ return: out }]
+      - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+      - decl: [count, i32, lines.len]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, count] }
+          body:
+            - decl: [raw, string, { at: [lines, idx] }]
+            - decl: [tok_val, string, { call: [raw.trim] }]
+            - if:
+                condition: { "&&": [{ gt: [tok_val.len, 0] }, { neq: [{ call: [tok_val.starts_with, "#"] }, 1] }] }
+                then: [{ call: [out.push, tok_val] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: out
+
+# Baut den Atlas-Key aus den drei Komponenten.
+- def:
+    name: prp_make_key
+    args: [[kind_str, string], [domain_str, string], [name_str, string]]
+    return: string
+    body:
+      - return: "${kind_str}:${domain_str}:${name_str}"
+
+# ── Atlas-Zugriff (für Server-Import) ────────────────────────────────────────
+# Lädt den Atlas-Store.  db.open_kv hängt .kvwal automatisch an, daher nur
+# Basis-Pfad übergeben.
+- def:
+    name: prp_open_atlas
+    args: []
+    return: Kv<string:TagAtlasEntry>
+    body:
+      - decl: [kv_var, Kv<string:TagAtlasEntry>, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+      - return: kv_var

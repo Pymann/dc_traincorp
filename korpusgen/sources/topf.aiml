@@ -1,0 +1,176 @@
+# Toepfe: die Daten, aus denen ein Korpus gezogen wird.
+#
+# Warum in aiml: der Erzeuger war Python (scripts/generate_clustered_corpus.py)
+# und stand damit ausserhalb des Projekts -- jede Korpusrunde brauchte ein
+# fremdes Werkzeug (User-Direktive 20.11.2026: Erzeuger neu in aiml, Ausfuehrung
+# im JIT).  Die Cluster liegen seit demselben Tag als Daten
+# (prophecy/data/clusters/*.txt), nicht mehr als Python-Wortschatz.
+#
+# Alles hier liest ZEILENWEISE -- kein yaml-Leser, derselbe schlanke Weg wie
+# die Tore in sources/server/discovery.aiml.
+
+- model:
+    name: Satz
+    fields:
+      - [kennung, string]
+      # Feldname -> Rohwert.  Eine Liste steht als "a, b, c" drin; wer sie
+      # braucht, teilt mit `topf_teile`.
+      - [felder,  map<string:string>]
+
+# "a, b, c" -> drei Eintraege.  Leeres und "[]" gibt eine leere Liste.
+- def:
+    name: topf_teile
+    args: [[roh, string]]
+    return: list<string>
+    body:
+      - decl: [raus, list<string>]
+      - decl: [sauber, string, { call: [roh.trim] }]
+      - if: { condition: { eq: [sauber.len, 0] }, then: [{ return: raus }] }
+      - decl: [ohne_auf, string, { call: [sauber.replace, "[", ""] }]
+      - decl: [ohne_zu, string, { call: [ohne_auf.replace, "]", ""] }]
+      - decl: [teile, list<string>, { call: [ohne_zu.split, ","] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, teile.len] }
+          body:
+            - decl: [eins_roh, string, { at: [teile, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [eins, string, { call: [eins_roh.trim] }]
+            - if: { condition: { gt: [eins.len, 0] }, then: [{ call: [raus.push, eins] }] }
+      - return: raus
+
+# Eine Markendatei: ein Wort je Zeile, `#` ist Kommentar.
+- def:
+    name: topf_lesen
+    args: [[pfad, string]]
+    return: list<string>
+    body:
+      - decl: [raus, list<string>]
+      - decl: [text, string, { call: [io.read_file, pfad] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.warn, "topf: '${pfad}' fehlt oder ist leer"]
+            - return: raus
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, zeilen.len] }
+          body:
+            - decl: [roh, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [wort, string, { call: [roh.trim] }]
+            - if:
+                condition: { "&&": [{ gt: [wort.len, 0] }, { neq: [{ call: [wort.starts_with, "#"] }, 1] }] }
+                then: [{ call: [raus.push, wort] }]
+      - return: raus
+
+# Eine Cluster-Datei: `cluster <name>`, danach `  <feld>: a, b, c`.
+# Ergibt je Cluster einen Satz; `kennung` ist der Clustername.
+- def:
+    name: cluster_lesen
+    args: [[pfad, string]]
+    return: list<Satz>
+    body:
+      - decl: [raus, list<Satz>]
+      - decl: [text, string, { call: [io.read_file, pfad] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.error, "cluster: '${pfad}' fehlt"]
+            - return: raus
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [idx, i32, 0]
+      - decl: [offen, i32, 0]
+      - decl: [akt, Satz]
+      - while:
+          condition: { lt: [idx, zeilen.len] }
+          body:
+            - decl: [roh, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [zeile, string, { call: [roh.trim] }]
+            - if:
+                condition: { eq: [{ call: [zeile.starts_with, "cluster "] }, 1] }
+                then:
+                  - if: { condition: { eq: [offen, 1] }, then: [{ call: [raus.push, akt] }] }
+                  - decl: [frisch, Satz]
+                  - set: [akt, frisch]
+                  - decl: [name_roh, string, { call: [zeile.substr, 8] }]
+                  - set: [akt.kennung, { call: [name_roh.trim] }]
+                  - set: [offen, 1]
+                else:
+                  - if:
+                      condition: { "&&": [{ eq: [offen, 1] }, { gt: [{ call: [zeile.index_of, ":"] }, 0] }] }
+                      then:
+                        - decl: [schnitt, i32, { call: [zeile.index_of, ":"] }]
+                        - decl: [feld, string, { call: [zeile.substr, 0, schnitt] }]
+                        - decl: [wert, string, { call: [zeile.substr, { "+": [schnitt, 1] }] }]
+                        - call: [akt.felder.put, { call: [feld.trim] }, { call: [wert.trim] }]
+      - if: { condition: { eq: [offen, 1] }, then: [{ call: [raus.push, akt] }] }
+      - return: raus
+
+# Eine Metadaten-Datei (combat_skill_metadata.yml / discover_skill_metadata.yml):
+# `  - id: <kennung>`, danach `    <feld>: <wert>`.  Dieselbe Form, die der
+# Server schon liest (lade_skill_tore) -- nur vollstaendig statt zwei Felder.
+- def:
+    name: metadaten_lesen
+    args: [[pfad, string]]
+    return: list<Satz>
+    body:
+      - decl: [raus, list<Satz>]
+      - decl: [text, string, { call: [io.read_file, pfad] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.error, "metadaten: '${pfad}' fehlt"]
+            - return: raus
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [idx, i32, 0]
+      - decl: [offen, i32, 0]
+      - decl: [akt, Satz]
+      - while:
+          condition: { lt: [idx, zeilen.len] }
+          body:
+            - decl: [roh, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [zeile, string, { call: [roh.trim] }]
+            - if:
+                condition: { eq: [{ call: [zeile.starts_with, "#"] }, 1] }
+                then: []
+                else:
+                  - if:
+                      condition: { eq: [{ call: [zeile.starts_with, "- id:"] }, 1] }
+                      then:
+                        - if: { condition: { eq: [offen, 1] }, then: [{ call: [raus.push, akt] }] }
+                        - decl: [frisch, Satz]
+                        - set: [akt, frisch]
+                        - decl: [kenn_roh, string, { call: [zeile.substr, 5] }]
+                        - set: [akt.kennung, { call: [kenn_roh.trim] }]
+                        - set: [offen, 1]
+                      else:
+                        - if:
+                            condition: { "&&": [{ eq: [offen, 1] }, { gt: [{ call: [zeile.index_of, ":"] }, 0] }] }
+                            then:
+                              - decl: [schnitt, i32, { call: [zeile.index_of, ":"] }]
+                              - decl: [feld, string, { call: [zeile.substr, 0, schnitt] }]
+                              - decl: [wert, string, { call: [zeile.substr, { "+": [schnitt, 1] }] }]
+                              - call: [akt.felder.put, { call: [feld.trim] }, { call: [wert.trim] }]
+      - if: { condition: { eq: [offen, 1] }, then: [{ call: [raus.push, akt] }] }
+      - return: raus
+
+# Feldwert eines Satzes, "" wenn das Feld fehlt.
+- def:
+    name: satz_feld
+    args: [[satz, ref<Satz>], [feld, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [{ call: [satz.felder.contains, feld] }, 1] }, then: [{ return: { call: [satz.felder.get, feld] } }] }
+      - return: ""
+
+# Feldwert als Liste.
+- def:
+    name: satz_liste
+    args: [[satz, ref<Satz>], [feld, string]]
+    return: list<string>
+    body:
+      - return: { call: [topf_teile, { call: [satz_feld, satz, feld] }] }

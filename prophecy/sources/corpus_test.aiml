@@ -1,0 +1,37 @@
+# Prophecy Corpus Smoke-Test.
+#
+# Lädt alle 3 Trainings-Korpora (combat, items, discoveries) durch den
+# CorpusLoader und gibt pro File die Resolution-Stats aus.
+#
+# Run:
+#   exodus build -c exodus-prophecy-corpus.json
+#   ./prophecy_corpus
+
+- import: "prophecy/sources/corpus_loader.aiml"
+
+- def:
+    name: load_one
+    args: [[file_path_str, string]]
+    body:
+      - decl: [atlas_kv, Kv<string:TagAtlasEntry>, { call: [prp_open_atlas] }]
+      - decl: [loader, ptr<CorpusLoader>, { new: CorpusLoader }]
+      - set: [loader.atlas, atlas_kv]
+      - decl: [file_p, path, { call: [path.from_string, file_path_str] }]
+      - call: [loader.load_file, file_p]
+      - call: [loader.print_stats]
+      - call: [log.info, ""]
+      - call: [log.info, "──────────────────────────────────────────"]
+      - call: [log.info, ""]
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - call: [log.info, "Prophecy Corpus Smoke-Test"]
+      - call: [log.info, "==========================="]
+      - call: [log.info, ""]
+      - call: [load_one, "data/combat.txt"]
+      - call: [load_one, "itemgen/data/items.txt"]
+      - call: [load_one, "discovergen/data/discoveries.txt"]
+      - return: 0

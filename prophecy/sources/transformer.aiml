@@ -1,0 +1,310 @@
+# Rezept-Transformer: ein aufgabenbedingtes Modell fuer alle vier Ausgaben.
+#
+# Gebaut auf dem, was aiml schon hat -- nicht nachgebaut.  Die Spec verweist
+# fuer die Trainingsform auf `tul/train/train_transformer.aiml`; dort steckt
+# ausserdem `tensor.fused_mha`: EIN C-Kernel fuer die ganze mehrkoepfige
+# Aufmerksamkeit, kausal maskiert von innen, mit Rueckwaertspfad
+# (OP_FUSED_MHA).  Mein erster, handgebauter Block (layer_norm + 4 matmul +
+# causal_mask + softmax) lag daneben: einkoepfig und langsamer.  Er liegt in
+# reports/verworfen/transformer.aiml.handgebaut.
+#
+# ACHTUNG: `tensor.fused_mha` ist in spec/50 NICHT dokumentiert, obwohl es in
+# der Laufzeit steht und tul es benutzt.  Befund gemeldet.
+#
+# Optimierer ist Adam, NICHT SGD ueber fma_inplace.  Das ist kein Geschmack:
+# spec/50 §14.1 sagt, `begin_graph` sammelt alles ein, was "aelter als eine
+# Epoche" ist, und "adam_step refreshes the epoch of the tensors it touches".
+# Mein SGD erneuerte die Epoche nicht -- nach vier Folgen war der Heap
+# zerstoert ("corrupted double-linked list").
+#
+# Parameter liegen in list<tensor> (wie tul/model/tul_types.aiml), samt
+# Adam-Momenten.  Damit ist `schritt` eine Schleife statt 84 Membern, und die
+# Schichtenzahl ist eine Zahl statt Code.
+- import: "prophecy/sources/head_tensors.aiml"
+
+- class:
+    name: RezeptModell
+    members:
+      # Oeffentlich, damit ein Training in einen ANDEREN Speicher schreiben
+      # kann: erst `init` (laedt die vorhandenen Gewichte als Startpunkt),
+      # dann umstellen -- so bleibt der bestehende Transformer unberuehrt
+      # (doc/architecture/kampf_chance_transformer_2026-11-15.md).
+      - [speicher,   string, "prophecy_transformer_weights", { access: public }]
+      - [d_modell,   i32, 64, { access: public }]
+      - [n_kopf,     i32, 4]
+      - [n_schicht,  i32, 2]
+      - [n_ctx,      i32, 128]
+      - [d_ffn,      i32, 256]
+      - [n_wort,     i32, 0]
+      # 1, wenn die Gewichte NICHT aus dem Speicher kamen.  Beim Training ist
+      # das der Anfang, bei der Inferenz rechnet das Modell dann gegen Rauschen.
+      - [zufaellig,  i32, 0, { access: public }]
+      - [eps,        f32, 0.00001]
+      - [adam_b1,    f32, 0.9]
+      - [adam_b2,    f32, 0.999]
+      - [adam_eps,   f32, 0.00000001]
+      - [schritt_nr, i32, 0]
+      # alle Parameter + Adam-Momente, parallel indiziert
+      - [par, list<tensor>]
+      - [mom, list<tensor>]
+      - [vel, list<tensor>]
+      - [nam, list<string>]
+      # gemeinsam
+      - [i_emb, i32, 0]
+      - [i_pos, i32, 0]
+      - [i_gnf, i32, 0]
+      - [i_bnf, i32, 0]
+      # je Schicht
+      - [l_wq, list<i32>]
+      - [l_wk, list<i32>]
+      - [l_wv, list<i32>]
+      - [l_wo, list<i32>]
+      - [l_g1, list<i32>]
+      - [l_b1, list<i32>]
+      - [l_w1, list<i32>]
+      - [l_c1, list<i32>]
+      - [l_w2, list<i32>]
+      - [l_c2, list<i32>]
+      - [l_g2, list<i32>]
+      - [l_b2, list<i32>]
+    methods:
+      # Parameter anlegen/laden und REGISTRIEREN.  head_tensors.aiml ruft
+      # weder set_requires_grad noch keep -- ohne das erste gibt es keine
+      # Gradienten (der Schritt tut still nichts), ohne das zweite gibt der
+      # naechste begin_graph die Gewichte frei.
+      - def:
+          name: nimm2
+          args: [[key, string], [dim_0, i32], [dim_1, i32]]
+          return: i32
+          body:
+            - decl: [tns, tensor, { call: [head_load_or_randn_2d, <.speicher, key, dim_0, dim_1, 0.02] }]
+            - call: [tns.set_requires_grad, 1]
+            - call: [tns.keep]
+            - call: [<.par.push, tns]
+            - call: [<.nam.push, key]
+            - decl: [mtn, tensor, { call: [tensor.zeros, dim_0, dim_1] }]
+            - call: [mtn.keep]
+            - call: [<.mom.push, mtn]
+            - decl: [vtn, tensor, { call: [tensor.zeros, dim_0, dim_1] }]
+            - call: [vtn.keep]
+            - call: [<.vel.push, vtn]
+            - return: { "-": [<.par.len, 1] }
+
+      - def:
+          name: nimm1
+          args: [[key, string], [dim_0, i32], [eins, i32]]
+          return: i32
+          body:
+            - decl: [tns, tensor]
+            - if:
+                condition: { eq: [eins, 1] }
+                then:
+                  - decl: [geladen, tensor, { call: [tensor.load, <.speicher, key] }]
+                  - if:
+                      condition: { neq: [geladen, null] }
+                      then:
+                        - decl: [hat_0, i32, { call: [geladen.shape, 0] }]
+                        - if: { condition: { neq: [hat_0, dim_0] }, then: [{ set: [geladen, null] }] }
+                  - if:
+                      condition: { eq: [geladen, null] }
+                      then: [{ set: [tns, { call: [tensor.ones, dim_0] }] }]
+                      else: [{ set: [tns, geladen] }]
+                else: [{ set: [tns, { call: [head_load_or_zeros_1d, <.speicher, key, dim_0] }] }]
+            - call: [tns.set_requires_grad, 1]
+            - call: [tns.keep]
+            - call: [<.par.push, tns]
+            - call: [<.nam.push, key]
+            - decl: [mtn, tensor, { call: [tensor.zeros, dim_0] }]
+            - call: [mtn.keep]
+            - call: [<.mom.push, mtn]
+            - decl: [vtn, tensor, { call: [tensor.zeros, dim_0] }]
+            - call: [vtn.keep]
+            - call: [<.vel.push, vtn]
+            - return: { "-": [<.par.len, 1] }
+
+      - def:
+          name: hol
+          args: [[idx, i32]]
+          return: tensor
+          body:
+            - return: { call: [<.par.get, idx] }
+
+      - def:
+          name: init
+          access: public
+          args: [[woerter, i32]]
+          return: i32
+          body:
+            # Ein zweites `init` wuerde JEDEN Parameter ein zweites Mal in
+            # `par` legen (gemessen: 56 statt 28) und damit den Schritt auf
+            # Kopien rechnen lassen.  Einmal angelegt, bleibt es dabei.
+            - if:
+                condition: { gt: [<.par.len, 0] }
+                then:
+                  - call: [log.warn, "transformer '${<.speicher}': init ein zweites Mal — die Parameter stehen schon, uebersprungen"]
+                  - return: 1
+            - set: [<.n_wort, woerter]
+            - decl: [dmd, i32, <.d_modell]
+            # Eine Formabweichung an `emb` heisst: der Wortschatz hat sich
+            # geaendert, und damit gehoert JEDES gespeicherte Gewicht zu einer
+            # anderen Tabelle.  head_tensors legt dann still neu an -- beim
+            # Training richtig, bei der Inferenz rechnet das Modell gegen
+            # Rauschen (gemessen 20.11.2026: der Chance-Encoder lag mit 5406
+            # Zeilen im Speicher, gebraucht wurden 5675).
+            - set: [<.zufaellig, 0]
+            - decl: [alt_e, tensor, { call: [tensor.load, <.speicher, "emb"] }]
+            - if:
+                condition: { eq: [alt_e, null] }
+                then: [{ set: [<.zufaellig, 1] }]
+                else:
+                  - decl: [alt_z, i32, { call: [alt_e.shape, 0] }]
+                  - if:
+                      condition: { neq: [alt_z, woerter] }
+                      then:
+                        - call: [log.error, "transformer '${<.speicher}': emb hat ${alt_z} Zeilen, gebraucht werden ${woerter} — der Wortschatz hat sich geaendert, ALLE Gewichte werden VERWORFEN. Erst neu trainieren."]
+                        - set: [<.zufaellig, 1]
+            - set: [<.i_emb, { call: [<.nimm2, "emb", woerter, dmd] }]
+            - set: [<.i_pos, { call: [<.nimm2, "pos", <.n_ctx, dmd] }]
+            - set: [<.i_gnf, { call: [<.nimm1, "gnf", dmd, 1] }]
+            - set: [<.i_bnf, { call: [<.nimm1, "bnf", dmd, 0] }]
+            - decl: [lix, i32, 0]
+            - while:
+                condition: { lt: [lix, <.n_schicht] }
+                body:
+                  - call: [<.l_wq.push, { call: [<.nimm2, "l${lix}_wq", dmd, dmd] }]
+                  - call: [<.l_wk.push, { call: [<.nimm2, "l${lix}_wk", dmd, dmd] }]
+                  - call: [<.l_wv.push, { call: [<.nimm2, "l${lix}_wv", dmd, dmd] }]
+                  - call: [<.l_wo.push, { call: [<.nimm2, "l${lix}_wo", dmd, dmd] }]
+                  - call: [<.l_g1.push, { call: [<.nimm1, "l${lix}_g1", dmd, 1] }]
+                  - call: [<.l_b1.push, { call: [<.nimm1, "l${lix}_b1", dmd, 0] }]
+                  - call: [<.l_w1.push, { call: [<.nimm2, "l${lix}_w1", dmd, <.d_ffn] }]
+                  - call: [<.l_c1.push, { call: [<.nimm1, "l${lix}_c1", <.d_ffn, 0] }]
+                  - call: [<.l_w2.push, { call: [<.nimm2, "l${lix}_w2", <.d_ffn, dmd] }]
+                  - call: [<.l_c2.push, { call: [<.nimm1, "l${lix}_c2", dmd, 0] }]
+                  - call: [<.l_g2.push, { call: [<.nimm1, "l${lix}_g2", dmd, 1] }]
+                  - call: [<.l_b2.push, { call: [<.nimm1, "l${lix}_b2", dmd, 0] }]
+                  - set: [lix, { "+": [lix, 1] }]
+            - call: [log.info, "transformer: Wortschatz ${woerter}, d=${dmd}, ${<.n_kopf} Koepfe, ${<.n_schicht} Schichten, Kontext ${<.n_ctx}, ${<.par.len} Parameter"]
+            - return: 1
+
+      # Ein Block: Vornormierung, mehrkoepfige Aufmerksamkeit (fused, kausal),
+      # Residuum, Vornormierung, gelu-Netz, Residuum.
+      - def:
+          name: block
+          args: [[xin, tensor], [lix, i32]]
+          return: tensor
+          body:
+            - decl: [gm1, tensor, { call: [<.hol, { call: [<.l_g1.get, lix] }] }]
+            - decl: [bt1, tensor, { call: [<.hol, { call: [<.l_b1.get, lix] }] }]
+            - decl: [nr1, tensor, { call: [tensor.layer_norm, xin, gm1, bt1, <.eps] }]
+            - decl: [wqq, tensor, { call: [<.hol, { call: [<.l_wq.get, lix] }] }]
+            - decl: [wkk, tensor, { call: [<.hol, { call: [<.l_wk.get, lix] }] }]
+            - decl: [wvv, tensor, { call: [<.hol, { call: [<.l_wv.get, lix] }] }]
+            - decl: [woo, tensor, { call: [<.hol, { call: [<.l_wo.get, lix] }] }]
+            - decl: [att, tensor, { call: [tensor.fused_mha, nr1, wqq, wkk, wvv, woo, <.n_kopf, <.d_modell] }]
+            - decl: [rs1, tensor, { call: [tensor.add, xin, att] }]
+            - decl: [gm2, tensor, { call: [<.hol, { call: [<.l_g2.get, lix] }] }]
+            - decl: [bt2, tensor, { call: [<.hol, { call: [<.l_b2.get, lix] }] }]
+            - decl: [nr2, tensor, { call: [tensor.layer_norm, rs1, gm2, bt2, <.eps] }]
+            - decl: [ww1, tensor, { call: [<.hol, { call: [<.l_w1.get, lix] }] }]
+            - decl: [cc1, tensor, { call: [<.hol, { call: [<.l_c1.get, lix] }] }]
+            - decl: [hd1, tensor, { call: [tensor.matmul, nr2, ww1] }]
+            - decl: [hd2, tensor, { call: [tensor.add, hd1, cc1] }]
+            - decl: [hd3, tensor, { call: [tensor.gelu, hd2] }]
+            - decl: [ww2, tensor, { call: [<.hol, { call: [<.l_w2.get, lix] }] }]
+            - decl: [cc2, tensor, { call: [<.hol, { call: [<.l_c2.get, lix] }] }]
+            - decl: [hd4, tensor, { call: [tensor.matmul, hd3, ww2] }]
+            - decl: [hd5, tensor, { call: [tensor.add, hd4, cc2] }]
+            - return: { call: [tensor.add, rs1, hd5] }
+
+      # ids: 1D-Tensor float-kodierter Token-Nummern (spec/50 §10).
+      # Ausgabe an die Einbettung gebunden: logits = h @ embᵀ.
+      - def:
+          name: vorwaerts
+          access: public
+          args: [[ids, tensor], [laenge, i32]]
+          return: tensor
+          body:
+            - decl: [xem, tensor, { call: [tensor.embedding_lookup, { call: [<.hol, <.i_emb] }, ids, laenge] }]
+            - decl: [psl, tensor, { call: [tensor.slice, { call: [<.hol, <.i_pos] }, 0, 0, laenge] }]
+            - decl: [xxx, tensor, { call: [tensor.add, xem, psl] }]
+            - decl: [lix, i32, 0]
+            - while:
+                condition: { lt: [lix, <.n_schicht] }
+                body:
+                  - set: [xxx, { call: [<.block, xxx, lix] }]
+                  - set: [lix, { "+": [lix, 1] }]
+            - decl: [xnf, tensor, { call: [tensor.layer_norm, xxx, { call: [<.hol, <.i_gnf] }, { call: [<.hol, <.i_bnf] }, <.eps] }]
+            - decl: [ebt, tensor, { call: [tensor.transpose, { call: [<.hol, <.i_emb] }, 0, 1] }]
+            - return: { call: [tensor.matmul, xnf, ebt] }
+
+      # Dieselbe Rechnung wie `vorwaerts`, nur OHNE die Bindung an die
+      # Einbettung: zurueck kommt die letzte verborgene Lage (nach
+      # layer_norm), nicht die Logits.  Ein Regressionskopf braucht genau
+      # das -- und `vorwaerts` bleibt unangetastet
+      # (doc/architecture/kampf_chance_transformer_2026-11-15.md).
+      - def:
+          name: verborgen
+          access: public
+          args: [[ids, tensor], [laenge, i32]]
+          return: tensor
+          body:
+            - decl: [xem, tensor, { call: [tensor.embedding_lookup, { call: [<.hol, <.i_emb] }, ids, laenge] }]
+            - decl: [psl, tensor, { call: [tensor.slice, { call: [<.hol, <.i_pos] }, 0, 0, laenge] }]
+            - decl: [xxx, tensor, { call: [tensor.add, xem, psl] }]
+            - decl: [lix, i32, 0]
+            - while:
+                condition: { lt: [lix, <.n_schicht] }
+                body:
+                  - set: [xxx, { call: [<.block, xxx, lix] }]
+                  - set: [lix, { "+": [lix, 1] }]
+            - return: { call: [tensor.layer_norm, xxx, { call: [<.hol, <.i_gnf] }, { call: [<.hol, <.i_bnf] }, <.eps] }
+
+      - def:
+          name: schritt
+          access: public
+          args: [[lrn, f32]]
+          body:
+            - set: [<.schritt_nr, { "+": [<.schritt_nr, 1] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.par.len] }
+                body:
+                  - decl: [prm, tensor, { call: [<.par.get, idx] }]
+                  - decl: [mtn, tensor, { call: [<.mom.get, idx] }]
+                  - decl: [vtn, tensor, { call: [<.vel.get, idx] }]
+                  - call: [tensor.adam_step, prm, mtn, vtn, lrn, <.adam_b1, <.adam_b2, <.adam_eps, <.schritt_nr]
+                  - call: [prm.zero_grad]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      - def:
+          name: grad_zahl
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [zhl, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.par.len] }
+                body:
+                  - decl: [prm, tensor, { call: [<.par.get, idx] }]
+                  - decl: [grd, tensor, { call: [prm.grad] }]
+                  - if: { condition: { neq: [grd, null] }, then: [{ set: [zhl, { "+": [zhl, 1] }] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: zhl
+
+      - def:
+          name: sichern
+          access: public
+          args: []
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, <.par.len] }
+                body:
+                  - decl: [prm, tensor, { call: [<.par.get, idx] }]
+                  - decl: [key, string, { at: [<.nam, idx] }]
+                  - call: [tensor.save, prm, <.speicher, key]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [log.info, "transformer: ${<.par.len} Parameter gesichert → '${<.speicher}'"]

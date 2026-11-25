@@ -1,0 +1,54 @@
+# Combat-Skill-Tags (skill_kind=1) — wirken in tick_combat vor Damage-Roll.
+# combat_score_head konsumiert diese Tags zusätzlich zu Weapon-Tags.
+
+# Wirk-Profil
+damage_multiplier
+flat_damage_bonus
+critical_chance_bonus
+defense_bonus
+counter_attack
+parry_bonus
+dodge_bonus
+stagger_chance
+bleed_on_hit
+poison_on_hit
+burn_on_hit
+
+# Trigger-Bedingung
+on_attack
+on_defend
+on_critical_hit
+on_critical_miss
+on_low_hp
+on_high_hp
+on_flanking
+on_riposte
+opener
+finisher
+
+# Stil
+aggressive
+defensive
+balanced
+hit_and_run
+tank
+duelist
+range_focused
+melee_focused
+
+# Cooldown-Klasse
+short_cooldown
+medium_cooldown
+long_cooldown
+once_per_combat
+passive_always_on
+
+# Elementare Affinität
+fire_aspect
+ice_aspect
+shock_aspect
+poison_aspect
+psychic_aspect
+holy_aspect
+shadow_aspect
+neutral_aspect

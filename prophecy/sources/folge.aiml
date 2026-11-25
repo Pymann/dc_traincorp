@@ -1,0 +1,710 @@
+# Sache <-> Tokenfolge.  Eine Grammatik fuer alle vier Aufgaben.
+#
+#   <a:rezept>     <bag> t… <out> name <mat> m x2 … <tool> w … <skill> s <type> ty <end>
+#   <a:entdeckung> <bag> t… <art> fundart <tags> g… <ertrag> e x3 … <name> nm… <end>
+#   <a:fertigkeit> <bag> t… <skill> s <end>
+#   <a:kampf>      <bag> t… <skill> s <end>
+#
+# Strukturmarken stehen VOR den Atlas-Tokens: token_id = n_marken + vocab_idx.
+# Der Wortschatz-Blob (prophecy_vocab) bleibt unangetastet.
+#
+# Je Aufgabe wird mit DEREN domain_priority aufgeloest.  Dasselbe bloße Wort
+# kann unter zwei Reihenfolgen auf zwei Atlas-Schluessel zeigen; die
+# Aufgabenmarke unterscheidet sie.  Eine gemeinsame, handgepflegte Reihenfolge
+# war schon einmal eine zweite Wahrheit (efcada9).
+- import: "prophecy/sources/corpus_loader.aiml"
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/fundarten.aiml"
+
+- class:
+    name: Folge
+    members:
+      - [atlas,      Kv<string:TagAtlasEntry>]
+      - [einbettung, ptr<TagEmbedding>, null]
+      - [marken,     list<string>]
+      - [marken_idx, map<string:i32>]
+      - [n_marken,   i32, 0, { access: public }]
+      - [unbekannt,  i32, 0]
+      - [prio,       list<string>]
+      - [fund_code,  map<string:i32>]
+    methods:
+      - def:
+          name: marke_zu
+          args: [[nam, string]]
+          body:
+            # Zweimal dieselbe Marke waere keine Doppelung, sondern eine
+            # VERSCHIEBUNG: `marken_idx` behielte den letzten Index, also
+            # bekaeme <pad> die Nummer 32 statt 0 und jede Kodierung waere
+            # falsch.  Gemessen 20.11.2026 im Gate: "64 Marken + 5643
+            # Atlas-Tokens = 5707" -- rpc_gate_app und rpc_gate_kampf laufen
+            # in EINEM Prozess und starten die Chance-Quelle beide.
+            - if: { condition: { eq: [{ call: [<.marken_idx.contains, nam] }, 1] }, then: [{ return: }] }
+            - call: [<.marken_idx.put, nam, <.marken.len]
+            - call: [<.marken.push, nam]
+
+      - def:
+          name: init
+          access: public
+          args: []
+          return: i32
+          body:
+            - call: [<.marke_zu, "<pad>"]
+            - call: [<.marke_zu, "<end>"]
+            - call: [<.marke_zu, "<a:rezept>"]
+            - call: [<.marke_zu, "<a:entdeckung>"]
+            - call: [<.marke_zu, "<a:fertigkeit>"]
+            - call: [<.marke_zu, "<a:kampf>"]
+            - call: [<.marke_zu, "<bag>"]
+            - call: [<.marke_zu, "<out>"]
+            - call: [<.marke_zu, "<mat>"]
+            - call: [<.marke_zu, "<tool>"]
+            - call: [<.marke_zu, "<skill>"]
+            - call: [<.marke_zu, "<type>"]
+            - call: [<.marke_zu, "<art>"]
+            - call: [<.marke_zu, "<tags>"]
+            - call: [<.marke_zu, "<ertrag>"]
+            - call: [<.marke_zu, "<name>"]
+            - decl: [zahl, i32, 1]
+            - while:
+                condition: { le: [zahl, 9] }
+                body:
+                  - call: [<.marke_zu, "x${zahl}"]
+                  - set: [zahl, { "+": [zahl, 1] }]
+            # Die sieben Fundarten sind ein GESCHLOSSENES Vokabular aus den
+            # Modellklassen des Spiels, kein Weltwortschatz: im Atlas stehen
+            # sie nicht, also fiel `<art>` beim Kodieren leer aus -- in allen
+            # 25000 Entdeckungsfolgen.  Das Modell hat das treu gelernt, und
+            # die Regel verlangte danach eine Fundart, die das Format nicht
+            # ausdruecken konnte.  Darum gehoeren sie zu den Marken.
+            - call: [<.marke_zu, "growable"]
+            - call: [<.marke_zu, "enemy"]
+            - call: [<.marke_zu, "npc"]
+            - call: [<.marke_zu, "harvestable"]
+            - call: [<.marke_zu, "locked"]
+            - call: [<.marke_zu, "portal"]
+            - call: [<.marke_zu, "nothing"]
+            - call: [<.fund_code.put, "growable",    Fundart.Growable]
+            - call: [<.fund_code.put, "enemy",       Fundart.Enemy]
+            - call: [<.fund_code.put, "npc",         Fundart.Npc]
+            - call: [<.fund_code.put, "harvestable", Fundart.Harvestable]
+            - call: [<.fund_code.put, "locked",      Fundart.Locked]
+            - call: [<.fund_code.put, "portal",      Fundart.Portal]
+            - call: [<.fund_code.put, "nothing",     Fundart.Nothing]
+            - set: [<.n_marken, <.marken.len]
+            - set: [<.atlas, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+            - set: [<.einbettung, { new: TagEmbedding }]
+            - decl: [hat_wort, i32, { call: [<.einbettung.load_vocab] }]
+            - if: { condition: { neq: [hat_wort, 1] }, then: [{ return: 0 }] }
+            - decl: [ges, i32, { call: [<.gesamt_tokens] }]
+            - call: [log.info, "folge: ${<.n_marken} Marken + ${<.einbettung.n_tokens} Atlas-Tokens = ${ges} Wortschatz"]
+            - return: 1
+
+
+      # Wort -> Fundart.  Fundart.Keine, wenn es keine ist.
+      - def:
+          name: fundart
+          access: public
+          args: [[wrt, string]]
+          return: i32
+          body:
+            - if: { condition: { eq: [{ call: [<.fund_code.contains, wrt] }, 0] }, then: [{ return: Fundart.Keine }] }
+            - return: { call: [<.fund_code.get, wrt] }
+      # Der Abdruck des Atlas-Wortschatzes, auf dem diese Folge beruht --
+      # fuer das Manifest der Koepfe, die sie benutzen
+      # (Spec modell_manifest_2026-11-20.md).
+      - def:
+          name: wortschatz_fp
+          access: public
+          args: []
+          return: string
+          body:
+            - if: { condition: { eq: [<.einbettung, null] }, then: [{ return: "" }] }
+            - return: <.einbettung.wortschatz_fp
+
+      - def:
+          name: gesamt_tokens
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: { "+": [<.n_marken, <.einbettung.n_tokens] }
+
+      - def:
+          name: marke
+          access: public
+          args: [[nam, string]]
+          return: i32
+          body:
+            - if: { condition: { eq: [{ call: [<.marken_idx.contains, nam] }, 0] }, then: [{ return: -1 }] }
+            - return: { call: [<.marken_idx.get, nam] }
+
+      # Die Kopfzeile eines Korpus als Reihenfolge.
+      - def:
+          name: prio_lesen
+          access: public
+          args: [[pfad, string]]
+          return: list<string>
+          body:
+            - decl: [leer, list<string>]
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: leer }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [pos, zeilen.len] }, { lt: [pos, 40] }] }
+                body:
+                  - decl: [zle, string, { at: [zeilen, pos] }]
+                  - if:
+                      condition: { eq: [{ call: [zle.starts_with, "# @domain_priority:"] }, 1] }
+                      then: [{ return: { call: [parse_priority_header, zle] } }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: leer
+
+      - def:
+          name: prio_setzen
+          access: public
+          args: [[pri, list<string>]]
+          body:
+            - set: [<.prio, pri]
+
+      # Atlas-Aufloesung in der Reihenfolge der Korpus-Kopfzeile.  Eigene
+      # Fassung statt CorpusLoader.resolve_token: dort muesste je Aufruf
+      # `current_priority` neu ins Member geschrieben werden, und dieser
+      # Listen-Store in der Schleife liess den dritten Aufruf abstuerzen.
+      - def:
+          name: aufloesen
+          args: [[wrt, string]]
+          return: string
+          body:
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.prio.len] }
+                body:
+                  - decl: [dom, string, { at: [<.prio, pos] }]
+                  - decl: [sch_tag, string, "tag:${dom}:${wrt}"]
+                  - if: { condition: { eq: [{ call: [<.atlas.has, sch_tag] }, 1] }, then: [{ return: sch_tag }] }
+                  - decl: [sch_nam, string, "name:${dom}:${wrt}"]
+                  - if: { condition: { eq: [{ call: [<.atlas.has, sch_nam] }, 1] }, then: [{ return: sch_nam }] }
+                  - decl: [sch_adj, string, "adj:${dom}:${wrt}"]
+                  - if: { condition: { eq: [{ call: [<.atlas.has, sch_adj] }, 1] }, then: [{ return: sch_adj }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: ""
+
+      # Bloßes Wort -> Token-Nummer.  -1, wenn der Atlas es nicht kennt.
+      - def:
+          name: tok
+          access: public
+          args: [[roh, string]]
+          return: i32
+          body:
+            - decl: [wrt, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [wrt.len, 0] }, then: [{ return: -1 }] }
+            - decl: [schl, string, { call: [<.aufloesen, wrt] }]
+            - if:
+                condition: { eq: [schl.len, 0] }
+                then:
+                  - set: [<.unbekannt, { "+": [<.unbekannt, 1] }]
+                  - return: -1
+            - if: { condition: { eq: [{ call: [<.einbettung.vocab_index.contains, schl] }, 0] }, then: [{ return: -1 }] }
+            - return: { "+": [<.n_marken, { call: [<.einbettung.vocab_index.get, schl] }] }
+
+      # Token-Nummer -> bloßes Wort (letztes Glied des Atlas-Schluessels).
+      - def:
+          name: wort
+          access: public
+          args: [[tid, i32]]
+          return: string
+          body:
+            - if: { condition: { lt: [tid, 0] }, then: [{ return: "" }] }
+            - if:
+                condition: { lt: [tid, <.n_marken] }
+                then:
+                  - decl: [mrk, string, { at: [<.marken, tid] }]
+                  - return: "${mrk}"
+            - decl: [vidx, i32, { "-": [tid, <.n_marken] }]
+            - if: { condition: { ge: [vidx, <.einbettung.vocab.len] }, then: [{ return: "" }] }
+            - decl: [schl, string, { at: [<.einbettung.vocab, vidx] }]
+            - decl: [teile, list<string>, { call: [schl.split, ":"] }]
+            - if: { condition: { eq: [teile.len, 0] }, then: [{ return: schl }] }
+            - decl: [letzt, string, { at: [teile, { "-": [teile.len, 1] }] }]
+            - return: "${letzt}"
+
+      # Hilfen ------------------------------------------------------------
+      - def:
+          name: beutel_anfuegen
+          args: [[aus, list<i32>], [bag, string]]
+          body:
+            - decl: [teile, list<string>, { call: [bag.split, " "] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, teile.len] }
+                body:
+                  - decl: [tid, i32, { call: [<.tok, { at: [teile, pos] }] }]
+                  - if: { condition: { ge: [tid, 0] }, then: [{ call: [aus.push, tid] }] }
+                  - set: [pos, { "+": [pos, 1] }]
+
+      # "moss x3, marsh-clay x1" -> Token + Mengenmarke je Eintrag
+      - def:
+          name: liste_anfuegen
+          args: [[aus, list<i32>], [roh, string], [mit_menge, i32]]
+          body:
+            - decl: [sauber, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [sauber.len, 0] }, then: [{ return: null }] }
+            - decl: [posten, list<string>, { call: [sauber.split, ","] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, posten.len] }
+                body:
+                  - decl: [ein_roh, string, { at: [posten, pos] }]
+                  - decl: [ein, string, { call: [ein_roh.trim] }]
+                  - if:
+                      condition: { gt: [ein.len, 0] }
+                      then:
+                        - decl: [stk, list<string>, { call: [ein.split, " "] }]
+                        - decl: [nam, string, { at: [stk, 0] }]
+                        - decl: [tid, i32, { call: [<.tok, nam] }]
+                        - if:
+                            condition: { ge: [tid, 0] }
+                            then:
+                              - call: [aus.push, tid]
+                              - if:
+                                  condition: { "&&": [{ eq: [mit_menge, 1] }, { ge: [stk.len, 2] }] }
+                                  then:
+                                    - decl: [mng, string, { at: [stk, 1] }]
+                                    - decl: [mid, i32, { call: [<.marke, mng] }]
+                                    - if: { condition: { ge: [mid, 0] }, then: [{ call: [aus.push, mid] }] }
+                  - set: [pos, { "+": [pos, 1] }]
+
+      # Kodierer ----------------------------------------------------------
+      # Geborgte Listen-Eintraege werden ERST an eine Variable gebunden und
+      # dann uebergeben.  `{ at: [spl, n] }` direkt als String-Argument
+      # liess den zweiten Aufruf abstuerzen (SIGSEGV addr=0x20).
+      - def:
+          name: kodiere_rezept
+          access: public
+          args: [[bag, string], [rezept, string]]
+          return: list<i32>
+          body:
+            - decl: [aus, list<i32>]
+            - decl: [spl, list<string>, { call: [rezept.split, "|"] }]
+            - if: { condition: { lt: [spl.len, 7] }, then: [{ return: aus }] }
+            - decl: [sp_out, string, { at: [spl, 2] }]
+            - decl: [sp_frt, string, { at: [spl, 3] }]
+            - decl: [sp_mat, string, { at: [spl, 4] }]
+            - decl: [sp_wkz, string, { at: [spl, 5] }]
+            - decl: [sp_typ, string, { at: [spl, 6] }]
+            - call: [aus.push, { call: [<.marke, "<a:rezept>"] }]
+            - call: [aus.push, { call: [<.marke, "<bag>"] }]
+            - call: [<.beutel_anfuegen, aus, bag]
+            - call: [aus.push, { call: [<.marke, "<out>"] }]
+            - call: [<.liste_anfuegen, aus, sp_out, 1]
+            - call: [aus.push, { call: [<.marke, "<mat>"] }]
+            - call: [<.liste_anfuegen, aus, sp_mat, 1]
+            - call: [aus.push, { call: [<.marke, "<tool>"] }]
+            - call: [<.liste_anfuegen, aus, sp_wkz, 0]
+            - call: [aus.push, { call: [<.marke, "<skill>"] }]
+            - call: [<.liste_anfuegen, aus, sp_frt, 0]
+            - call: [aus.push, { call: [<.marke, "<type>"] }]
+            - call: [<.liste_anfuegen, aus, sp_typ, 0]
+            - call: [aus.push, { call: [<.marke, "<end>"] }]
+            - return: aus
+
+      # discover | bag | art | tags | ertrag | werkzeug | name
+      - def:
+          name: kodiere_entdeckung
+          access: public
+          args: [[zeile, string]]
+          return: list<i32>
+          body:
+            - decl: [aus, list<i32>]
+            - decl: [spl, list<string>, { call: [zeile.split, "|"] }]
+            - if: { condition: { lt: [spl.len, 7] }, then: [{ return: aus }] }
+            - decl: [sp_bag, string, { at: [spl, 1] }]
+            - decl: [sp_art, string, { at: [spl, 2] }]
+            - decl: [sp_tag, string, { at: [spl, 3] }]
+            - decl: [sp_ert, string, { at: [spl, 4] }]
+            - decl: [sp_wkz, string, { at: [spl, 5] }]
+            - decl: [sp_nam, string, { at: [spl, 6] }]
+            - call: [aus.push, { call: [<.marke, "<a:entdeckung>"] }]
+            - call: [aus.push, { call: [<.marke, "<bag>"] }]
+            - call: [<.beutel_anfuegen, aus, sp_bag]
+            - call: [aus.push, { call: [<.marke, "<art>"] }]
+            - decl: [art_w, string, { call: [sp_art.trim] }]
+            - decl: [art_m, i32, { call: [<.marke, art_w] }]
+            - if: { condition: { ge: [art_m, 0] }, then: [{ call: [aus.push, art_m] }] }
+            - call: [aus.push, { call: [<.marke, "<tags>"] }]
+            - call: [<.liste_anfuegen, aus, sp_tag, 0]
+            - call: [aus.push, { call: [<.marke, "<ertrag>"] }]
+            - call: [<.liste_anfuegen, aus, sp_ert, 1]
+            - call: [aus.push, { call: [<.marke, "<tool>"] }]
+            - call: [<.liste_anfuegen, aus, sp_wkz, 0]
+            - call: [aus.push, { call: [<.marke, "<name>"] }]
+            - call: [<.liste_anfuegen, aus, sp_nam, 0]
+            - call: [aus.push, { call: [<.marke, "<end>"] }]
+            - return: aus
+
+      # sample | bag | cluster | skill-id   (Spalte 2 ist eine Buendelmarke,
+      # kein Atlas-Token -- sie gehoert nicht in die Folge.)
+      - def:
+          name: kodiere_fertigkeit
+          access: public
+          args: [[zeile, string]]
+          return: list<i32>
+          body:
+            - decl: [aus, list<i32>]
+            - decl: [spl, list<string>, { call: [zeile.split, "|"] }]
+            - if: { condition: { lt: [spl.len, 4] }, then: [{ return: aus }] }
+            - decl: [sp_bag, string, { at: [spl, 1] }]
+            - decl: [sp_frt, string, { at: [spl, 3] }]
+            - call: [aus.push, { call: [<.marke, "<a:fertigkeit>"] }]
+            - call: [aus.push, { call: [<.marke, "<bag>"] }]
+            - call: [<.beutel_anfuegen, aus, sp_bag]
+            - call: [aus.push, { call: [<.marke, "<skill>"] }]
+            - call: [<.liste_anfuegen, aus, sp_frt, 0]
+            - call: [aus.push, { call: [<.marke, "<end>"] }]
+            - return: aus
+
+      # combat | bag | skill-id
+      - def:
+          name: kodiere_kampf
+          access: public
+          args: [[zeile, string]]
+          return: list<i32>
+          body:
+            - decl: [aus, list<i32>]
+            - decl: [spl, list<string>, { call: [zeile.split, "|"] }]
+            - if: { condition: { lt: [spl.len, 3] }, then: [{ return: aus }] }
+            - decl: [sp_bag, string, { at: [spl, 1] }]
+            - decl: [sp_frt, string, { at: [spl, 2] }]
+            - call: [aus.push, { call: [<.marke, "<a:kampf>"] }]
+            - call: [aus.push, { call: [<.marke, "<bag>"] }]
+            - call: [<.beutel_anfuegen, aus, sp_bag]
+            - call: [aus.push, { call: [<.marke, "<skill>"] }]
+            - call: [<.liste_anfuegen, aus, sp_frt, 0]
+            - call: [aus.push, { call: [<.marke, "<end>"] }]
+            - return: aus
+
+      # Welche ART ist diese Fertigkeit?  Gleiche Nummern wie
+      # ProphecyPredictor.skill_kind_for: 1 Kampf, 2 passiv, 3 aktiv,
+      # 4 mechanisch, 5 Basis/Start, 0 unbekannt.
+      - def:
+          name: fertigkeit_art
+          access: public
+          args: [[roh, string]]
+          return: i32
+          body:
+            - decl: [wrt, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [wrt.len, 0] }, then: [{ return: 0 }] }
+            - decl: [keb, string, { call: [wrt.replace, "_", "-"] }]
+            - decl: [listen, list<string>]
+            - call: [listen.push, "combat_skills"]
+            - call: [listen.push, "passive_skills"]
+            - call: [listen.push, "active_skills"]
+            - call: [listen.push, "mechanic_skills"]
+            - call: [listen.push, "base_skills"]
+            - call: [listen.push, "starter_skills"]
+            - decl: [ldx, i32, 0]
+            - while:
+                condition: { lt: [ldx, listen.len] }
+                body:
+                  - decl: [lst, string, { at: [listen, ldx] }]
+                  - if:
+                      condition: { "||": [{ eq: [{ call: [<.atlas.has, "name:skills:${lst}:${wrt}"] }, 1] }, { eq: [{ call: [<.atlas.has, "name:skills:${lst}:${keb}"] }, 1] }] }
+                      then:
+                        - decl: [art, i32, { "+": [ldx, 1] }]
+                        - if: { condition: { gt: [art, 5] }, then: [{ set: [art, 5] }] }
+                        - return: art
+                  - set: [ldx, { "+": [ldx, 1] }]
+            - return: 0
+
+      # Zu WELCHER der 13 Materialarten gehoert dieses Fundstueck?
+      # `quartz` -> stone, `moss` -> fungus, `plume` -> animal.  Der Streifzug
+      # braucht das, weil Rezepte in ARTEN rechnen ("stone x3"), Funde aber
+      # konkrete Stuecke sind.  "" heisst: kein Handwerksmaterial.
+      - def:
+          name: material_art
+          access: public
+          args: [[roh, string]]
+          return: string
+          body:
+            # NORMALISIEREN, nicht nur trimmen: die Atlas-Schluessel sind
+            # klein und mit Bindestrich geschrieben, die Gegenstaende im Spiel
+            # heissen aber "Crystal" oder "Bog_Iron".  Ohne das fand der
+            # Rezeptbeutel kein einziges Material der Kreatur, und das Modell
+            # fiel weiter auf sein haeufigstes zurueck -- im Log vom 15.11.
+            # stand bei Beutel "… crystal rock" trotzdem "aus herb x1".
+            - decl: [kln, string, { call: [roh.trim] }]
+            - decl: [tief, string, { call: [kln.lower] }]
+            - decl: [wrt, string, { call: [tief.replace, "_", "-"] }]
+            - if: { condition: { eq: [wrt.len, 0] }, then: [{ return: "" }] }
+            - decl: [arten, list<string>]
+            - call: [arten.push, "metal"]
+            - call: [arten.push, "wood"]
+            - call: [arten.push, "fiber"]
+            - call: [arten.push, "gem"]
+            - call: [arten.push, "liquid"]
+            - call: [arten.push, "tech"]
+            - call: [arten.push, "essence"]
+            - call: [arten.push, "herb"]
+            - call: [arten.push, "animal"]
+            - call: [arten.push, "stone"]
+            - call: [arten.push, "mineral"]
+            - call: [arten.push, "quantum"]
+            - call: [arten.push, "fungus"]
+            - call: [arten.push, "food"]
+            - decl: [adx, i32, 0]
+            - while:
+                condition: { lt: [adx, arten.len] }
+                body:
+                  - decl: [art, string, { at: [arten, adx] }]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas.has, "name:items:craft_materials:${art}:${wrt}"] }, 1] }
+                      then: [{ return: art }]
+                  - set: [adx, { "+": [adx, 1] }]
+            - return: ""
+
+      # Ist das ein Material?
+      #
+      # NICHT ueber `aufloesen`: das gibt zurueck, wozu ein Wort in der
+      # PRIORITAETSREIHENFOLGE zuerst passt.  `gem` landet dort bei
+      # `tag:items:socketable_tags:gem` -- und meine erste Fassung hat deshalb
+      # 176 von 200 korrekten Rezepten verworfen, weil sie fragte "wozu passt
+      # es zuerst" statt "ist es ueberhaupt ein Material".
+      #
+      # Hier werden die Material-Domaenen DIREKT gefragt.  Die 13 Arten
+      # stehen so in der @domain_priority des Item-Korpus.
+      - def:
+          name: ist_material
+          access: public
+          args: [[roh, string]]
+          return: i32
+          body:
+            - decl: [wrt, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [wrt.len, 0] }, then: [{ return: 0 }] }
+            - if: { condition: { eq: [{ call: [<.atlas.has, "tag:items:craft_material_tags:${wrt}"] }, 1] }, then: [{ return: 1 }] }
+            - if: { condition: { eq: [{ call: [<.atlas.has, "name:items:craft_material:${wrt}"] }, 1] }, then: [{ return: 1 }] }
+            - decl: [arten, list<string>]
+            - call: [arten.push, "metal"]
+            - call: [arten.push, "wood"]
+            - call: [arten.push, "fiber"]
+            - call: [arten.push, "gem"]
+            - call: [arten.push, "liquid"]
+            - call: [arten.push, "tech"]
+            - call: [arten.push, "essence"]
+            - call: [arten.push, "herb"]
+            - call: [arten.push, "animal"]
+            - call: [arten.push, "stone"]
+            - call: [arten.push, "mineral"]
+            - call: [arten.push, "quantum"]
+            - call: [arten.push, "fungus"]
+            - call: [arten.push, "food"]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, arten.len] }
+                body:
+                  - decl: [art, string, { at: [arten, pos] }]
+                  - if: { condition: { eq: [{ call: [<.atlas.has, "name:items:craft_materials:${art}:${wrt}"] }, 1] }, then: [{ return: 1 }] }
+                  - if: { condition: { eq: [{ call: [<.atlas.has, "tag:items:craft_materials:${art}:${wrt}"] }, 1] }, then: [{ return: 1 }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            # Die Materialart selbst ist auch ein gueltiger Materialname
+            # ("animal x2" im Korpus meint die Art, nicht ein Einzelstueck).
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, arten.len] }
+                body:
+                  - decl: [art2, string, { at: [arten, pos] }]
+                  - if: { condition: { eq: [wrt, art2] }, then: [{ return: 1 }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: 0
+
+      # an eine freie Funktion zu uebergeben machte das Objekt nach
+      # ihrer Rueckkehr unbrauchbar -- der ZWEITE Aufruf stuerzte ab
+      # (SIGSEGV addr=0x20, erster Memberzugriff danach).
+      - def:
+          name: pruefe
+          access: public
+          args: [[ids, list<i32>], [aufgabe, string], [soll_marken, string]]
+          return: i32
+          body:
+            - if:
+                condition: { lt: [ids.len, 3] }
+                then:
+                  - call: [log.error, "folge ${aufgabe}: Folge zu kurz (${ids.len})"]
+                  - return: 1
+            - decl: [schlecht, i32, 0]
+            - decl: [ist_marken, string, ""]
+            - decl: [grenze, i32, { call: [<.gesamt_tokens] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, ids.len] }
+                body:
+                  - decl: [tid, i32, { at: [ids, pos] }]
+                  - if:
+                      condition: { "||": [{ lt: [tid, 0] }, { ge: [tid, grenze] }] }
+                      then:
+                        - call: [log.error, "folge ${aufgabe}: Nummer ${tid} ausserhalb [0,${grenze})"]
+                        - set: [schlecht, 1]
+                  - decl: [wrt, string, { call: [<.wort, tid] }]
+                  - if:
+                      condition: { eq: [wrt.len, 0] }
+                      then:
+                        - call: [log.error, "folge ${aufgabe}: Nummer ${tid} bildet nicht zurueck ab"]
+                        - set: [schlecht, 1]
+                  - if:
+                      condition: { eq: [{ call: [wrt.starts_with, "<"] }, 1] }
+                      then:
+                        - if:
+                            condition: { eq: [ist_marken.len, 0] }
+                            then: [{ set: [ist_marken, wrt] }]
+                            else: [{ set: [ist_marken, "${ist_marken} ${wrt}"] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - if:
+                condition: { neq: [ist_marken, soll_marken] }
+                then:
+                  - call: [log.error, "folge ${aufgabe}: Markenfolge ist '${ist_marken}', soll '${soll_marken}'"]
+                  - set: [schlecht, 1]
+            - return: schlecht
+
+      # Folge -> lesbare Zeile.  Fuer den Rundlauf und fuers Protokoll.
+      - def:
+          name: lesbar
+          access: public
+          args: [[ids, list<i32>]]
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, ids.len] }
+                body:
+                  - decl: [wrt, string, { call: [<.wort, { at: [ids, pos] }] }]
+                  - if:
+                      condition: { gt: [wrt.len, 0] }
+                      then:
+                        - if:
+                            condition: { eq: [aus.len, 0] }
+                            then: [{ set: [aus, wrt] }]
+                            else: [{ set: [aus, "${aus} ${wrt}"] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      # Das Vokabular EINES Korpusfeldes als Maske ueber den Wortschatz
+      # (Spec §7b).  `art` ist die Zeilenart ("recipe", "sample", "combat"),
+      # `feld` die 1-basierte Spalte zwischen den Strichen.  Kommas und
+      # Leerzeichen trennen gleichermassen: "essence x1, stone x3" ergibt
+      # essence, x1, stone, x3.  Kodiert wird mit der GERADE gesetzten
+      # Reihenfolge -- derselben, mit der dieser Korpus trainiert wurde.
+      # Zwei Felder derselben Zeile als Paar: erstes Wort von `feld_a` ->
+      # Inhalt von `feld_b`.  Daraus entsteht die Karte "Ausgabename -> Art"
+      # (Rezept-Feld 3 -> Feld 7), mit der die Gueltigkeitspruefung die
+      # BEZIEHUNG zwischen zwei Abschnitten pruefen kann statt nur jedes Wort
+      # fuer sich (gemeldet 22.11.2026: ein Loetkolben als Waffe).
+      - def:
+          name: feld_paare
+          access: public
+          args: [[pfad, string], [art, string], [feld_a, i32], [feld_b, i32]]
+          return: map<string:string>
+          body:
+            - decl: [aus, map<string:string>]
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: aus }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [kopf, string, "${art} |"]
+            - decl: [zdx, i32, 0]
+            - while:
+                condition: { lt: [zdx, zeilen.len] }
+                body:
+                  - decl: [zle, string, { at: [zeilen, zdx] }]
+                  - set: [zdx, { "+": [zdx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [zle.starts_with, kopf] }, 1] }
+                      then:
+                        - decl: [tle, list<string>, { call: [zle.split, "|"] }]
+                        - if:
+                            condition: { "&&": [{ ge: [tle.len, feld_a] }, { ge: [tle.len, feld_b] }] }
+                            then:
+                              - decl: [roh_a, string, { at: [tle, { "-": [feld_a, 1] }] }]
+                              - decl: [roh_b, string, { at: [tle, { "-": [feld_b, 1] }] }]
+                              - decl: [sauber_a, string, { call: [roh_a.trim] }]
+                              - decl: [stueck, list<string>, { call: [sauber_a.split, " "] }]
+                              - if:
+                                  condition: { gt: [stueck.len, 0] }
+                                  then:
+                                    - decl: [name, string, { at: [stueck, 0] }]
+                                    - decl: [wert, string, { call: [roh_b.trim] }]
+                                    - if: { condition: { "&&": [{ gt: [name.len, 0] }, { gt: [wert.len, 0] }] }, then: [{ call: [aus.put, name, wert] }] }
+            - return: aus
+
+      - def:
+          name: feld_maske
+          access: public
+          args: [[pfad, string], [art, string], [feld, i32]]
+          return: list<i32>
+          body:
+            - decl: [anz, i32, { call: [<.gesamt_tokens] }]
+            - decl: [mas, list<i32>]
+            - decl: [fdx, i32, 0]
+            - while:
+                condition: { lt: [fdx, anz] }
+                body:
+                  - call: [mas.push, 0]
+                  - set: [fdx, { "+": [fdx, 1] }]
+            - decl: [fehlt, list<string>]
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: mas }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [kopf, string, "${art} |"]
+            - decl: [zdx, i32, 0]
+            - while:
+                condition: { lt: [zdx, zeilen.len] }
+                body:
+                  - decl: [zle, string, { at: [zeilen, zdx] }]
+                  - set: [zdx, { "+": [zdx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [zle.starts_with, kopf] }, 1] }
+                      then:
+                        - decl: [tle, list<string>, { call: [zle.split, "|"] }]
+                        - if:
+                            condition: { ge: [tle.len, feld] }
+                            then:
+                              - decl: [roh, string, { at: [tle, { "-": [feld, 1] }] }]
+                              - decl: [ohne, string, { call: [roh.replace, ",", " "] }]
+                              - decl: [teile, list<string>, { call: [ohne.split, " "] }]
+                              - decl: [wdx, i32, 0]
+                              - while:
+                                  condition: { lt: [wdx, teile.len] }
+                                  body:
+                                    - decl: [stk, string, { at: [teile, wdx] }]
+                                    - set: [wdx, { "+": [wdx, 1] }]
+                                    - decl: [wrt, string, { call: [stk.trim] }]
+                                    - if:
+                                        condition: { gt: [wrt.len, 0] }
+                                        then:
+                                          - decl: [tid, i32, { call: [<.tok, wrt] }]
+                                          - if:
+                                              condition: { lt: [tid, 0] }
+                                              then: [{ set: [tid, { call: [<.marke, wrt] }] }]
+                                          - if:
+                                              condition: { "&&": [{ ge: [tid, 0] }, { lt: [tid, anz] }] }
+                                              then: [{ idx: [mas, tid, 1] }]
+                                              else:
+                                                - if:
+                                                    condition: { eq: [{ call: [fehlt.contains, wrt] }, 0] }
+                                                    then: [{ call: [fehlt.push, wrt] }]
+            # Ein Wort ohne Token wurde bis zum 20.11.2026 stillschweigend
+            # uebersprungen.  Genau so verschwanden fuenf erfundene Koch-Tags
+            # aus der <skill>-Maske: das Modell konnte sie nicht ausgeben, das
+            # Feld blieb leer, und die Regel verwarf lehrbuchmaessige Rezepte.
+            - if:
+                condition: { gt: [fehlt.len, 0] }
+                then:
+                  - decl: [satz, string, ""]
+                  - decl: [sdx, i32, 0]
+                  - while:
+                      condition: { lt: [sdx, fehlt.len] }
+                      body:
+                        - decl: [wrd, string, { at: [fehlt, sdx] }]
+                        - set: [satz, "${satz} ${wrd}"]
+                        - set: [sdx, { "+": [sdx, 1] }]
+                  - call: [log.warn, "feld_maske ${art}/${feld}: ${fehlt.len} Wort/Woerter ohne Token, uebersprungen:${satz}"]
+            - return: mas

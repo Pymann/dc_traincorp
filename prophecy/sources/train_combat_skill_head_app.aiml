@@ -1,0 +1,421 @@
+# Prophecy combat_skill_head training — BCE multi-label classifier predicting
+# which Combat-Skill(s) ein Spieler nach Kampf-Aktion freischalten kann.
+#
+# Korpus: data/combat_skill_corpus.txt, Zeilen-Format:
+#   combat | <input-tokens> | <combat_skill_id>
+# Single-label pro row, aber Head ist BCE — bei Inferenz interessieren uns
+# top-k Kandidaten (Server filtert via foundation-gate + bereits-gelernt).
+#
+# Foundation embedding frozen.  Backbone + BCEOutputHead trained.
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/heads.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+- import: "prophecy/sources/aufteilung.aiml"
+
+- decl: [csh_vocab_name, string, "prophecy_combat_skill_vocab"]
+
+# Die Domaenen-Reihenfolge des Korpus gehoert zu den Gewichten.
+- decl: [combat_skill_priority_name, string, "prophecy_combat_skill_head_priority"]
+
+- class:
+    name: CombatSkillHeadTrainer
+    members:
+      - [n_epochs,         i32, 150]
+      - [learn_rate,       f32, 0.005]
+      - [adam_b1,          f32, 0.9]
+      - [adam_b2,          f32, 0.999]
+      - [adam_eps,         f32, 0.00000001]
+      - [log_every,        i32, 10]
+      - [save_every,       i32, 50]
+      - [beste_verlust,   f32, 0.0]
+      - [hat_beste,       i32, 0]
+      - [hidden_dim,       i32, 64]
+      - [atlas_kv,         Kv<string:TagAtlasEntry>]
+      - [embedder,         ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
+      - [backbone,         BagBackbone]
+      - [combat_head,      SoftmaxOutputHead]
+      - [skill_vocab,      list<string>]
+      - [skill_index,      map<string:i32>]
+      - [current_priority, list<string>]
+      - [train_inputs,     list<string>]
+      - [train_skill_ids,  list<list<i32>>]
+      - [train_input_ids,  list<list<i32>>]
+      # 0 lernen / 1 pruefen / 2 testen (Plan Punkt 7, aufteilung.aiml).
+      - [teil_liste,       list<i32>]
+
+    methods:
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - decl: [n_prio, i32, <.current_priority.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [<.current_priority, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_tag] }, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_name] }, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_adj] }, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      - def:
+          name: input_str_to_ids
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [toks, list<string>, { call: [input_str.split, " "] }]
+            - decl: [n_tok, i32, toks.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [raw, string, { at: [toks, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tok.len, 0] }
+                      then:
+                        - decl: [key, string, { call: [<.resolve_token, tok] }]
+                        - if:
+                            condition: { gt: [key.len, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.embedder.vocab_index.contains, key] }, 1] }
+                                  then:
+                                    - decl: [tid, i32, { call: [<.embedder.vocab_index.get, key] }]
+                                    - call: [out.push, tid]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      - def:
+          name: skill_add
+          args: [[sid, string]]
+          return: i32
+          body:
+            - if:
+                condition: { eq: [{ call: [<.skill_index.contains, sid] }, 1] }
+                then: [{ return: { call: [<.skill_index.get, sid] } }]
+            - decl: [new_idx, i32, <.skill_vocab.len]
+            - call: [<.skill_vocab.push, sid]
+            - call: [<.skill_index.put, sid, new_idx]
+            - return: new_idx
+
+      # ── Parse combat_skill_corpus.txt: collect rows with single skill-id label
+      - def:
+          name: parse_corpus
+          args: [[file_path, string]]
+          body:
+            - call: [log.info, "parsing corpus: ${file_path}"]
+            - decl: [text, string, { call: [io.read_file, file_path] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "  empty or missing"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln, i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  - decl: [maybe_hdr, list<string>, { call: [parse_priority_header, ln_str] }]
+                  - if:
+                      condition: { gt: [maybe_hdr.len, 0] }
+                      then:
+                        - set: [<.current_priority, maybe_hdr]
+                        - call: [log.info, "  applied domain_priority: ${maybe_hdr.len} domains"]
+                  - decl: [is_comment, i32, { call: [ln_str.starts_with, "#"] }]
+                  - if:
+                      condition: { "&&": [{ gt: [ln_str.len, 0] }, { neq: [is_comment, 1] }] }
+                      then:
+                        - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+                        - decl: [is_combat_row, i32, 0]
+                        - if:
+                            condition: { ge: [cols.len, 3] }
+                            then:
+                              - decl: [c0_raw, string, { at: [cols, 0] }]
+                              - decl: [c0_str, string, { call: [c0_raw.trim] }]
+                              - if:
+                                  condition: { eq: [c0_str, "combat"] }
+                                  then: [{ set: [is_combat_row, 1] }]
+                        - if:
+                            condition: { eq: [is_combat_row, 1] }
+                            then:
+                              - decl: [input_raw, string, { at: [cols, 1] }]
+                              - decl: [input_str, string, { call: [input_raw.trim] }]
+                              - decl: [skill_raw, string, { at: [cols, 2] }]
+                              - decl: [skill_str, string, { call: [skill_raw.trim] }]
+                              - if:
+                                  condition: { "&&": [{ gt: [input_str.len, 0] }, { gt: [skill_str.len, 0] }] }
+                                  then:
+                                    - decl: [sk_ids, list<i32>]
+                                    - decl: [s_v_idx, i32, { call: [<.skill_add, skill_str] }]
+                                    - call: [sk_ids.push, s_v_idx]
+                                    - call: [<.train_inputs.push, input_str]
+                                    - call: [<.train_skill_ids.push, sk_ids]
+                                    - call: [<.teil_liste.push, { call: [teil_von, ln_str] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+            - call: [log.info, "  skills=${<.skill_vocab.len} samples=${<.train_inputs.len}"]
+
+      - def:
+          name: cache_input_ids
+          args: []
+          body:
+            - decl: [n_smp, i32, <.train_inputs.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_smp] }
+                body:
+                  - decl: [input_str, string, { at: [<.train_inputs, idx] }]
+                  - decl: [ids, list<i32>, { call: [<.input_str_to_ids, input_str] }]
+                  - call: [<.train_input_ids.push, ids]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [log.info, "  cached ${<.train_input_ids.len} input id-lists"]
+
+      - def:
+          name: train
+          args: []
+          body:
+            - decl: [n_skills,  i32, <.skill_vocab.len]
+            - decl: [n_samples, i32, <.train_input_ids.len]
+            - call: [log.info, "training: n_skills=${n_skills} n_samples=${n_samples} n_epochs=${<.n_epochs}"]
+            - decl: [m_w1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [v_w1, tensor, { call: [tensor.zeros, <.embedder.d_embed, <.hidden_dim] }]
+            - decl: [m_b1, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [v_b1, tensor, { call: [tensor.zeros, <.hidden_dim] }]
+            - decl: [m_sw, tensor, { call: [tensor.zeros, <.hidden_dim, n_skills] }]
+            - decl: [v_sw, tensor, { call: [tensor.zeros, <.hidden_dim, n_skills] }]
+            - decl: [m_sb, tensor, { call: [tensor.zeros, n_skills] }]
+            - decl: [v_sb, tensor, { call: [tensor.zeros, n_skills] }]
+            - decl: [global_step, i32, 0]
+            - decl: [epoch, i32, 0]
+            - while:
+                condition: { lt: [epoch, <.n_epochs] }
+                body:
+                  - decl: [total_loss, f32, 0.0]
+                  - decl: [n_trained, i32, 0]
+                  - decl: [s_idx, i32, 0]
+                  - while:
+                      condition: { lt: [s_idx, n_samples] }
+                      body:
+                        - decl: [ids, list<i32>, { at: [<.train_input_ids, s_idx] }]
+                        - decl: [n_in, i32, ids.len]
+                        - if:
+                            condition: { "&&": [{ gt: [n_in, 0] }, { eq: [{ at: [<.teil_liste, s_idx] }, 0] }] }
+                            then:
+                              - call: [tensor.begin_graph]
+                              - decl: [target, tensor, { call: [tensor.zeros, 1, n_skills] }]
+                              - decl: [sk_ids, list<i32>, { at: [<.train_skill_ids, s_idx] }]
+                              - decl: [n_sk, i32, sk_ids.len]
+                              - decl: [k_idx, i32, 0]
+                              - while:
+                                  condition: { lt: [k_idx, n_sk] }
+                                  body:
+                                    - decl: [s_v, i32, { at: [sk_ids, k_idx] }]
+                                    - call: [target.set, s_v, 1.0]
+                                    - set: [k_idx, { "+": [k_idx, 1] }]
+                              - decl: [hidden, tensor, { call: [<.backbone.encode_bag, ids] }]
+                              - decl: [logits, tensor, { call: [<.combat_head.forward_logits, hidden] }]
+                              - decl: [loss,   tensor, { call: [<.combat_head.compute_loss, logits, target] }]
+                              - call: [tensor.backward, loss]
+                              - set: [global_step, { "+": [global_step, 1] }]
+                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.combat_head.weight, m_sw, v_sw, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [tensor.adam_step, <.combat_head.bias,   m_sb, v_sb, <.learn_rate, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [<.backbone.weight_1.zero_grad]
+                              - call: [<.backbone.bias_1.zero_grad]
+                              - call: [<.combat_head.weight.zero_grad]
+                              - call: [<.combat_head.bias.zero_grad]
+                              - call: [<.embedder.emb.zero_grad]
+                              - decl: [lv_var, f32, { call: [loss.get, 0] }]
+                              - set: [total_loss, { "+": [total_loss, lv_var] }]
+                              - set: [n_trained, { "+": [n_trained, 1] }]
+                        - set: [s_idx, { "+": [s_idx, 1] }]
+                  - decl: [n_tf, f32, n_trained]
+                  - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
+                  - if:
+                      condition: { eq: [{ "%": [epoch, <.log_every] }, 0] }
+                      then:
+                        - call: [log.info, "epoch ${epoch}/${<.n_epochs} avg_loss=${avg} samples=${n_trained}"]
+                  # Nur ein BESSERER Stand wird gesichert.  Vorher sicherte die
+                  # Schleife jede N-te Epoche und `run` am Ende UNBEDINGT -- beim
+                  # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
+                  # Abnahme 2,6 %) ueber einen guten (13,7 %), gemessen 21.11.2026.
+                  - decl: [besser, i32, 0]
+                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
+                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - if:
+                      condition: { eq: [besser, 1] }
+                      then:
+                        - set: [<.beste_verlust, avg]
+                        - set: [<.hat_beste, 1]
+                        - call: [<.backbone.save_weights]
+                        - call: [<.combat_head.save_params]
+                  - set: [epoch, { "+": [epoch, 1] }]
+
+      - def:
+          name: save_combat_skill_vocab
+          args: []
+          body:
+            - decl: [kv_var, Kv<string:string>, { call: [db.open_kv, csh_vocab_name, {persist: true}] }]
+            - decl: [n_s, i32, <.skill_vocab.len]
+            - decl: [blob, string, ""]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_s] }
+                body:
+                  - decl: [skill_str, string, { at: [<.skill_vocab, idx] }]
+                  - if:
+                      condition: { gt: [idx, 0] }
+                      then: [{ set: [blob, "${blob}|${skill_str}"] }]
+                      else: [{ set: [blob, skill_str] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [kv_var.set, "skills", blob]
+            - call: [log.info, "saved ${n_s} combat-skill labels to '${csh_vocab_name}'"]
+
+      # Trifft der oberste Vorschlag eine der richtigen Fertigkeiten?  Der
+      # Trainingsverlust allein sagt das nicht -- gemessen wird auf dem
+      # zurueckgehaltenen Teil (Plan Punkt 7).
+      - def:
+          name: bewerten
+          access: public
+          args: [[teil_soll, i32], [was, string]]
+          body:
+            - decl: [n_smp,     i32, <.train_input_ids.len]
+            - decl: [n_aus,     i32, <.skill_vocab.len]
+            - decl: [getroffen, i32, 0]
+            - decl: [gezaehlt,  i32, 0]
+            - decl: [soll_summe, i32, 0]
+            - decl: [s_idx,     i32, 0]
+            - while:
+                condition: { lt: [s_idx, n_smp] }
+                body:
+                  - decl: [teil,   i32, { at: [<.teil_liste, s_idx] }]
+                  - decl: [ids,    list<i32>, { at: [<.train_input_ids, s_idx] }]
+                  - decl: [sk_ids, list<i32>, { at: [<.train_skill_ids, s_idx] }]
+                  - set: [s_idx, { "+": [s_idx, 1] }]
+                  - if:
+                      condition: { "&&": [{ eq: [teil, teil_soll] }, { gt: [ids.len, 0] }] }
+                      then:
+                        - call: [tensor.begin_graph]
+                        - decl: [hidden, tensor, { call: [<.backbone.encode_bag, ids] }]
+                        - decl: [logits, tensor, { call: [<.combat_head.forward_logits, hidden] }]
+                        - decl: [bester,    i32, 0]
+                        - decl: [best_wert, f32, { call: [logits.get, 0] }]
+                        - decl: [a_idx, i32, 1]
+                        - while:
+                            condition: { lt: [a_idx, n_aus] }
+                            body:
+                              - decl: [wert, f32, { call: [logits.get, a_idx] }]
+                              - if:
+                                  condition: { gt: [wert, best_wert] }
+                                  then:
+                                    - set: [best_wert, wert]
+                                    - set: [bester, a_idx]
+                              - set: [a_idx, { "+": [a_idx, 1] }]
+                        - decl: [drin, i32, 0]
+                        - decl: [k_idx, i32, 0]
+                        - while:
+                            condition: { lt: [k_idx, sk_ids.len] }
+                            body:
+                              - decl: [soll_id, i32, { at: [sk_ids, k_idx] }]
+                              - if: { condition: { eq: [soll_id, bester] }, then: [{ set: [drin, 1] }] }
+                              - set: [k_idx, { "+": [k_idx, 1] }]
+                        - set: [soll_summe, { "+": [soll_summe, sk_ids.len] }]
+                        - if: { condition: { eq: [drin, 1] }, then: [{ set: [getroffen, { "+": [getroffen, 1] }] }] }
+                        - set: [gezaehlt, { "+": [gezaehlt, 1] }]
+            - if:
+                condition: { lt: [gezaehlt, 1] }
+                then:
+                  - call: [log.warn, "${was}: keine Zeilen"]
+                  - return: 0
+            - decl: [tr_f, f32, getroffen]
+            - decl: [ge_f, f32, gezaehlt]
+            - decl: [quote, f32, { "/": [tr_f, ge_f] }]
+            - decl: [so_f, f32, soll_summe]
+            - decl: [au_f, f32, n_aus]
+            - decl: [zufall, f32, { "/": [{ "/": [so_f, ge_f] }, au_f] }]
+            - call: [log.info, "${was}: oberster Vorschlag ${getroffen} von ${gezaehlt} richtig (${quote}) -- Zufall waere ${zufall}"]
+
+      - def:
+          name: run
+          args: []
+          body:
+            - decl: [umg, map<string:string>, { call: [sys.env] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+                then:
+                  - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+                  - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - call: [log.info, "CombatSkillHead training starting…"]
+            # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
+            # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
+            - set: [<.embedder, { new: TagEmbedding }]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "vocab load failed — run prophecy_build + pretrain first"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            # Gegen eine zufaellige oder fremde Tabelle zu trainieren ist
+            # verlorene Zeit (gemessen 19./20.11.: zwei Stunden).  Darum hier
+            # Schluss, nicht erst in der Abnahme.
+            - if:
+                condition: { "||": [{ eq: [<.embedder.unvereinbar, 1] }, { eq: [<.embedder.zufaellig, 1] }] }
+                then:
+                  - call: [log.error, "Einbettung ist zufaellig oder gehoert nicht zu diesem Wortschatz — erst ./prophecy_pretrain. Abbruch."]
+                  - return: 0
+            - call: [log.info, "foundation: ${<.embedder.n_tokens} tokens × d=${<.embedder.d_embed}"]
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+            - call: [<.parse_corpus, "data/combat_skill_corpus.txt"]
+            # Ohne das loest die Inferenz in einer ANDEREN Ordnung auf als
+            # das Training -- derselbe Fehler, der den world_entity-Kopf
+            # am 12.11.2026 von 4 auf 6 von 7 richtigen Proben gehoben hat.
+            - call: [priority_save, combat_skill_priority_name, <.current_priority]
+            - call: [<.cache_input_ids]
+            - set: [<.backbone.weights_name, "prophecy_combat_skill_head_body"]
+            - set: [<.backbone.foundation, <.embedder]
+            - set: [<.backbone.hidden_dim, <.hidden_dim]
+            - call: [<.backbone.init_model]
+            - set: [<.combat_head.weights_name, "prophecy_combat_skill_head_outputs"]
+            - set: [<.combat_head.head_id_str, "combat_skill"]
+            - set: [<.combat_head.n_outputs_val, <.skill_vocab.len]
+            - call: [<.combat_head.init_params, <.hidden_dim]
+            - call: [<.combat_head.requires_grad_on]
+            - call: [<.train]
+            # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
+            # Wozu diese Gewichte gehoeren (Spec modell_manifest_2026-11-20.md):
+            # `grundlage` ist der Abdruck der Einbettung, mit der hier gerechnet
+            # wurde -- ohne ihn sieht man einem Kopf nicht an, ob er zu ihr passt.
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, <.embedder.wortschatz_fp]
+            - set: [satz.n_marken,   <.embedder.n_tokens]
+            - set: [satz.d_wert,     <.embedder.d_embed]
+            - set: [satz.grundlage,  <.embedder.wortschatz_fp]
+            - set: [satz.korpus,     { call: [manifest_fp_datei, "data/combat_skill_corpus.txt"] }]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    "train_combat_skill_head"]
+            - call: [manifest_ablegen, "prophecy_combat_skill_head_outputs", satz]
+            - call: [<.save_combat_skill_vocab]
+            - call: [<.bewerten, 0, "Training"]
+            - call: [<.bewerten, 2, "Abnahme (nicht trainiert)"]
+            - call: [log.info, "CombatSkillHead training done."]
+

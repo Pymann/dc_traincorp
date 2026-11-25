@@ -1,0 +1,44 @@
+# Genetic / Degenerative disease tags (kind=7) — progressiv, nicht heilbar
+# Spannungselement im Spiel.  Skills/Items können Progression verlangsamen
+# aber nie stoppen (siehe disease_and_healing.md).
+
+# Erbgut-Defekt-Achse
+cellular_repair_loss
+mitochondrial_failure
+neural_degeneration
+collagen_breakdown
+immune_misalignment
+telomere_attrition
+sensory_decay
+motor_decay
+cognitive_decay
+
+# Progression-Tempo
+slow_progression
+moderate_progression
+fast_progression
+plateauing
+accelerating
+
+# Manifestation
+visible_aging
+weakened_attrs
+intermittent_symptoms
+late_onset
+early_onset
+silent_pre_phase
+
+# Vererbungs-Wahrscheinlichkeit
+high_inheritance
+moderate_inheritance
+low_inheritance
+de_novo_mutation
+
+# Cure-Pfade (alle Genetic-Diseases sind heilbar, aber disziplin-intensiv)
+responds_to_meditation
+responds_to_gene_therapy_item
+responds_to_ritual
+responds_to_stable_environment
+responds_to_specialist_npc
+high_discipline_required
+rare_craft_required

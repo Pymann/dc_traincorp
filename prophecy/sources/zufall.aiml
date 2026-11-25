@@ -1,0 +1,107 @@
+# Wiederholbarer Zufall mit EXPLIZITEM Zustand.
+#
+# Warum nicht das Vorhandene:
+#   * `math.random` ist thread-local mt19937, "seeded from std::random_device
+#     on first use" (spec/43_0 §7) -- in jedem Prozess anders, und es gibt kein
+#     `math.seed`.  `ziehe_gewichtet`/`ziehe_bernoulli` (inference.aiml:215)
+#     benutzen es und sind darum NICHT wiederholbar.
+#   * `tensor.seed` (spec/50 §17.1) ist splitmix64 und plattformgleich, steuert
+#     aber nur `randn`/`randn_ex` -- keine Ziehung aus einer Verteilung -- und
+#     sein Zustand liegt PRO THREAD, also global.  Globaler Zufallszustand in
+#     einem Server mit mehreren Anfragen ist eine Fehlerquelle.
+#
+# Hier liegt der Zustand im Objekt: eine Ziehungsfolge ist eine reine Funktion
+# des Seeds, auf jedem Thread und in jedem Prozess dieselbe.
+#
+# Warum xorshift32 und nicht splitmix64: splitmix64 multipliziert mit
+# 0xBF58476D1CE4E5B9 und verlaesst sich darauf, dass 64-Bit-Multiplikation
+# UMLAEUFT.  spec/04 legt Ueberlauf NICHT fest.  Hier bleibt jeder
+# Zwischenwert unter 2^62: Zustand < 2^32, groesster Shift << 13 (< 2^45),
+# einziger Faktor 0x2545F491 < 2^30 (Produkt < 2^62).
+- class:
+    name: Zufall
+    members:
+      - [zustand, i64, 2654435769]     # 0x9E3779B9
+    methods:
+      # Den Seed VERRUEHREN, bevor er Zustand wird.  Ohne das liefern
+      # benachbarte Seeds benachbarte erste Ziehungen -- und genau darauf
+      # beruht das Nachziehen mit seed+1 beim Verwerfen eines Vorschlags.
+      - def:
+          name: setze
+          access: public
+          args: [[saat, i64]]
+          body:
+            - decl: [wrt, i64, { band: [saat, 4294967295] }]
+            - decl: [rnd, i32, 0]
+            - while:
+                condition: { lt: [rnd, 2] }
+                body:
+                  - set: [wrt, { band: [{ "*": [wrt, 624055441] }, 4294967295] }]
+                  - set: [wrt, { bxor: [wrt, { ushr: [wrt, 16] }] }]
+                  - set: [rnd, { "+": [rnd, 1] }]
+            - if: { condition: { eq: [wrt, 0] }, then: [{ set: [wrt, 2654435769] }] }
+            - set: [<.zustand, wrt]
+
+      # xorshift32, danach ein Mischschritt fuer die unteren Bits.
+      - def:
+          name: weiter
+          access: public
+          args: []
+          return: i64
+          body:
+            - decl: [wrt, i64, <.zustand]
+            - set: [wrt, { bxor: [wrt, { band: [{ shl: [wrt, 13] }, 4294967295] }] }]
+            - set: [wrt, { bxor: [wrt, { ushr: [wrt, 17] }] }]
+            - set: [wrt, { bxor: [wrt, { band: [{ shl: [wrt, 5] }, 4294967295] }] }]
+            - set: [<.zustand, wrt]
+            - decl: [aus, i64, { band: [{ "*": [wrt, 624055441] }, 4294967295] }]
+            - set: [aus, { bxor: [aus, { ushr: [aus, 16] }] }]
+            - return: { band: [aus, 2147483647] }
+
+      - def:
+          name: bruch
+          access: public
+          args: []
+          return: f32
+          body:
+            - decl: [roh, i64, { call: [<.weiter] }]
+            - return: { "/": [{ cast: [roh, f32] }, 2147483648.0] }
+
+      - def:
+          name: ganzzahl
+          access: public
+          args: [[grenze, i32]]
+          return: i32
+          body:
+            - if: { condition: { le: [grenze, 1] }, then: [{ return: 0 }] }
+            - decl: [roh, i64, { call: [<.weiter] }]
+            - return: { cast: [{ "%": [roh, { cast: [grenze, i64] }] }, i32] }
+
+      # Ziehung aus einer Verteilung.  Negative Werte gelten als 0.
+      - def:
+          name: kategorisch
+          access: public
+          args: [[wahrsch, list<f32>]]
+          return: i32
+          body:
+            - if: { condition: { eq: [wahrsch.len, 0] }, then: [{ return: -1 }] }
+            - decl: [summe, f32, 0.0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, wahrsch.len] }
+                body:
+                  - decl: [wrt, f32, { at: [wahrsch, pos] }]
+                  - if: { condition: { gt: [wrt, 0.0] }, then: [{ set: [summe, { "+": [summe, wrt] }] }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - if: { condition: { le: [summe, 0.0] }, then: [{ return: 0 }] }
+            - decl: [wurf, f32, { "*": [{ call: [<.bruch] }, summe] }]
+            - decl: [lauf, f32, 0.0]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, wahrsch.len] }
+                body:
+                  - decl: [wrt2, f32, { at: [wahrsch, pos] }]
+                  - if: { condition: { gt: [wrt2, 0.0] }, then: [{ set: [lauf, { "+": [lauf, wrt2] }] }] }
+                  - if: { condition: { lt: [wurf, lauf] }, then: [{ return: pos }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: { "-": [wahrsch.len, 1] }

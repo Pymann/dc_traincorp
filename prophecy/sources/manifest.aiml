@@ -1,0 +1,157 @@
+# Das Modell-Manifest: ein Satz je Gewichtsspeicher, der sagt, wozu die
+# Gewichte gehoeren.  Spec: doc/architecture/modell_manifest_2026-11-20.md.
+#
+# Form: flache Zeile `feld=wert;feld=wert`.  Kein YAML-Leser, derselbe schlanke
+# Weg wie die Tore in discovery.aiml.  Unbekannte Felder stoeren nicht, ein
+# fehlendes liest "".
+
+- decl: [prophecy_manifest_name, string, "prophecy_manifest"]
+
+- decl: [manifest_passt,       i32, 0]
+- decl: [manifest_unbekannt,   i32, 1]
+- decl: [manifest_widerspruch, i32, 2]
+
+- model:
+    name: ManifestSatz
+    fields:
+      - [wortschatz, string]
+      - [n_marken,   i32, 0]
+      - [d_wert,     i32, 0]
+      # Der Wortschatz der Einbettung, GEGEN die ein Kopf trainiert wurde.
+      # Bei der Einbettung selbst gleich `wortschatz`.
+      - [grundlage,  string]
+      - [korpus,     string]
+      - [zeit,       i64, 0]
+      - [trainer,    string]
+
+# Kurzform eines Fingerabdrucks: die ersten 16 Zeichen des sha256.
+- def:
+    name: manifest_fp
+    args: [[inhalt, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [inhalt.len, 0] }, then: [{ return: "" }] }
+      - decl: [voll, string, { call: [hash.sha256, inhalt] }]
+      - return: { call: [voll.substr, 0, 16] }
+
+# Fingerabdruck einer Korpusdatei, ohne sie zu laden (spec/33_1).  Mehrere
+# Dateien: die Abdruecke in gelesener Reihenfolge verketten und erneut hashen.
+- def:
+    name: manifest_fp_datei
+    args: [[pfad, string]]
+    return: string
+    body:
+      - decl: [voll, string, { call: [hash.sha256_file, pfad] }]
+      - if: { condition: { eq: [voll.len, 0] }, then: [{ return: "" }] }
+      - return: { call: [voll.substr, 0, 16] }
+
+- def:
+    name: manifest_feld
+    args: [[text, string], [name, string]]
+    return: string
+    body:
+      - if: { condition: { eq: [text.len, 0] }, then: [{ return: "" }] }
+      - decl: [teile, list<string>, { call: [text.split, ";"] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, teile.len] }
+          body:
+            - decl: [roh, string, { at: [teile, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [paar, string, { call: [roh.trim] }]
+            - decl: [stuecke, list<string>, { call: [paar.split, "="] }]
+            - if:
+                condition: { ge: [stuecke.len, 2] }
+                then:
+                  - decl: [kopf_roh, string, { at: [stuecke, 0] }]
+                  - decl: [kopf, string, { call: [kopf_roh.trim] }]
+                  - if:
+                      condition: { eq: [kopf, name] }
+                      then:
+                        - decl: [wert_roh, string, { at: [stuecke, 1] }]
+                        - return: { call: [wert_roh.trim] }
+      - return: ""
+
+- def:
+    name: manifest_bauen
+    args: [[satz, ManifestSatz]]
+    return: string
+    body:
+      - return: "wortschatz=${satz.wortschatz};n=${satz.n_marken};d=${satz.d_wert};grundlage=${satz.grundlage};korpus=${satz.korpus};zeit=${satz.zeit};trainer=${satz.trainer}"
+
+- def:
+    name: manifest_lesen
+    args: [[text, string]]
+    return: ManifestSatz
+    body:
+      - decl: [raus, ManifestSatz]
+      - set: [raus.wortschatz, { call: [manifest_feld, text, "wortschatz"] }]
+      - set: [raus.grundlage,  { call: [manifest_feld, text, "grundlage"] }]
+      - set: [raus.korpus,     { call: [manifest_feld, text, "korpus"] }]
+      - set: [raus.trainer,    { call: [manifest_feld, text, "trainer"] }]
+      - decl: [n_str, string, { call: [manifest_feld, text, "n"] }]
+      - decl: [d_str, string, { call: [manifest_feld, text, "d"] }]
+      - decl: [z_str, string, { call: [manifest_feld, text, "zeit"] }]
+      - set: [raus.n_marken, { call: [n_str.parse_i32] }]
+      - set: [raus.d_wert,   { call: [d_str.parse_i32] }]
+      # Die stille Umwandlung string->i64 gilt fuer VARIABLEN (spec/09
+      # "Implicit String -> Integer Coercion"), nicht fuer ein Modellfeld --
+      # darum der Zwischenwert.
+      - if:
+          condition: { gt: [z_str.len, 0] }
+          then:
+            - decl: [z_wert, i64, "${z_str}"]
+            - set: [raus.zeit, z_wert]
+      - return: raus
+
+# 0 passt, 1 unbekannt (kein Satz), 2 Widerspruch.  Verglichen werden
+# Wortschatz, Zahl und Breite -- und `grundlage`, falls der Sollwert eine
+# verlangt (ein Kopf gegen seine Einbettung).  Korpus, Zeit und Trainer sind
+# Spur, kein Tor.
+- def:
+    name: manifest_pruefen
+    args: [[ist_text, string], [soll, ManifestSatz]]
+    return: i32
+    body:
+      - decl: [sauber, string, { call: [ist_text.trim] }]
+      - if: { condition: { eq: [sauber.len, 0] }, then: [{ return: 1 }] }
+      - decl: [ist, ManifestSatz, { call: [manifest_lesen, sauber] }]
+      - if: { condition: { eq: [ist.wortschatz.len, 0] }, then: [{ return: 1 }] }
+      - if: { condition: { neq: [ist.wortschatz, soll.wortschatz] }, then: [{ return: 2 }] }
+      - if: { condition: { neq: [ist.n_marken, soll.n_marken] }, then: [{ return: 2 }] }
+      - if: { condition: { neq: [ist.d_wert, soll.d_wert] }, then: [{ return: 2 }] }
+      - if:
+          condition: { gt: [soll.grundlage.len, 0] }
+          then:
+            - if: { condition: { eq: [ist.grundlage.len, 0] }, then: [{ return: 1 }] }
+            - if: { condition: { neq: [ist.grundlage, soll.grundlage] }, then: [{ return: 2 }] }
+      - return: 0
+
+- def:
+    name: manifest_lade
+    args: [[speicher, string]]
+    return: string
+    body:
+      - decl: [kvs, Kv<string:string>, { call: [db.open_kv, prophecy_manifest_name, {persist: true}] }]
+      - if: { condition: { neq: [{ call: [kvs.has, speicher] }, 1] }, then: [{ return: "" }] }
+      - return: { call: [kvs.get, speicher] }
+
+- def:
+    name: manifest_ablegen
+    args: [[speicher, string], [satz, ManifestSatz]]
+    body:
+      - decl: [kvs, Kv<string:string>, { call: [db.open_kv, prophecy_manifest_name, {persist: true}] }]
+      - decl: [text, string, { call: [manifest_bauen, satz] }]
+      - call: [kvs.set, speicher, text]
+      - call: [log.info, "[manifest] ${speicher}: ${text}"]
+
+# Was der Prüfcode bedeutet, in einem Wort -- fuer die Meldung an der Stelle,
+# die ihn bekommt.
+- def:
+    name: manifest_wort
+    args: [[code, i32]]
+    return: string
+    body:
+      - if: { condition: { eq: [code, 0] }, then: [{ return: "passt" }] }
+      - if: { condition: { eq: [code, 1] }, then: [{ return: "unbekannt" }] }
+      - return: "Widerspruch"

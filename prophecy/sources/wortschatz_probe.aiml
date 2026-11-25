@@ -1,0 +1,68 @@
+# Steht ein Wort im Wortschatz des Einbetters?
+#
+# Die Frage entscheidet, ob ein Atlas-Neubau noetig ist -- und der entwertet
+# ALLE Koepfe.  Darum wird sie gefragt, nicht geraten.
+- import: "prophecy/sources/embedding.aiml"
+
+- def:
+    name: pruefe_wort
+    args: [[einbetter, ref<TagEmbedding>], [wort, string]]
+    body:
+      - if:
+          condition: { eq: [{ call: [einbetter.vocab_index.contains, wort] }, 1] }
+          then:
+            - decl: [idx, i32, { call: [einbetter.vocab_index.get, wort] }]
+            - call: [log.info, "  '${wort}' steht im Wortschatz (Index ${idx})"]
+          else:
+            - call: [log.error, "  '${wort}' FEHLT im Wortschatz"]
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [einbetter, ptr<TagEmbedding>, { new: TagEmbedding }]
+      - decl: [geladen, i32, { call: [einbetter.load_vocab] }]
+      - if:
+          condition: { neq: [geladen, 1] }
+          then:
+            - call: [log.error, "wortschatz_probe: Wortschatz nicht ladbar"]
+            - return: 1
+      - call: [log.info, "wortschatz_probe: ${einbetter.n_tokens} Tokens geladen"]
+      # Den GANZEN Wortschatz nach diesen Endungen durchsuchen -- unter
+      # welcher Domaene ein Tag steht, ist dem Sucher egal.
+      - decl: [gesucht, list<string>, []]
+      - call: [gesucht.push, ":fiber"]
+      - call: [gesucht.push, ":animal"]
+      - call: [gesucht.push, ":mineral"]
+      - call: [gesucht.push, ":essence"]
+      - call: [gesucht.push, ":stone"]
+      - call: [gesucht.push, ":liquid"]
+      - call: [gesucht.push, ":tech"]
+      - decl: [gpos, i32, 0]
+      - while:
+          condition: { lt: [gpos, gesucht.len] }
+          body:
+            - decl: [endung, string, { at: [gesucht, gpos] }]
+            - decl: [funde, i32, 0]
+            - decl: [vpos, i32, 0]
+            - while:
+                condition: { lt: [vpos, einbetter.vocab.len] }
+                body:
+                  - decl: [eintrag, string, { at: [einbetter.vocab, vpos] }]
+                  - if:
+                      condition: { eq: [{ call: [eintrag.ends_with, endung] }, 1] }
+                      then:
+                        - set: [funde, { "+": [funde, 1] }]
+                        - if: { condition: { le: [funde, 3] }, then: [{ call: [log.info, "  '${endung}' -> '${eintrag}'"] }] }
+                  - set: [vpos, { "+": [vpos, 1] }]
+            - if: { condition: { eq: [funde, 0] }, then: [{ call: [log.error, "  '${endung}' kommt im GANZEN Wortschatz nicht vor"] }] }
+            - set: [gpos, { "+": [gpos, 1] }]
+      - decl: [worte, list<string>, []]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, worte.len] }
+          body:
+            - call: [pruefe_wort, einbetter, { at: [worte, pos] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - return: 0

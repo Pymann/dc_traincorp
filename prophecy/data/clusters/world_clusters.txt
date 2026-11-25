@@ -1,0 +1,193 @@
+# Welt-Cluster: Gelaende x Wetter x Material x Kreaturen, in sich stimmig.
+# Einmalig aus scripts/clusters.py uebernommen (20.11.2026) -- ab jetzt
+# ist DIESE Datei die Quelle; der Erzeuger liest sie (korpusgen, aiml).
+# Form: `cluster <name>`, danach `  <feld>: a, b, c` -- schlanker Leser,
+# kein yaml.
+#
+# `materials` ist ALLES, was hier vorkommen KANN -- seit dem 24.11.2026 sind
+# das alle 753 Stoffnamen, verteilt auf die 13 Cluster.  `kern` ist, was hier
+# HAEUFIG vorkommt.
+#
+# Warum beides: benannte Rezepte (24.11.) verlangen BESTIMMTE Stoffe.  Liegen
+# 100 Namen gleich wahrscheinlich in einem Cluster, braucht ein Rezept mit
+# vier Zutaten rund 200 Ziehungen -- gemessen: eine frische Figur erfuellte
+# nach 60 Entdeckungen 0 von 259 Rezepten.  Mit `kern` (7 bis 32 Namen) ist
+# ein Kernstoff rund 25 Ziehungen entfernt, und der lange Schwanz bleibt
+# erreichbar, nur selten.  Siehe doc/architecture/kern_gewichtung_2026-11-24.md.
+#
+# `kern` ist eine TEILMENGE von `materials`.  Fehlt das Feld, gilt `materials`.
+
+cluster volcanic
+  terrain: rocky, steep, brittle, sharp_edged, crusted, rough
+  weather: scorching, searing, ashfall, stormy, oppressive
+  zone: lava_rich, volcanic, scorched, ember_strewn, smoking
+  elements: fire, earth
+  materials: air_essence, ash, ashen_bark, ashen_tin, azurite, basalt, bismuth, black_salt, blessing_resin, blood_essence, bone_ash, borax, brass, bright_brass, chalkstone, char, charcoal, cinders, coal, cobalt, coke, copper, copper_ore, cragstone, crystal_rock, curse_thorn, death_essence, earth_essence, electrum, ember, ember_bark, ember_coal, ember_crystal, ember_fungus, ember_iron, ember_root, ember_wax, embercoal, ether_gel, ferroglass, fire_essence, fire_opal, firesand, flint, focus_dust, gneiss, gold, green_gold, gypsum, iridium, iron, iron_ore, jade, lava_rock, life_essence, light_essence, magnetite, malachite, mica, mirage_glass, mithril, nickel, night_crystal, obsidian, ochre, palladium, phase_salt, platinum, porphyry, portal_dust, potash, quartz, rhodium, rock_salt, salt, saltpeter, serpentine, shale, shimmer_dust, silver, soapstone, soda_ash, soot, stone_chunk, storm_basalt, sulfur, sun_ember, sun_forged_gold, talc, thunder_copper, thunderstone, time_essence, travertine, tungsten, volcanic_ash, ward_salt, water_essence, whitesteel, wyrmstone, yellow_ochre
+  kern: air_essence, ash, ashen_tin, basalt, blessing_resin, blood_essence, char, copper, copper_ore, ember, ember_coal, ember_crystal, ember_wax, embercoal, fire_essence, fire_opal, firesand, iron, iron_ore, obsidian, silver, sulfur
+  growables: fire_petal_sprout, magma_vine_shoot, ember_fungus_spore
+  harvestables: lava_vent, ash_deposit, sulfur_spring, ember_fungus, fire_petal, magma_vine
+  enemies: fire_elemental, salamander, ember_wraith, magma_beast
+  npcs: forge_master, ember_shaman
+  common_descriptors: hot, burning, molten, fiery, smoking
+
+cluster arctic
+  terrain: icy, frozen, snow_covered, slippery, windless, flat
+  weather: freezing, biting, windless, clammy, muffled
+  zone: tundra, glacial, frost_bitten, shimmering_cold
+  elements: water, air
+  materials: antler, basilisk_eye, broth, carapace, chitin, claw, cloudberry, down, frost_berry, frost_cedar, frost_crystal, frost_gel, frost_herb, frost_iron, frost_moss, frostbone, griffin_claw, gut, hide, hide_strip, ice, ice_lichen, ice_stone, ink_sac, ivory, leather, lingonberry, moth_wing, permafrost_stone, phoenix_feather, pumice, redcurrant, rice, scale_flake, seaberry, sinew, skull_fragment, snow_glass, wild_rice, winter_fur, wyrm_hide
+  kern: antler, broth, claw, frost_cedar, frost_crystal, frost_gel, frost_herb, frost_iron, frostbone, hide, ice, ice_stone, ivory, leather, permafrost_stone, sinew, skull_fragment, snow_glass, winter_fur
+  growables: ice_moss_patch, frost_fern_sprout, winterbloom_bud
+  harvestables: ice_vein, frozen_spring, frost_pocket, winterbloom, frost_fern, ice_moss
+  enemies: ice_wraith, frost_bear, snow_leopard, winter_spirit
+  npcs: ice_hermit, tundra_tracker
+  common_descriptors: cold, icy, still, muffled, crackling
+
+cluster swamp
+  terrain: boggy, yielding, murky, echoing, overgrown
+  weather: clammy, hazy, dense, stormy, oppressive
+  zone: wetland, fen, mire, marsh, fog_bound
+  elements: water, earth
+  materials: acid, amber_moss, basilisk_eye, beak, beech, bitter_grass, black_ink, bog_iron, bog_iron_ore, bog_oak, bone, bone_ash, braid, canvas, carapace, cloth, coolant, cord, crabapple, cranberry, dew_drop, dragon_scale, ebony, fang, feather, felt, fungal_thread, fungus, fur, gel, gelatin, glue, hoof, horn, ink, ivory, juniper, jute, lacquer, lamp_oil, lavender, marsh_clay, milk_of_thistle, mire_mud, moss, mycelium_weave, nettle, nettle_fiber, nettle_shoot, nut, paste, peat, peat_moss, phoenix_feather, pigment, pitch, poplar, quill, ramie, raw_yarn, reed, reed_cane, reed_fiber, rib_bone, root_fiber, rope, sap, scale, scale_flake, seed_floss, seedpod, serpent_skin, shelf_fungus, silk, silk_cord, silver_birch, silver_ink, slurry, smoke_oil, spider_fang, spider_silk, sun_moss, sun_thread, sunflower_seed, swamp_reed, tar, tassel, thistle, thistle_down, thread, thyme, tooth, tusk, twine, varnish, venom_sac, wax, webbing, wyrm_hide, yew
+  kern: acid, amber_moss, black_ink, bog_iron, bone, bone_ash, braid, canvas, cloth, coolant, cord, fang, felt, fungus, horn, ivory, marsh_clay, moss, nettle_fiber, peat, sap, silk, spider_silk, swamp_reed, tooth
+  growables: mushroom_spore, swamp_fern_sprout, bog_flower_bud, luminous_moss_patch
+  harvestables: bog_deposit, fen_spring, mossy_stump, wild_mushroom, swamp_fern, bog_flower
+  enemies: bog_lurker, swamp_leech, marsh_spectre
+  npcs: swamp_witch, fen_dweller
+  common_descriptors: wet, rotten, fragrant, thick, gloomy
+
+cluster forest
+  terrain: overgrown, echoing, twisted, yielding, flat
+  weather: calm, muffled, dense, humid
+  zone: woodland, ancient_grove, tangled, verdant
+  elements: earth, air
+  materials: acid, acorn, alder, alkali, aloe, antler, ash, ash_leaf, ashwood, bacon, bamboo, bark, bark_fiber, binding_glue, black_mushroom, blackberry, blackwood, blossom, blueberry, braid, briarwood, canvas, carapace, cedar, chestnut, chitin, claw, cloth, cone, cord, cotton, dew_drop, down, dry_leaf, dye, elderberry, feather, felt, fern, flux, fresh_leaf, fur, game_meat, glasswood, glue, gooseberry, grease, griffin_claw, gut, hazel, hazelnut, healing_salve, heartwood, hemp, herb, hide, hollow_root, honey, honeyflower, ink_sac, ironwood, ivory, juniper_berry, jute, lamp_oil, leather, lichen, linen, lotus_petal, lubricant, mahogany, mistwood, molasses, morel, moth_wing, mushroom, nightshade, oak, oil, petal, petrified_wood, phoenix_feather, pine, pine_nut, pine_resin, pitch, pollen, putty, ramie, raspberry, raw_yarn, red_mushroom, redwood, resin, ring_fungus, root_fiber, rope, sap, sap_leaf, sapphire, scale, scale_flake, seed, seed_floss, sequoia, serpent_skin, silk, silk_cord, silverleaf, sinew, smoke_oil, solvent, spider_silk, spine, spinel, spore_paste, strawberry, sun_thread, sunleaf, sunwood, sycamore, tallow, tassel, tearbloom, thornwood, thread, tree_sap, truffle, twig, twine, venom_sac, vine_fiber, vinegar, walnut, wax, webbing, wild_vine, willow, wool, wormwood, wyrm_hide, wyrmwood
+  kern: acid, acorn, alkali, aloe, antler, ash, ashwood, bamboo, bark, bark_fiber, binding_glue, braid, canvas, claw, cloth, cord, cotton, feather, felt, fern, fur, game_meat, hazelnut, hemp, herb, hide, honey, ironwood, leather, linen, oak, pine, sap, silk, sinew, spider_silk, strawberry, willow, wool
+  growables: oak_sapling, young_fern, berry_bush_shoot, vine_shoot, fruit_tree_sapling
+  harvestables: honey_tree, berry_patch, wild_mushroom, fruit_tree, berry_bush, old_oak, sap_runner
+  enemies: wolf, boar, tree_spirit, wild_deer, forest_cublet
+  npcs: forester, woodland_druid, hunter
+  common_descriptors: living, green, fresh, fragrant, wild
+
+cluster desert
+  terrain: dry, sharp_edged, load_bearing, flat, open
+  weather: glaring, dry, windless, scorching
+  zone: arid, dune_strewn, sand_buried, salt_flat
+  elements: fire, air
+  materials: amber, amber_resin, antler, ash, basilisk_eye, beak, black_salt, black_sandstone, bone, bone_ash, bright_amber, cactus_flesh, chalk, cherry, coal, coke, cragstone, crystal_rock, date_fruit, desert_glass, down, dragon_scale, fang, feather, feldspar, fig, gneiss, griffin_claw, hide, hide_strip, hoof, horn, ink_sac, jade, limestone, loam, melon, millet, moth_wing, ochre, phase_salt, poppy_seed, porphyry, quartz, quill, red_ochre, rib_bone, rock_salt, rowan_fruit, salt, sand, sandstone, schist, scorpion_shell, serpent_skin, sesame, shale, silt, sinew, skull_fragment, soapstone, soda_ash, soot, spider_fang, stone, sun_bleached_bone, thunderstone, tooth, travertine, tuff, tusk, umber, venom_sac, volcanic_ash, ward_salt
+  kern: amber, amber_resin, antler, ash, black_sandstone, cactus_flesh, cherry, desert_glass, quartz, rock_salt, salt, sand, scorpion_shell, sun_bleached_bone
+  growables: cactus_sprout, desert_fern_shoot, saltbush_seedling
+  harvestables: salt_pan, amber_pit, sand_vein, cactus, saltbush, desert_fern
+  enemies: scorpion, sand_stalker, sun_wraith
+  npcs: caravan_trader, desert_mystic
+  common_descriptors: arid, blazing, still, vast, sun_baked
+
+cluster coastal
+  terrain: yielding, load_bearing, boggy, flat
+  weather: windy, stormy, humid, thin
+  zone: tidal, salt_spray, cliff_edge, harbour
+  elements: water, air
+  materials: acid, alkali, ambergris, antler, basilisk_eye, beak, black_pearl, blackcurrant, braid, brine, canvas, cave_pearl, chitin, claw, cloth, coolant, coral, coral_shard, coral_shell, cord, dew_drop, down, dragon_scale, dye, fang, felt, fish_bone, gelatin, glow_pearl, glue, grease, griffin_claw, gut, hide, hide_strip, hoof, ink_sac, jute, kelp, kraken_hide, lacquer, lamp_oil, leather, lubricant, moth_wing, mother_of_pearl, pearl, pigment, pitch, plum, putty, quill, ramie, raw_yarn, river_fish, river_pearl, roe, root_fiber, rope, salt, scorpion_shell, sea_fish, sea_salt, sealant, seaweed, seaweed_leaf, seed_floss, shell, silk, silk_cord, sinew, skull_fragment, slurry, smoke_oil, smoked_fish, solvent, spider_fang, spider_silk, static_pearl, sun_thread, tassel, thread, tusk, twine, varnish, water_pearl, wax, webbing
+  kern: acid, alkali, ambergris, blackcurrant, braid, brine, canvas, cloth, coolant, coral, coral_shard, cord, felt, fish_bone, jute, kelp, pearl, river_fish, salt, sea_salt, shell, static_pearl, water_pearl
+  growables: kelp_shoot, sea_grass_sprout, tide_bloom_bud
+  harvestables: coral_reef, tide_pool, pearl_bed, tide_bloom, kelp_bed, sea_grass
+  enemies: sea_serpent, tide_spectre, salt_wraith
+  npcs: fisherwoman, harbour_keeper
+  common_descriptors: salty, fresh, windswept, tidal, echoing
+
+cluster mountain
+  terrain: steep, rough, load_bearing, sharp_edged, rocky
+  weather: thin, windless, freezing, stormy
+  zone: alpine, peak, ridge, talus, high_altitude
+  elements: earth, air
+  materials: adamant, amethyst, ash, black_iron, blood_marble, bloodstone, blue_steel, bone, bone_ash, borax, bronze, carapace, chalk, chalkstone, chicory_root, chitin, chromium, citrine, claw, coke, copper_ore, crystal_rock, dawn_bronze, dawnbloom, dragon_scale, dusk_brass, emerald, feather, feldspar, flint, forge_iron, fur, glass_steel, goat_milk, granite, gut, gypsum, hematite, horn, ilmenite, iron_ore, ivory, jade, lapis_lazuli, lead, leather, limestone, living_mercury, loam, mandrake_root, manganese, marble, mercury, mica, mountain_iron, mutton, night_nickel, oak, obsidian, opal, orichalcum, phase_salt, phoenix_feather, potash, pyrite, quartz, red_ochre, redsteel, rib_bone, root, rose_quartz, salt, saltpeter, scale, scale_flake, schist, serpent_skin, serpentine, silt, silver_ore, slate, sloe, smoke_bronze, soapstone, soot, stamen, steel, stone, stone_chunk, sun_marble, sun_shard, talc, tin, titanium, tooth, tourmaline, travertine, tuff, tusk, umber, venom_sac, ward_salt, wishstone, wolfram, wyrm_hide, wyrmstone, yellow_ochre
+  kern: adamant, ash, black_iron, blood_marble, bone, bone_ash, bronze, claw, crystal_rock, fur, granite, iron_ore, leather, marble, mountain_iron, oak, obsidian, quartz, silver_ore, slate, steel, stone_chunk, tooth
+  growables: alpine_flower_bud, mountain_herb_sprout
+  harvestables: ore_vein, cliff_deposit, rock_spring, mountain_herb, alpine_flower
+  enemies: mountain_bear, rockling, stone_golem
+  npcs: pilgrim, mountain_hermit
+  common_descriptors: high, windswept, sheer, vast, still
+
+cluster underground
+  terrain: echoing, twisted, brittle, rough
+  weather: windless, muffled, dense, dim
+  zone: cave, tunnel, deep, lightless, dripping
+  elements: earth, water
+  materials: adamant, agate, alexandrite, amber, ash, azurite, beryl, black_salt, blue_steel, borax, brass, catseye, cave_pearl, chalk, chalkstone, chromium, coal, cobalt, cragstone, deep_copper, deep_iron, deep_slate, diamond, dusk_brass, electrum, feldspar, flint, fungus, glass_steel, gneiss, gold, gypsum, ilmenite, iridium, jadeite, limestone, living_mercury, loam, magnetite, mercury, mica, mineral_dust, mithril, moss, obsidian, ochre, onyx, orichalcum, palladium, poison_cap, porphyry, potash, quartz, raw_gem, red_ochre, redsteel, rhodium, rock_salt, saltpeter, sapphire, schist, serpentine, shale, silt, smoky_quartz, soda_ash, spore_dust, steel, stone, stone_chunk, sun_forged_gold, talc, thunderstone, titanium, topaz, tuff, tungsten, umber, veilstone, void_obsidian, volcanic_ash, wyrmstone, yellow_ochre
+  kern: adamant, agate, amber, cave_pearl, chalkstone, deep_iron, mineral_dust, moss, quartz, raw_gem, sapphire, steel, stone
+  growables: cave_mushroom_spore, glowmoss_patch, stalactite_bloom_bud
+  harvestables: ore_vein, crystal_cluster, deep_spring, cave_mushroom, glowmoss, stalactite_bloom
+  enemies: cave_spider, deep_dweller, tunnel_wraith
+  npcs: spelunker, deep_prospector
+  common_descriptors: deep, dark, damp, silent, ancient
+
+cluster sky
+  terrain: thin, open, load_bearing
+  weather: windy, thin, stormy, glaring, flickering
+  zone: floating, wind_blasted, cloud_ridden, lightning_struck
+  elements: air, aether
+  materials: air_essence, astral_ink, blessing_resin, blood_essence, bloomlight_essence, carbon_fiber, clock_shard, comet_dust, copper_trace, curse_thorn, death_essence, display_glass, earth_essence, ether_gel, feather, focus_dust, galena, life_essence, light_essence, lightning_fragment, magcoil, mirage_glass, night_crystal, phase_mote, plume, portal_dust, prism_foam, quantum_foam, shimmer_dust, sky_dust, sky_iron, soft_static, star_chalk, star_chalk_dust, star_fragment, star_gem, star_lichen, star_solder, starsteel, storm_cord, storm_crystal, storm_essence, storm_glass, storm_steel, storm_thorn, stormglass, stormwood, sync_pulse_residue, time_essence, water_essence, wind_steel, windreed
+  kern: air_essence, astral_ink, blessing_resin, bloomlight_essence, carbon_fiber, copper_trace, feather, galena, lightning_fragment, plume, sky_dust, sky_iron, storm_cord, storm_glass, wind_steel
+  growables: wind_petal_bud, sky_moss_patch
+  harvestables: wind_current, lightning_strike_site, cloud_deposit, wind_petal, sky_moss
+  enemies: storm_elemental, sky_serpent, wind_wraith
+  npcs: sky_watcher, aether_sailor
+  common_descriptors: bright, windswept, open, vast, thin_aired
+
+cluster ancient_ruins
+  terrain: crusted, brittle, rough, twisted
+  weather: calm, muffled, oppressive, shimmering
+  zone: forgotten, ancient, ruined, abandoned, haunted
+  elements: aether, earth
+  materials: air_essence, ancient_iron, blessing_resin, blood_essence, bread_grain, chalkstone, cold_iron, curse_thorn, death_essence, dried_fruit, earth_essence, echo_crystal, echo_essence, echo_metal, echo_stone, ether_gel, fire_essence, flour, focus_dust, grave_iron, grave_lichen, grave_slate, gravel, life_essence, light_essence, memory_ash, memory_crystal, mirage_glass, night_crystal, oath_thread, old_bronze, portal_dust, preserved_plum, rune_ash, rune_glass, rune_ink, rune_paper, runebone, runedust, runestone, runewood, shimmer_dust, stock_bone, time_essence, water_essence, whisper_dust
+  kern: air_essence, ancient_iron, blessing_resin, blood_essence, bread_grain, chalkstone, cold_iron, curse_thorn, echo_metal, echo_stone, fire_essence, gravel, old_bronze, rune_glass, rune_ink, rune_paper, runebone, runestone, runewood
+  growables: ruin_moss_patch, memory_fern_sprout
+  harvestables: ruin_deposit, rune_shard_pile, ancient_wellspring, memory_fern, ruin_moss
+  enemies: ghost, ruin_guardian, wraith, shadow_spectre
+  npcs: lorekeeper, ruin_scholar
+  common_descriptors: ancient, forgotten, echoing, etched, weathered
+
+cluster magical_glade
+  terrain: yielding, flat, echoing, shimmering, overgrown
+  weather: shimmering, calm, humid, flickering
+  zone: magic_rich, ethereal, wellspring, blessed, luminous
+  elements: aether, earth
+  materials: aether_dust, aether_shard, air_essence, aquamarine, barley, blessing_resin, blink_shard, blood_essence, carnelian, clear_crystal, crystal_rock, curse_thorn, death_essence, dream_crystal, dream_essence, dream_silk, driftwood, earth_essence, ether_gel, fairy_silk, fey_resin, focus_dust, garnet, ghost_fern, ghost_thread, ghoststone, ghostwood, ginger_root, ginseng, glimmer_ore, glow_berry, glow_mushroom, glow_quartz, glow_thread, glowfern, hex_bone, hex_crystal, ley_crystal, life_essence, light_essence, mana_crystal, mana_oil, mana_powder, mana_shard, mana_spore, mirage_glass, mist_crystal, moon_ash, moon_herb, moon_metal, moon_pear, moon_salt, moon_shard, moon_silk, moon_silver, moonglass, moonstone, moonstone_rock, moonwood, nectar, night_crystal, nightbloom, peridot, portal_dust, rift_fragment, rift_shard, riftsteel, riftstone, royal_jelly, ruby, sage, shadow_berry, shadow_essence, shadow_fur, shadow_moss, shadow_silver, shadowleaf, shimmer_dust, soul_fragment, soul_sand, soulstone, spell_ash, spellsteel, spirit_bark, spirit_bone, spirit_essence, sun_apple, sunstone, sweet_grass, time_essence, turquoise, void_crystal, void_oil, void_splinter, voidstone, water_essence, zircon
+  kern: aether_dust, aether_shard, air_essence, barley, blessing_resin, blink_shard, blood_essence, crystal_rock, fairy_silk, fey_resin, ghost_thread, glimmer_ore, glow_quartz, glow_thread, mana_oil, moon_metal, moon_salt, moon_silk, moonglass, ruby, sage, shadow_fur, spirit_essence, void_oil
+  growables: aether_bloom_bud, spirit_fern_sprout, fairy_mushroom_spore
+  harvestables: wellspring, aether_pool, spirit_tree, fairy_mushroom, aether_bloom, spirit_fern
+  enemies: sprite, fey_trickster, spirit_hound
+  npcs: druid, aether_mage, fey_emissary
+  common_descriptors: ethereal, luminous, shimmering, fragrant, blessed
+
+cluster industrial
+  terrain: load_bearing, flat, crusted, sharp_edged
+  weather: dry, dense, oppressive
+  zone: factory, scrapyard, data_bound, circuit_rich
+  elements: aether
+  materials: actuator, algae_cake, alloy_plating, archive_crystal, auric_alloy, battery_gel, binding_glue, bio_circuit, bismuth, bit_fragment, black_ink, black_iron, bright_brass, bronze, byte_strand, capacitor_coil, ceramic_substrate, checksum_seed, circuit, circuit_board, code_fragment, coherence_fragment, coherence_gel, coherence_thread, conductor, coolant, cooling_fin, copper, cryo_gel, cultured_protein, data_crystal, data_filament, data_foam, data_ink, data_shard, dawn_bronze, decoherence_flake, diode, dough, drone_shell, electrode, entanglement_knot, entanglement_thread, ferroglass, fiber_optic, flux, forge_iron, fusion_pellet, gear_oil, gel, gelatin, green_gold, healing_salve, heat_sink, hematite, holo_resin, ink, insulated_cable, iron, lacquer, lead, leather_scrap, lens_array, logic_gate, malachite, manganese, memory_wafer, metal_mesh, micro_lattice, microchip, nano_wire, nanotube, neural_strand, nickel, night_nickel, nutrient_paste, oil, optic_glass, paste, phase_fragment, phase_paste, photon_lens, photon_thread, pigment, plasma_cell, plasma_filament, plastic, platinum, polymer, power_cell, processor_core, protein_cube, pyrite, qbit, qbit_dust, qbit_paste, qbit_resin, qbit_shard, quantum_dust, quantum_string, ration_gel, relay_core, resin, resistor_film, scrap_metal, screen_film, sensor_lens, servo_brass, servo_joint, shard_coherence, sigil_scrap, signal_shard, signal_wire, silica_gel, silicon, silver, silver_ink, slurry, smart_polymer, smoke_bronze, superconductor, superposition_shard, tallow, tar, thunder_copper, tin, transistor, varnish, void_alloy, whitesteel, wire, wolfram, yeast
+  kern: actuator, algae_cake, alloy_plating, archive_crystal, auric_alloy, battery_gel, binding_glue, bismuth, bit_fragment, black_ink, byte_strand, circuit, coolant, data_crystal, gear_oil, leather_scrap, power_cell, scrap_metal, servo_brass, sigil_scrap, wire
+  growables: data_vine_shoot, circuit_mold_spore
+  harvestables: scrap_deposit, data_cache, circuit_vein, data_vine, circuit_mold
+  enemies: broken_bot, rogue_drone, data_wraith
+  npcs: mechanic, data_broker
+  common_descriptors: mechanical, humming, static, polished, blinking
+
+# Gesiedeltes Land -- der 13. Cluster, nachgetragen am 24.11.2026.  Die
+# zwoelf anderen sind Wildnis; Getreide, Knollen, Gemuese und Milchwirtschaft
+# hatten damit keinen Ort, und das war der Grund, warum `food` als Art
+# nirgends anfiel (doc/architecture/food_korpus_2026-11-24.md).
+# Gelaende, Wetter, Zone, Gegner und NPCs kommen aus den bestehenden Pools --
+# ein neuer Cluster erfindet kein neues Vokabular.
+cluster farmland
+  terrain: flat, open, load_bearing, yielding, compacted
+  weather: calm, dry, glaring, windless, stormy
+  zone: populated, high_yield, sunlit, sprawling, beginner_safe
+  elements: earth, water
+  materials: alkali, almond, amaranth, apple, apricot, asparagus, barley, beak, bean, beetle_wing, beetroot, binding_glue, birch, black_ink, bone, braid, broad_bean, broth, buckwheat, butter, cabbage, canvas, carrot, checksum_grain, cheese, chickpea, clay, cloth, cord, corn, cotton, cream, cucumber, curd, dewroot, dire_wool, dye, egg, einkorn, elm, emmer, fang, feather, felt, flax, flax_seed, flour, flux, fur, garlic, gel, goat_milk, goose_egg, grape, grease, healing_salve, hemp, hemp_rope, hide_strip, hoof, horn, ink, jute, kale, larch, lard, leek, lentil, linen, linen_wrap, lubricant, maple, maple_syrup, mint, oat, oil, onion, parsnip, paste, pea, peach, pear, potato, poultry, pumpkin, pumpkin_seed, putty, quill, quince, quinoa, radish, ramie, raw_yarn, resin, rib_bone, root_fiber, rope, rosemary, rowan, rye, sage, scale, seed_floss, silk, silk_cord, silver_ink, skull_fragment, solvent, sorghum, spelt, spider_fang, spider_silk, spruce, squash, sun_herb, sun_thread, sunroot, tallow, tar, tassel, teff, thread, tooth, turnip, twine, webbing, wheat, wool, wool_felt, yam
+  kern: alkali, almond, apple, barley, beak, bean, binding_glue, black_ink, braid, broth, cabbage, canvas, carrot, checksum_grain, clay, cloth, cord, cotton, dewroot, egg, felt, flour, goat_milk, oat, onion, potato, rye, sage, wheat
+  growables: oat_stalk, barley_stalk, buckwheat_stand, millet_stand, bean_vine, pea_vine, cabbage_head, onion_row, garlic_row, leek_row, kale_bunch, parsnip_top, cucumber_vine, chickpea_row, lentil_row, asparagus_bed, apple_sapling, pear_sapling, plum_tree, cherry_tree, peach_tree, fig_tree, almond_tree, hazelnut_shrub
+  harvestables: rye_field, grain_field, orchard_row, root_garden, herb_garden, herb_patch, rice_paddy, milk_herd, egg_cluster, beehive, honeycomb, game_trail, bloom_patch
+  enemies: boar, boarling, wolf, swarm, worm, moth, wild_deer
+  npcs: cultivator, breeder, baker, forager, trader
+  common_descriptors: fresh, fragrant, green, still, vast

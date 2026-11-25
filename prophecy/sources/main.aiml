@@ -1,0 +1,15 @@
+# Einstiegspunkt.  Die Klasse AtlasBuilder liegt in main_app.aiml, damit `main`
+# ein Modul von ausserhalb komponiert (spec/49 §15) statt alles selbst zu tragen.
+
+- import: "prophecy/sources/main_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [builder, ptr<AtlasBuilder>, { new: AtlasBuilder }]
+      - set: [builder.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+      - set: [builder.vocab_kv, { call: [db.open_kv, prophecy_vocab_name, {persist: true}] }]
+      - call: [builder.run]
+      - return: 0

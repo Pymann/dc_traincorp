@@ -1,0 +1,37 @@
+# Shared building model.
+# A Building groups one or more locations inside a zone.
+
+- model:
+    name: Building
+    fields:
+      - [building_id,       string]
+      - [name,              string]
+      - [realm_id,          string]
+      - [zone_id,           string]
+      - [building_kind,     string]
+      - [building_subtype,  string]
+      - [building_tags,     list<string>]
+      - [entry_location_id, string]
+      - [location_ids,      list<string>]
+      - [description,       string]
+      # Welche ortsfesten Werkzeuge dieses Gebaeude bereitstellt.  Sieben
+      # Werkbaenke haben KEIN Rezept (forge-bench, woodworker-bench,
+      # alchemy-station, jeweller-bench, loom, tanning-rack, calibrator) --
+      # sie sind die Wurzel des Handwerksbaums und gehoeren an einen Ort,
+      # nicht in einen Rucksack.  Ein Feld am Ende: alte Realm-Dateien ohne
+      # diese Liste deserialisieren als leer.
+      - [provides_tools,    list<string>]
+      # Oeffnungszeiten als Spielstunden 0..23 (sources/shared/spielzeit.aiml).
+      # `schliesst <= oeffnet` heisst durchgehend geoeffnet -- und ist zugleich
+      # der Wert, den eine Realm-Datei ohne diese Felder liefert (0/0).  Ein
+      # Gebaeude schliesst also nur, wenn es jemand ausdruecklich hinschreibt.
+      - [oeffnet,           i32, 0]
+      - [schliesst,         i32, 0]
+      # Wer in diesem Haus steht (npc_id).  Die Beziehung gehoert HIERHIN und
+      # nicht an den NPC: ein Gebaeude haelt ohnehin schon, was in ihm liegt
+      # (`location_ids`, `provides_tools`), es steht nur in der Realm-Datei --
+      # waehrend ein NPC pro Figur im Kv `disc_npcs` liegt.  Ein Feld dort
+      # haette dessen Satz-Fingerabdruck geaendert und einen Wipe gekostet,
+      # fuer eine Tatsache, die sich nie aendert
+      # (doc/architecture/quests_2026-11-15.md).
+      - [npc_ids,           list<string>]

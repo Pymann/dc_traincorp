@@ -1,0 +1,43 @@
+# Physical disease tags (kind=3) — akute Verletzungen
+
+# Verletzungsart
+laceration
+puncture
+fracture
+sprain
+strain
+dislocation
+contusion
+burn
+abrasion
+
+# Körperregion
+head
+torso
+arm
+leg
+hand
+foot
+back
+eye
+joint
+internal_organ
+
+# Blutung
+bleeding
+slow_bleed
+severe_bleed
+clotted
+
+# Beeinträchtigung
+mobility_impaired
+grip_impaired
+vision_impaired
+breathing_impaired
+
+# Heilungsverlauf
+heals_with_rest
+needs_setting
+needs_stitching
+needs_realignment
+permanent_scar

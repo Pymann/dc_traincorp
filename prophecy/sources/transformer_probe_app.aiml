@@ -1,0 +1,44 @@
+# Vorwaerts-Probe: EINE kurze Folge durch das Modell.
+#
+# Nur ueber oeffentliche Methoden -- ein Tensor-Member von aussen zu lesen
+# (`mdl.emb`) ergab einen unbrauchbaren Tensor, und `embedding_lookup` stirbt
+# auf einer unsinnigen Form (spec/50 §15).
+- import: "prophecy/sources/transformer.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [mdl, ptr<RezeptModell>, { new: RezeptModell }]
+      - call: [mdl.init, 5399]
+      - decl: [lng, i32, 5]
+      - decl: [ids, tensor, { call: [tensor.zeros, lng] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, lng] }
+          body:
+            - call: [ids.set, idx, { cast: [{ "+": [idx, 2] }, f32] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - call: [log.info, "probe: ids gebaut, ndim=${ids.ndim}"]
+      - call: [tensor.begin_graph]
+      - decl: [logits, tensor, { call: [mdl.vorwaerts, ids, lng] }]
+      - decl: [lg0, i32, { call: [logits.shape, 0] }]
+      - decl: [lg1, i32, { call: [logits.shape, 1] }]
+      - call: [log.info, "probe: vorwaerts -> ${lg0}x${lg1} (soll ${lng}x5399)"]
+      - decl: [soll, tensor, { call: [tensor.zeros, lng] }]
+      - call: [soll.set, 0, 7.0]
+      - decl: [vrl, tensor, { call: [tensor.cross_entropy, logits, soll, lng] }]
+      - decl: [vwt, f32, { call: [vrl.item] }]
+      - call: [log.info, "probe: verlust=${vwt}"]
+      - call: [tensor.backward, vrl]
+      - decl: [gzl, i32, { call: [mdl.grad_zahl] }]
+      - call: [log.info, "probe: backward ok, ${gzl} von ${mdl.par.len} Parametern haben einen Gradienten"]
+      - if:
+          condition: { lt: [gzl, 20] }
+          then:
+            - call: [log.error, "probe: Gradienten fehlen — requires_grad nicht gesetzt, der Schritt wuerde still nichts tun"]
+            - return: 1
+      - call: [mdl.schritt, 0.01]
+      - call: [log.info, "probe: schritt ok"]
+      - return: 0

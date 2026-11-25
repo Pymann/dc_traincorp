@@ -1,0 +1,63 @@
+# Enemy-OUT-Tags — Kampf-Charakteristik (kein Combat-System aktiv,
+# aber das ML lernt schon das Vokabular für später).
+
+# ── Bedrohung ──────────────────────────────────────────────────────────────
+minimal_threat
+low_threat
+medium_threat
+high_threat
+boss_tier
+
+# ── Verhalten ──────────────────────────────────────────────────────────────
+aggressive
+ambush
+pack_hunter
+solitary
+territorial
+fleeing
+patrolling
+guarding
+
+# ── Geschwindigkeit ────────────────────────────────────────────────────────
+sluggish
+slow
+moderate_speed
+fast
+quick
+darting
+
+# ── Verteidigung ───────────────────────────────────────────────────────────
+unarmored
+hide_armor
+scale_plated
+crystal_armored
+chitin_shelled
+ethereal
+phasing
+
+# ── Element / Affinität ────────────────────────────────────────────────────
+fire_aspect
+cold_aspect
+shock_aspect
+shadow_aspect
+shard_aspect
+qbit_aspect
+biological
+construct
+undead
+elemental
+
+# ── Schwäche ───────────────────────────────────────────────────────────────
+weak_to_fire
+weak_to_cold
+weak_to_blunt
+weak_to_piercing
+weak_to_runic
+no_known_weakness
+
+# ── Größe ──────────────────────────────────────────────────────────────────
+tiny
+small
+medium_size
+large
+giant

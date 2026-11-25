@@ -1,0 +1,44 @@
+# Einstiegspunkt der Erreichbarkeits-Schranke.
+#
+# Rueckgabe 0 = jedes Rezept des Korpus ist vom Startgepaeck aus erreichbar,
+# wenn man die Werkstatt der Siedlung mitzaehlt.  Alles andere ist ein
+# unspielbares Spiel und soll einen Lauf scheitern lassen.
+- import: "prophecy/sources/erreichbarkeit.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [pruefung, ptr<ErreichbarkeitsPruefung>, { new: ErreichbarkeitsPruefung }]
+      - decl: [rezepte, i32, { call: [pruefung.korpus_lesen, "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { le: [rezepte, 0] }
+          then:
+            - call: [log.error, "erreichbarkeit: Korpus leer oder nicht lesbar"]
+            - return: 1
+      - decl: [stationen, i32, { call: [pruefung.stationen_lesen, "assets/realms/realm_example.json"] }]
+      - call: [pruefung.startgepaeck]
+      - decl: [machbar, i32, { call: [pruefung.abschluss_rechnen] }]
+      - decl: [offen, i32, { call: [pruefung.melden] }]
+      # Fundamente: steht in der vierten Spalte eine Fertigkeit, die es gibt?
+      # Hart nur mit DC_FUNDAMENT_HART=1 -- der heutige Korpus hat 424 solcher
+      # Zeilen, und sie zu bereinigen ist Korpusarbeit (Plan Punkt 3).  Bis
+      # dahin soll die Schranke MELDEN, nicht das ganze Gate roten.
+      - decl: [starter, i32, { call: [pruefung.starter_lesen, "prophecy/data/names/skills/starter_skills.txt"] }]
+      - decl: [fremde, i32, { call: [pruefung.fundamente_pruefen, "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { gt: [fremde, 0] }
+          then:
+            - call: [log.error, "fundament: ${fremde} Zeilen nennen ein Fundament, das keine der ${starter} Starter-Fertigkeiten ist (Plan Punkt 3)"]
+            - if:
+                condition: { eq: [{ call: [sys.env, "DC_FUNDAMENT_HART"] }, "1"] }
+                then: [{ return: 1 }]
+          else: [{ call: [log.info, "fundament: alle Fundamente sind echte Starter-Fertigkeiten (${starter} bekannt)"] }]
+      - call: [log.info, "erreichbarkeit: ${machbar} von ${rezepte} Rezepten erreichbar (${stationen} ortsfeste Werkzeuge in Gebaeuden)"]
+      - if:
+          condition: { gt: [offen, 0] }
+          then:
+            - call: [log.error, "erreichbarkeit: ${offen} Rezepte sind von niemandem herstellbar — das Spiel ist an dieser Stelle unspielbar"]
+            - return: 1
+      - return: 0

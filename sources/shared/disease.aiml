@@ -1,0 +1,31 @@
+# Shared disease / affliction model.
+#
+# Diseases are time-bounded conditions evaluated by the server.
+# Cure roll: at each scheduled tick the server draws random() vs
+# `persist_chance`. If random() > persist_chance, the disease ends
+# (server sets end_date). Otherwise the server increments `roll_count`
+# and reduces `persist_chance` monotonically — so the probability that
+# the disease is NOT cured shrinks with every roll. The exact decay
+# function (linear, geometric, item-modified) is server-side policy.
+
+- import: "sources/shared/character_attributes.aiml"
+
+- model:
+    name: Disease
+    fields:
+      - [disease_id,      string]
+      - [name,            string]
+      - [disease_type,    string]
+      - [lethal,          bool, false]
+      - [state,           i32, 0]
+      - [start_date,      i64]
+      - [end_date,        i64]
+      - [roll_count,        i32, 0]
+      - [next_roll_at,      i64, 0]
+      - [persist_chance,    f64, 1.0]
+      - [attribute_malus,   CharacterAttributes]
+      - [disabled_skill_ids, list<string>]
+      # Dieselbe Kanalkarte wie PassiveSkill, nur mit negativen Zahlen und
+      # einem Ende (doc/architecture/beeintraechtigungen_2026-11-13.md).
+      # Neues Feld AM ENDE -- ein Sender ohne dieses Feld bleibt lesbar.
+      - [wirkungen,         map<string:f32>]

@@ -1,0 +1,41 @@
+# Mental disease tags (kind=5)
+
+# Phänomenologie
+anxiety
+depression
+dissociation
+obsession
+paranoia
+mania
+apathy
+rage
+fear
+shame
+
+# Auslöser
+defeat_trigger
+loss_trigger
+isolation_trigger
+overexposure_trigger
+weather_trigger
+ritual_trigger
+
+# Wirkung
+focus_impaired
+sleep_impaired
+social_impaired
+combat_impaired
+crafting_impaired
+
+# Verlauf
+acute_episode
+ongoing
+intermittent
+worsening_without_rest
+
+# Behandlung
+rest_responsive
+social_responsive
+ritual_responsive
+medication_responsive
+resistant_to_treatment

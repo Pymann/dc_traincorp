@@ -1,0 +1,130 @@
+# Einstiegspunkt der Verstehens-Probe.  Viererlei wird auf DEMSELBEN Modell
+# gemessen, damit die Zahlen vergleichbar sind:
+#
+#   A  Beutel genau wie im Korpus   (Kontrolle, muss die Trefferquote treffen)
+#   B  ein Tag weggelassen          (ungesehener Beutel, Antwort bekannt)
+#   C  ein fremdes Tag dazu         (ungesehener Beutel, Antwort bekannt)
+#   D  zusammengewuerfelter Beutel  (keine richtige Antwort -- wie zuversichtlich
+#                                    ist das Modell trotzdem?)
+#
+# B und C sind der Kern: fallen sie steil gegen A ab, ist das Modell ein
+# Nachschlagewerk auf exakte Beutel.  Bleiben sie in der Naehe, hat es
+# Tag-Bedeutungen gelernt und schliesst damit.
+- import: "prophecy/sources/verstehen_probe.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [probe, ptr<VerstehensProbe>, { new: VerstehensProbe }]
+      - decl: [zahl, i32, { call: [probe.korpus_lesen, "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { eq: [zahl, 0] }
+          then:
+            - call: [log.error, "verstehen: Korpus nicht lesbar"]
+            - return: 1
+      - decl: [vorhersage, ptr<ProphecyPredictor>, { new: ProphecyPredictor }]
+      - decl: [bereit, i32, { call: [vorhersage.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "verstehen: Vorhersage nicht bereit"]
+            - return: 1
+
+      - decl: [a_ges, i32, 0]
+      - decl: [a_tref, i32, 0]
+      - decl: [a_zuv, f32, 0.0]
+      - decl: [b_ges, i32, 0]
+      - decl: [b_tref, i32, 0]
+      - decl: [b_stabil, i32, 0]
+      - decl: [c_ges, i32, 0]
+      - decl: [c_tref, i32, 0]
+      - decl: [c_stabil, i32, 0]
+      - decl: [d_ges, i32, 0]
+      - decl: [d_zuv, f32, 0.0]
+
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, zahl] }
+          body:
+            - decl: [bag, string, { at: [probe.beutel, pos] }]
+            - decl: [soll, string, { at: [probe.solls, pos] }]
+
+            # A -- genau der Korpusbeutel
+            - decl: [ist_a, string, { call: [vorhersage.predict_recipe, bag] }]
+            - set: [a_ges, { "+": [a_ges, 1] }]
+            - set: [a_zuv, { "+": [a_zuv, vorhersage.last_pred_p] }]
+            - if: { condition: { eq: [ist_a, soll] }, then: [{ set: [a_tref, { "+": [a_tref, 1] }] }] }
+
+            # B -- ein Tag fehlt.  Welches, haengt an der Zeile, damit ueber
+            # den Korpus hinweg jede Stelle mal dran ist.
+            - decl: [teile, list<string>, { call: [bag.split, " "] }]
+            - if:
+                condition: { ge: [teile.len, 2] }
+                then:
+                  - decl: [welche, i32, { "%": [pos, teile.len] }]
+                  - decl: [bag_b, string, { call: [probe.ohne_tag, bag, welche] }]
+                  - if:
+                      condition: { gt: [bag_b.len, 0] }
+                      then:
+                        - decl: [ist_b, string, { call: [vorhersage.predict_recipe, bag_b] }]
+                        - set: [b_ges, { "+": [b_ges, 1] }]
+                        - if: { condition: { eq: [ist_b, soll] }, then: [{ set: [b_tref, { "+": [b_tref, 1] }] }] }
+                        - if: { condition: { eq: [ist_b, ist_a] }, then: [{ set: [b_stabil, { "+": [b_stabil, 1] }] }] }
+
+            # C -- ein fremdes Tag dazu
+            - decl: [fremd, string, { call: [probe.fremdes_tag, bag, pos] }]
+            - if:
+                condition: { gt: [fremd.len, 0] }
+                then:
+                  - decl: [bag_c, string, "${bag} ${fremd}"]
+                  - decl: [ist_c, string, { call: [vorhersage.predict_recipe, bag_c] }]
+                  - set: [c_ges, { "+": [c_ges, 1] }]
+                  - if: { condition: { eq: [ist_c, soll] }, then: [{ set: [c_tref, { "+": [c_tref, 1] }] }] }
+                  - if: { condition: { eq: [ist_c, ist_a] }, then: [{ set: [c_stabil, { "+": [c_stabil, 1] }] }] }
+
+            # D -- Unsinn.  Nur jede zehnte Zeile, das genuegt fuer den Mittelwert.
+            - if:
+                condition: { eq: [{ "%": [pos, 10] }, 0] }
+                then:
+                  - decl: [bag_d, string, { call: [probe.wirr_beutel, pos] }]
+                  - if:
+                      condition: { gt: [bag_d.len, 0] }
+                      then:
+                        - decl: [ist_d, string, { call: [vorhersage.predict_recipe, bag_d] }]
+                        - if:
+                            condition: { gt: [ist_d.len, 0] }
+                            then:
+                              - set: [d_ges, { "+": [d_ges, 1] }]
+                              - set: [d_zuv, { "+": [d_zuv, vorhersage.last_pred_p] }]
+            - set: [pos, { "+": [pos, 1] }]
+
+      - if:
+          condition: { eq: [a_ges, 0] }
+          then:
+            - call: [log.error, "verstehen: keine Beispiele"]
+            - return: 1
+
+      - decl: [a_pro, i32, { "/": [{ "*": [a_tref, 100] }, a_ges] }]
+      - call: [log.info, "verstehen A  Korpusbeutel exakt:   ${a_tref} von ${a_ges} (${a_pro} %)"]
+      - if:
+          condition: { gt: [b_ges, 0] }
+          then:
+            - decl: [b_pro, i32, { "/": [{ "*": [b_tref, 100] }, b_ges] }]
+            - decl: [b_spro, i32, { "/": [{ "*": [b_stabil, 100] }, b_ges] }]
+            - call: [log.info, "verstehen B  ein Tag weggelassen: ${b_tref} von ${b_ges} (${b_pro} %), unveraendert ${b_spro} %"]
+      - if:
+          condition: { gt: [c_ges, 0] }
+          then:
+            - decl: [c_pro, i32, { "/": [{ "*": [c_tref, 100] }, c_ges] }]
+            - decl: [c_spro, i32, { "/": [{ "*": [c_stabil, 100] }, c_ges] }]
+            - call: [log.info, "verstehen C  fremdes Tag dazu:   ${c_tref} von ${c_ges} (${c_pro} %), unveraendert ${c_spro} %"]
+      - decl: [a_mit, f32, { "/": [a_zuv, { cast: [a_ges, f32] }] }]
+      - call: [log.info, "verstehen D  Zuversicht echt:     ${a_mit}"]
+      - if:
+          condition: { gt: [d_ges, 0] }
+          then:
+            - decl: [d_mit, f32, { "/": [d_zuv, { cast: [d_ges, f32] }] }]
+            - call: [log.info, "verstehen D  Zuversicht gewuerfelt: ${d_mit} (${d_ges} Beutel ohne richtige Antwort)"]
+      - return: 0

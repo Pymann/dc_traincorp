@@ -1,0 +1,14 @@
+rune
+glyph
+sigil
+mark
+wardstone
+runestone
+namerune
+elder_rune
+
+# tech / data-realm
+code_glyph
+hex_mark
+bit_rune
+data_sigil

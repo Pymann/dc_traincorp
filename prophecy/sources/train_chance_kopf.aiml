@@ -1,0 +1,13 @@
+# Einstiegspunkt.  Die Klasse liegt nebenan, damit `main` ein Modul von
+# ausserhalb komponiert (spec/49 §15).
+- import: "prophecy/sources/train_chance_kopf_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [trainer, ptr<ChanceKopfTrainer>, { new: ChanceKopfTrainer }]
+      - call: [trainer.run]
+      - free: trainer
+      - return: 0

@@ -1,0 +1,2948 @@
+# Metadaten der ENTDECKBAREN Skills (aktiv, passiv, mechanisch).
+# Erzeugt von scripts/build_discover_skill_metadata.py — danach von Hand
+# nachgepflegt, genau wie combat_skill_metadata.yml.
+#
+# Konsumenten:
+#   1. scripts/generate_clustered_corpus.py --only-skills → data/skill_corpus.txt
+#   2. Server: Tor (foundation) + Art beim Entdecken (sources/server/discovery.aiml)
+#
+# Felder:
+#   foundation          Starter-Skill, der die Rubrik aufschliesst.  Ohne ihn
+#                       kann die Kreatur den Skill nicht entdecken.
+#   base_actions        Taetigkeiten, die dorthin fuehren.
+#   item_name_required  Gegenstaende/Rohstoffe, die dabei typisch sind.
+#   skill_tags          Tags, die dabei typisch sind.
+#   element_tags        passendes Element (kann leer sein).
+#   ROUTENSCHLUESSEL    Einige dieser Kennungen stehen in einem Realm als
+#                       `required_skill_ids` einer Route (assets/realms/*.json)
+#                       und sperren sie, solange die Kreatur den Skill nicht
+#                       entdeckt hat: `shard-walker` (Glass Mouth <-> Shatter
+#                       Rim) und `qbit-attune` (Glass Mouth <-> Qbit Nursery,
+#                       Qbit Nursery <-> Coherence Farm).  Wer eine solche
+#                       Kennung umbenennt, sperrt die Route dauerhaft -- der
+#                       Server vergleicht sie nur noch gegen etwas, das es
+#                       nicht mehr gibt.  Beide tragen darum `travel_assist`.
+#   wirkungen           NUR bei `kind: passive`: was die Fertigkeit dauernd
+#                       bewirkt, als Kanal=Zahl.  Lesart und Deckel stehen in
+#                       doc/architecture/passive_skills_wirkungen_2026-11-12.md.
+#                       Keine Lernmerkmale -- der Korpus-Erzeuger uebergeht
+#                       sie.  Die Zahl steht mit "=", nicht mit ":", weil der
+#                       schlanke Leser im Server die Zeile an ":" teilt.
+#                       Zugeteilt ist bisher EIN Kanal je Rubrik; Feinarbeit
+#                       je Fertigkeit kann folgen.  Von den Kanaelen wirken
+#                       heute `action.duration`, `travel.duration`,
+#                       `find.chance` und `harvest.yield` -- `attr.*` und
+#                       `neutralize.*` werden gespeichert und angezeigt, aber
+#                       von noch niemandem gefragt.
+#   quelle              woher das Geruest die Merkmale hat: `name` aus den
+#                       Woertern des Skillnamens, `verteilt` reihum aus dem
+#                       Topf der Rubrik.  Nachpflege faengt bei `verteilt` an.
+skills:
+
+# ── Crystal / Shard ──────────────────────────────────
+  # ROUTE: Glass Mouth <-> Shatter Rim (realm_example).  Wer ueber Scherben
+  # geht, braucht ihn -- darum `travel_assist` und `target_zone`.
+  - id:                  shard_walker
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate, workout]
+    item_name_required: [shard]
+    skill_tags:         [gem_craft, luminous, travel_assist, target_zone, yields_information]
+    element_tags:       [earth]
+    tools:              [jeweller_bench]
+    oeffnet_routen:     [zt_glass_to_shatter, zt_shatter_to_glass]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  shard_reader
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [shard]
+    skill_tags:         [precision, polished]
+    element_tags:       [water]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  shard_bridging
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [shard]
+    skill_tags:         [rune_craft, arcane]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  crystal_sensing
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [crystal]
+    skill_tags:         [elemental, channel]
+    element_tags:       [earth]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  shard_mending
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [shard]
+    skill_tags:         [etched, dark]
+    element_tags:       [water]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  glass_shaping
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [fire_essence, runestone]
+    skill_tags:         [glass, gem_craft, luminous]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  prism_tuning
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [runebone, deep_iron]
+    skill_tags:         [precision, polished]
+    element_tags:       [earth]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  splinter_tracking
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [stone, moss]
+    skill_tags:         [rune_craft, arcane]
+    element_tags:       [water]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  crystal_affinity
+    kind:                active
+    rubric:              Crystal / Shard
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [crystal]
+    skill_tags:         [elemental, channel]
+    element_tags:       [aether]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+# ── Quantum / Coherence ──────────────────────────────────
+  # ROUTE: Glass Mouth <-> Qbit Nursery und Qbit Nursery <-> Coherence Farm
+  # (realm_example); die zweite verlangt zusaetzlich das Stueck
+  # `coherence_lantern`.
+  - id:                  qbit_attune
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [qbit]
+    skill_tags:         [tech_craft, precision, travel_assist, target_zone, yields_information]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    oeffnet_routen:     [zt_glass_to_nursery, zt_nursery_to_glass, zt_nursery_to_farm, zt_farm_to_nursery]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  qbit_weaving
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [qbit]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  coherence_touch
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  entanglement_reading
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [gear_oil, actuator]
+    skill_tags:         [precision, wired]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  phase_listening
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [scrap_metal, sky_iron]
+    skill_tags:         [calibrated, open]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  static_listening
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [sky_dust, feather]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [air]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  glitch_spotting
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [plume, wind_steel]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  resonance_tuning
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [storm_glass, lightning_fragment]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  quantum_stillness
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [precision, wired]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  bloomlight_calling
+    kind:                active
+    rubric:              Quantum / Coherence
+    foundation:          magic_aptitude
+    base_actions:       [meditate, study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [calibrated, open]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Smithing / Crafting ──────────────────────────────────
+  - id:                  rune_inscribing
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [rune]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  metal_folding
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [steel, copper]
+    skill_tags:         [metal, folding, heavy]
+    element_tags:       [earth]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  leather_curing
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [leather]
+    skill_tags:         [curing, forged, wood_craft]
+    element_tags:       [air]
+    tools:              [smithy]
+    quelle:              gegenstaende=name tags=name
+
+  - id:                  gem_cutting
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [gem]
+    skill_tags:         [balance, precision]
+    element_tags:       [aether]
+    tools:              [woodworker_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  mold_shaping
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [pine, ash]
+    skill_tags:         [carved, bone_craft]
+    element_tags:       [earth]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  smith_touch
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [ashwood, ironwood]
+    skill_tags:         [etched, primal]
+    element_tags:       [air]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  woodworker_touch
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [willow, bamboo]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  weaver_touch
+    kind:                active
+    rubric:              Smithing / Crafting
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [bark, bone]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [earth]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Botany / Cultivation ──────────────────────────────────
+  - id:                  foraging
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [herb, fungus]
+    skill_tags:         [alchemy, brewed]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  botany
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [honey, moss]
+    skill_tags:         [distilled, potent]
+    element_tags:       [air]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  seed_coaxing
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [seed]
+    skill_tags:         [fiber_craft, fine]
+    element_tags:       [water]
+    tools:              [weaver_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  soil_reading
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [silk, wool]
+    skill_tags:         [flexible, delicate]
+    element_tags:       [aether]
+    tools:              [loom]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  bloom_sensing
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [linen, cotton]
+    skill_tags:         [luminous, alchemy]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  weather_watching
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [hemp, spider_silk]
+    skill_tags:         [brewed, distilled]
+    element_tags:       [air]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  pollen_tracking
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [pollen]
+    skill_tags:         [potent, fiber_craft]
+    element_tags:       [water]
+    tools:              [weaver_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  meadow_lore
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [ash, willow]
+    skill_tags:         [fine, flexible]
+    element_tags:       [aether]
+    tools:              [loom]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  sproutkeeping
+    kind:                active
+    rubric:              Botany / Cultivation
+    foundation:          resource_lore
+    base_actions:       [breathe, sing]
+    item_name_required: [bamboo, bark]
+    skill_tags:         [delicate, luminous]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Hunting / Combat-Awareness ──────────────────────────────────
+  - id:                  scouting
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [leather, hide]
+    skill_tags:         [leather_craft, flexible]
+    element_tags:       [earth]
+    tools:              [weaver_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  recon
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [fur, sinew]
+    skill_tags:         [soft, tough]
+    element_tags:       [air]
+    tools:              [tanning_rack]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  stealth
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [tooth, claw]
+    skill_tags:         [bone_craft, sharp]
+    element_tags:       [fire]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  ambush_sense
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [bone, horn]
+    skill_tags:         [etched, primal]
+    element_tags:       [earth]
+    tools:              [weaver_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  beast_lore
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [ivory, fang]
+    skill_tags:         [leather_craft, flexible]
+    element_tags:       [air]
+    tools:              [tanning_rack]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  threat_reading
+    kind:                active
+    rubric:              Hunting / Combat-Awareness
+    foundation:          tracking
+    base_actions:       [workout, study]
+    item_name_required: [runebone, oak]
+    skill_tags:         [soft, tough]
+    element_tags:       [fire]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Exploration / Discovery ──────────────────────────────────
+  - id:                  mapping
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [runestone, ancient_iron]
+    skill_tags:         [dark]
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  surveying
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [chalkstone, runebone]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  pathfinding
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [rune_glass, old_bronze]
+    skill_tags:         [dark]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  salvaging
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [rune_paper, deep_iron]
+    skill_tags:         [dark]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  appraisal
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [stone, raw_gem]
+    skill_tags:         [dark]
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  identification
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [agate, quartz]
+    skill_tags:         [dark]
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  cataloging
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [moss, mineral_dust]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  ruin_reading
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [cave_pearl, granite]
+    skill_tags:         [dark]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  portal_sensing
+    kind:                active
+    rubric:              Exploration / Discovery
+    foundation:          navigation
+    base_actions:       [study, workout]
+    item_name_required: [marble, slate]
+    skill_tags:         [portal, dark]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=name
+
+# ── Lock / Security ──────────────────────────────────
+  - id:                  lockpicking
+    kind:                active
+    rubric:              Lock / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  trap_spotting
+    kind:                active
+    rubric:              Lock / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [earth]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  key_shaping
+    kind:                active
+    rubric:              Lock / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [key]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  seal_breaking
+    kind:                active
+    rubric:              Lock / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [iron, iron_ore]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Magic / Channeling ──────────────────────────────────
+  - id:                  water_channel
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [crystal_rock, aether_dust]
+    skill_tags:         [water, channel, rune_craft]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  earth_channel
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [chalkstone, fire_essence]
+    skill_tags:         [earth, channel, elemental]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  air_channel
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [runestone, runebone]
+    skill_tags:         [air, channel, precision]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  aether_channel
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [ember, obsidian]
+    skill_tags:         [aether, channel, fire_craft]
+    element_tags:       [earth]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  ward_weaving
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [fairy_silk, fey_resin]
+    skill_tags:         [ward, luminous, rune_craft]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  sigil_tracing
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [sigil]
+    skill_tags:         [arcane, elemental]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  glyph_reading
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [glyph]
+    skill_tags:         [channel, precision]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  fire_channel
+    kind:                active
+    rubric:              Magic / Channeling
+    foundation:          magic_aptitude
+    base_actions:       [meditate, breathe]
+    item_name_required: [rune_glass, old_bronze]
+    skill_tags:         [fire, channel, etched]
+    element_tags:       [earth]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+# ── Social / NPC ──────────────────────────────────
+  - id:                  haggling
+    kind:                active
+    rubric:              Social / NPC
+    foundation:          focus_breath
+    base_actions:       [sing, study]
+    item_name_required: [circuit, wire]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  persuasion
+    kind:                active
+    rubric:              Social / NPC
+    foundation:          focus_breath
+    base_actions:       [sing, study]
+    item_name_required: [gear_oil, servo_brass]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  rumor_gathering
+    kind:                active
+    rubric:              Social / NPC
+    foundation:          focus_breath
+    base_actions:       [sing, study]
+    item_name_required: [data_crystal, alloy_plating]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  trade_sense
+    kind:                active
+    rubric:              Social / NPC
+    foundation:          focus_breath
+    base_actions:       [sing, study]
+    item_name_required: [actuator, power_cell]
+    skill_tags:         []
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  empathy
+    kind:                active
+    rubric:              Social / NPC
+    foundation:          focus_breath
+    base_actions:       [sing, study]
+    item_name_required: [scrap_metal, coral]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Movement / Travel ──────────────────────────────────
+  - id:                  drift_riding
+    kind:                active
+    rubric:              Movement / Travel
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [sky_iron, sky_dust]
+    skill_tags:         [open]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  shard_running
+    kind:                active
+    rubric:              Movement / Travel
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [shard]
+    skill_tags:         [open]
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  quiet_stepping
+    kind:                active
+    rubric:              Movement / Travel
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [wind_steel, storm_glass]
+    skill_tags:         [open]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  endurance_running
+    kind:                active
+    rubric:              Movement / Travel
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [lightning_fragment, frost_crystal]
+    skill_tags:         [endurance, open]
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  balance_walking
+    kind:                active
+    rubric:              Movement / Travel
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [ice, winter_fur]
+    skill_tags:         [balance, open]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=name
+
+# ── Resilience / Recovery ──────────────────────────────────
+  - id:                  steady_heart
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [frost_crystal, ice]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  calm_breath
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [winter_fur, frost_herb]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  slow_healing
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [snow_glass, permafrost_stone]
+    skill_tags:         []
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  deep_rest
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [frostbone, obsidian]
+    skill_tags:         []
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  pain_tolerance
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [sulfur, ember_coal]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  scar_memory
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [ash, ember]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  shock_resistance
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [basalt, iron_ore]
+    skill_tags:         []
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  stability_core
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [copper_ore, char]
+    skill_tags:         []
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  fatigue_buffer
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [embercoal, firesand]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.endurance=1]
+
+  - id:                  recovery_instinct
+    kind:                passive
+    rubric:              Resilience / Recovery
+    foundation:          focus_breath
+    base_actions:       [sleep, breathe]
+    item_name_required: [moss, fungus]
+    skill_tags:         [recovery]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [attr.endurance=1]
+
+# ── Awareness / Senses ──────────────────────────────────
+  - id:                  keen_sight
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [oak, pine]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  night_sight
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [ash, willow]
+    skill_tags:         [dark]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  echo_hearing
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [bamboo, sap]
+    skill_tags:         [dark]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  scent_tracing
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [bark, ironwood]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  motion_sense
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [ashwood, leather]
+    skill_tags:         [dark]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  danger_instinct
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [feather, deep_iron]
+    skill_tags:         [dark]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  pattern_sense
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [pattern]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  presence_reading
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [agate, quartz]
+    skill_tags:         [dark]
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  trail_memory
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [moss, mineral_dust]
+    skill_tags:         [dark]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+  - id:                  horizon_sense
+    kind:                passive
+    rubric:              Awareness / Senses
+    foundation:          terrain_sense
+    base_actions:       [meditate, study]
+    item_name_required: [cave_pearl, fungus]
+    skill_tags:         [dark]
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.15]
+
+# ── Crystal / Resonance ──────────────────────────────────
+  - id:                  crystal_attunement
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [crystal]
+    skill_tags:         [gem_craft, luminous]
+    element_tags:       [earth]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  shard_memory
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [shard]
+    skill_tags:         [precision, polished]
+    element_tags:       [water]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  resonance_skin
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [moonglass, ruby]
+    skill_tags:         [rune_craft, arcane]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  prism_focus
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [focus]
+    skill_tags:         [elemental, channel]
+    element_tags:       [earth]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  signal_hum
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [aether_dust, chalkstone]
+    skill_tags:         [etched, dark]
+    element_tags:       [water]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  lattice_sense
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [fire_essence, runestone]
+    skill_tags:         [luminous, gem_craft]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  frequency_memory
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [runebone, deep_iron]
+    skill_tags:         [luminous, precision]
+    element_tags:       [earth]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  aether_harmony
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [stone, moss]
+    skill_tags:         [aether, polished, rune_craft]
+    element_tags:       [water]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  coherence_anchor
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [mineral_dust, cave_pearl]
+    skill_tags:         [arcane, elemental]
+    element_tags:       [aether]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [find.chance=0.10]
+
+  - id:                  glass_instinct
+    kind:                passive
+    rubric:              Crystal / Resonance
+    foundation:          rune_sense
+    base_actions:       [meditate]
+    item_name_required: [fairy_silk, fey_resin]
+    skill_tags:         [glass, channel, etched]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [find.chance=0.10]
+
+# ── Elemental Tolerance ──────────────────────────────────
+  - id:                  ember_blood
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [ember]
+    skill_tags:         [fire_craft, elemental]
+    element_tags:       [fire]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  frost_blood
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [obsidian, sulfur]
+    skill_tags:         [channel, burning]
+    element_tags:       [earth]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  storm_skin
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [ember_coal, ash]
+    skill_tags:         [open, fire_craft]
+    element_tags:       [water]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  stone_bones
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [stone]
+    skill_tags:         [elemental, channel]
+    element_tags:       [air]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  tide_breath
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [copper_ore, char]
+    skill_tags:         [burning, open]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  dust_ward
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [embercoal, firesand]
+    skill_tags:         [dust, ward, fire_craft]
+    element_tags:       [fire]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  heat_tolerance
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [frost_crystal, ice]
+    skill_tags:         [heat, channel, burning]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  cold_tolerance
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [winter_fur, frost_herb]
+    skill_tags:         [cold, open, fire_craft]
+    element_tags:       [water]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  static_guard
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [snow_glass, permafrost_stone]
+    skill_tags:         [elemental, channel]
+    element_tags:       [air]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+  - id:                  smoke_lung
+    kind:                passive
+    rubric:              Elemental Tolerance
+    foundation:          magic_aptitude
+    base_actions:       [breathe, sleep]
+    item_name_required: [frostbone, sky_iron]
+    skill_tags:         [burning, open]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [neutralize.scorching=1]
+
+# ── Craft / Hands ──────────────────────────────────
+  - id:                  steady_hands
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [iron, iron_ore]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  measured_strike
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [steel, copper]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  fine_motor_memory
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [silver, bronze]
+    skill_tags:         [fine, forged, wood_craft]
+    element_tags:       [aether]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  material_instinct
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [oak, leather]
+    skill_tags:         [balance, precision]
+    element_tags:       [aether]
+    tools:              [woodworker_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  tool_familiarity
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [pine, ash]
+    skill_tags:         [tool, carved, leather_craft]
+    element_tags:       [aether]
+    tools:              [weaver_bench]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  careful_crafting
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [ashwood, ironwood]
+    skill_tags:         [flexible, soft]
+    element_tags:       [aether]
+    tools:              [tanning_rack]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  clean_cuts
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [willow, bamboo]
+    skill_tags:         [tough, fiber_craft]
+    element_tags:       [aether]
+    tools:              [loom]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  balanced_grip
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [bark, hide]
+    skill_tags:         [balanced, fine, delicate]
+    element_tags:       [aether]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  thread_surety
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [thread]
+    skill_tags:         [bone_craft, etched]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [action.duration=-0.08]
+
+  - id:                  forge_rhythm
+    kind:                passive
+    rubric:              Craft / Hands
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [tooth, claw]
+    skill_tags:         [forge, primal, iron_craft]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [action.duration=-0.08]
+
+# ── Survival / Travel ──────────────────────────────────
+  - id:                  long_stride
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [sand, salt]
+    skill_tags:         []
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  sure_footing
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [rock_salt, amber]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  light_pack
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [scorpion_shell, sun_bleached_bone]
+    skill_tags:         [light]
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  trail_discipline
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [desert_glass, quartz]
+    skill_tags:         []
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  weather_hardening
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [frost_crystal, ice]
+    skill_tags:         []
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  ration_sense
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [winter_fur, frost_herb]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  camp_routine
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [snow_glass, permafrost_stone]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  shelter_instinct
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [frostbone, granite]
+    skill_tags:         []
+    element_tags:       [earth]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  terrain_memory
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [marble, slate]
+    skill_tags:         []
+    element_tags:       [fire]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+  - id:                  route_confidence
+    kind:                passive
+    rubric:              Survival / Travel
+    foundation:          terrain_sense
+    base_actions:       [sleep, workout]
+    item_name_required: [iron_ore, silver_ore]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [travel.duration=-0.12]
+
+# ── Social / Mind ──────────────────────────────────
+  - id:                  quiet_charisma
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [circuit, wire]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  trust_building
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [gear_oil, servo_brass]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  crowd_reading
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [data_crystal, alloy_plating]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  patient_listening
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [actuator, power_cell]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  trade_memory
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [scrap_metal, coral]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  vow_keeping
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [coral_shard, pearl]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  firm_presence
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [shell, kelp]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  group_discipline
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [salt, water_pearl]
+    skill_tags:         []
+    element_tags:       [water]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  rumor_filter
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [fish_bone, circuit]
+    skill_tags:         []
+    element_tags:       [air]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+  - id:                  cool_headedness
+    kind:                passive
+    rubric:              Social / Mind
+    foundation:          focus_breath
+    base_actions:       [sing, meditate]
+    item_name_required: [wire, gear_oil]
+    skill_tags:         []
+    element_tags:       [aether]
+    tools:              []
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.charisma=1]
+
+# ── Ward / Defense ──────────────────────────────────
+  - id:                  ward_shell
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [shell]
+    skill_tags:         [ward, rune_craft, arcane]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=name tags=name
+    wirkungen:          [attr.will=1]
+
+  - id:                  sigil_memory
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [sigil]
+    skill_tags:         [elemental, channel]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  curse_resistance
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [runestone, runebone]
+    skill_tags:         [precision, etched]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  hex_diffusion
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [ancient_iron, rune_glass]
+    skill_tags:         [luminous, rune_craft]
+    element_tags:       [earth]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  null_pressure
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [old_bronze, rune_paper]
+    skill_tags:         [arcane, elemental]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  veil_step
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [fairy_silk, fey_resin]
+    skill_tags:         [channel, precision]
+    element_tags:       [earth]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  mind_shield
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [moonglass, spirit_essence]
+    skill_tags:         [shield, etched, luminous]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [attr.will=1]
+
+  - id:                  binding_resistance
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [aether_shard, crystal_rock]
+    skill_tags:         [binding, rune_craft, arcane]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=name
+    wirkungen:          [attr.will=1]
+
+  - id:                  reflective_aura
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [aether_dust, chalkstone]
+    skill_tags:         [elemental, channel]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+  - id:                  ghost_calm
+    kind:                passive
+    rubric:              Ward / Defense
+    foundation:          rune_sense
+    base_actions:       [meditate, study]
+    item_name_required: [fire_essence, runestone]
+    skill_tags:         [precision, etched]
+    element_tags:       [earth]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [attr.will=1]
+
+# ── Growth / Fortune ──────────────────────────────────
+  - id:                  lucky_find
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [herb, fungus]
+    skill_tags:         [alchemy, brewed]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  harvest_bonus
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [honey, moss]
+    skill_tags:         [distilled, potent]
+    element_tags:       [air]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  bloom_touch
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [sap, fern]
+    skill_tags:         [luminous, alchemy]
+    element_tags:       [aether]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  seed_memory
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [seed]
+    skill_tags:         [brewed, distilled]
+    element_tags:       [water]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=name tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  abundance_sense
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [ash, willow]
+    skill_tags:         [potent, luminous]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  rare_eye
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [bamboo, bark]
+    skill_tags:         [alchemy, brewed]
+    element_tags:       [air]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  careful_salvage
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [ironwood, ashwood]
+    skill_tags:         [distilled, potent]
+    element_tags:       [aether]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  keeper_instinct
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [leather, feather]
+    skill_tags:         [luminous, alchemy]
+    element_tags:       [water]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  cache_memory
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [aether_dust, crystal_rock]
+    skill_tags:         [brewed, distilled]
+    element_tags:       [earth]
+    tools:              [alchemy_station]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+  - id:                  resource_thrift
+    kind:                passive
+    rubric:              Growth / Fortune
+    foundation:          animal_sense
+    base_actions:       [sing, breathe]
+    item_name_required: [fairy_silk, fey_resin]
+    skill_tags:         [potent, luminous]
+    element_tags:       [air]
+    tools:              [cooking_pot]
+    quelle:              gegenstaende=verteilt tags=verteilt
+    wirkungen:          [harvest.yield=0.15]
+
+# ── Repair / Maintenance ──────────────────────────────────
+  - id:                  field_repair
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [iron, iron_ore]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  quick_mending
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [steel, copper]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  joint_reset
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [silver, bronze]
+    skill_tags:         [forged, tech_craft]
+    element_tags:       [aether]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  seal_patching
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [oak, leather]
+    skill_tags:         [precision, wired]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  circuit_mending
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [circuit]
+    skill_tags:         [calibrated, iron_craft]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  frame_tightening
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [blunt, heavy]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  gear_cleaning
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [sharp, forged]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  hinge_tuning
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [gear_oil, actuator]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  core_stabilizing
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [scrap_metal, iron]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  wear_reading
+    kind:                mechanic
+    rubric:              Repair / Maintenance
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [iron_ore, steel]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Assembly / Construction ──────────────────────────────────
+  - id:                  bolt_setting
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [oak, pine]
+    skill_tags:         [wood_craft, balance]
+    element_tags:       [aether]
+    tools:              [woodworker_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  frame_assembly
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [ash, ashwood]
+    skill_tags:         [precision, carved]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  lattice_building
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [ironwood, willow]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [air]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  brace_fitting
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [bamboo, leather]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [aether]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  rivet_setting
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [bark, iron]
+    skill_tags:         [forged, wood_craft]
+    element_tags:       [earth]
+    tools:              [woodworker_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  panel_mounting
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [iron_ore, steel]
+    skill_tags:         [balance, precision]
+    element_tags:       [air]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  coil_wrapping
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [copper, silver]
+    skill_tags:         [carved, iron_craft]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  housing_build
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [bronze, circuit]
+    skill_tags:         [blunt, heavy]
+    element_tags:       [earth]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  anchor_setting
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [wire, gear_oil]
+    skill_tags:         [sharp, forged]
+    element_tags:       [air]
+    tools:              [woodworker_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  module_linking
+    kind:                mechanic
+    rubric:              Assembly / Construction
+    foundation:          resource_lore
+    base_actions:       [workout]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wood_craft, balance]
+    element_tags:       [aether]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Energy / Conduction ──────────────────────────────────
+  - id:                  power_routing
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [circuit, wire]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  charge_balancing
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [fire]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  current_sense
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [fire_craft, elemental]
+    element_tags:       [earth]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  flux_tuning
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [flux]
+    skill_tags:         [channel, burning]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  coil_alignment
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [obsidian, gear_oil]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [fire]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  voltage_shaping
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [actuator, scrap_metal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [earth]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  conductor_mapping
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [conductor]
+    skill_tags:         [fire_craft, elemental]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  spark_buffer
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [ash, basalt]
+    skill_tags:         [channel, burning]
+    element_tags:       [fire]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  load_balancing
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [iron_ore, copper_ore]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  capacitor_timing
+    kind:                mechanic
+    rubric:              Energy / Conduction
+    foundation:          magic_aptitude
+    base_actions:       [study, meditate]
+    item_name_required: [capacitor]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+# ── Precision / Calibration ──────────────────────────────────
+  - id:                  fine_calibration
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [crystal_rock, agate]
+    skill_tags:         [fine, gem_craft, luminous]
+    element_tags:       [aether]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  range_tuning
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [amber, raw_gem]
+    skill_tags:         [precision, polished]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  lens_alignment
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [lens]
+    skill_tags:         [tech_craft, wired]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  sensor_tuning
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [sensor]
+    skill_tags:         [calibrated, gem_craft]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  gyro_setting
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [luminous, precision]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  signal_trimming
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [polished, tech_craft]
+    element_tags:       [aether]
+    tools:              [jeweller_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  focus_calibration
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [focus]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  threshold_setting
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [gear_oil, actuator]
+    skill_tags:         [gem_craft, luminous]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  pattern_locking
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [pattern]
+    skill_tags:         [precision, polished]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  stability_tuning
+    kind:                mechanic
+    rubric:              Precision / Calibration
+    foundation:          rune_sense
+    base_actions:       [study]
+    item_name_required: [agate, amber]
+    skill_tags:         [tech_craft, wired]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Lock / Access / Security ──────────────────────────────────
+  - id:                  code_bypass
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  seal_decoding
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [earth]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  key_matrixing
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [key]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  latch_reading
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [iron, iron_ore]
+    skill_tags:         [heavy, sharp]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  ward_locking
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [steel, copper]
+    skill_tags:         [ward, forged, tech_craft]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  gate_sync
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [silver, bronze]
+    skill_tags:         [precision, wired]
+    element_tags:       [earth]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  access_weaving
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [oak, leather]
+    skill_tags:         [calibrated, iron_craft]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  pattern_unlocking
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [pattern]
+    skill_tags:         [blunt, heavy]
+    element_tags:       [earth]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  safe_entry
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [chalkstone, runebone]
+    skill_tags:         [sharp, forged]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  barrier_reset
+    kind:                mechanic
+    rubric:              Lock / Access / Security
+    foundation:          resource_lore
+    base_actions:       [study]
+    item_name_required: [rune_glass, old_bronze]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Salvage / Recovery ──────────────────────────────────
+  - id:                  part_salvage
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [bone, horn]
+    skill_tags:         [bone_craft, sharp]
+    element_tags:       [aether]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  core_recovery
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [ivory, tooth]
+    skill_tags:         [recovery, etched, primal]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  scrap_sorting
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [fang, runebone]
+    skill_tags:         [iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  component_harvest
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [iron, iron_ore]
+    skill_tags:         [heavy, forged]
+    element_tags:       [earth]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  wire_stripping
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [wire]
+    skill_tags:         [bone_craft, sharp]
+    element_tags:       [aether]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  board_lifting
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [silver, bronze]
+    skill_tags:         [etched, primal]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  relic_recovery
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [oak, leather]
+    skill_tags:         [recovery, iron_craft, blunt]
+    element_tags:       [aether]
+    tools:              [forge_bench]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  module_salvage
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [runestone, ancient_iron]
+    skill_tags:         [heavy, forged]
+    element_tags:       [earth]
+    tools:              [smithy]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  cache_opening
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [chalkstone, rune_glass]
+    skill_tags:         [bone_craft, sharp]
+    element_tags:       [aether]
+    tools:              [bone_bench]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  ruin_scraping
+    kind:                mechanic
+    rubric:              Salvage / Recovery
+    foundation:          resource_lore
+    base_actions:       [workout, study]
+    item_name_required: [old_bronze, rune_paper]
+    skill_tags:         [etched, primal]
+    element_tags:       [earth]
+    tools:              [anvil]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Vehicles / Motion Systems ──────────────────────────────────
+  - id:                  drive_tuning
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [drive]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  wheel_balancing
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  axle_setting
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  thrust_vectoring
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [gear_oil, actuator]
+    skill_tags:         [precision, wired]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  brake_feathering
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [scrap_metal, sky_iron]
+    skill_tags:         [calibrated, open]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  engine_listening
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [sky_dust, feather]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [air]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  gear_phasing
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [plume, wind_steel]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  suspension_tuning
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [storm_glass, lightning_fragment]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  trail_driving
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [circuit, wire]
+    skill_tags:         [precision, wired]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  beacon_steering
+    kind:                mechanic
+    rubric:              Vehicles / Motion Systems
+    foundation:          navigation
+    base_actions:       [workout]
+    item_name_required: [beacon]
+    skill_tags:         [calibrated, open]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=name tags=verteilt
+
+# ── Data / Signal / Diagnostics ──────────────────────────────────
+  - id:                  signal_reading
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  diagnostic_scan
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  fault_tracing
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  logic_sifting
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [gear_oil, actuator]
+    skill_tags:         [precision, wired]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  packet_sense
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [scrap_metal, sky_iron]
+    skill_tags:         [calibrated, open]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  noise_filtering
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [sky_dust, feather]
+    skill_tags:         [tech_craft, precision]
+    element_tags:       [air]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  relay_reading
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [plume, wind_steel]
+    skill_tags:         [wired, calibrated]
+    element_tags:       [aether]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  system_probing
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [storm_glass, lightning_fragment]
+    skill_tags:         [open, tech_craft]
+    element_tags:       [air]
+    tools:              [calibrator]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  memory_recovery
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [circuit, wire]
+    skill_tags:         [recovery, precision, wired]
+    element_tags:       [aether]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  checksum_reading
+    kind:                mechanic
+    rubric:              Data / Signal / Diagnostics
+    foundation:          magic_aptitude
+    base_actions:       [study]
+    item_name_required: [servo_brass, data_crystal]
+    skill_tags:         [calibrated, open]
+    element_tags:       [air]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+# ── Realm-Tech / Arcane Mechanic ──────────────────────────────────
+  - id:                  rune_circuitry
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [rune]
+    skill_tags:         [rune_craft, arcane]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  sigil_engineering
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [sigil]
+    skill_tags:         [elemental, channel]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  portal_stabilizing
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [runestone, runebone]
+    skill_tags:         [portal, precision, etched]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  shard_indexing
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [shard]
+    skill_tags:         [tech_craft, wired]
+    element_tags:       [earth]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  beacon_attuning
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [beacon]
+    skill_tags:         [calibrated, luminous]
+    element_tags:       [aether]
+    tools:              [calibrator]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  phase_anchoring
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [power_cell, alloy_plating]
+    skill_tags:         [rune_craft, arcane]
+    element_tags:       [earth]
+    tools:              [debugger_rod]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  mirror_rigging
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [mirror]
+    skill_tags:         [elemental, channel]
+    element_tags:       [aether]
+    tools:              [rune_stylus]
+    quelle:              gegenstaende=name tags=verteilt
+
+  - id:                  coherence_locking
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [old_bronze, rune_paper]
+    skill_tags:         [precision, etched]
+    element_tags:       [earth]
+    tools:              [enchanter_table]
+    quelle:              gegenstaende=verteilt tags=verteilt
+
+  - id:                  aether_regulation
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [fairy_silk, fey_resin]
+    skill_tags:         [aether, tech_craft, wired]
+    element_tags:       [aether]
+    tools:              [runesmith_table]
+    quelle:              gegenstaende=verteilt tags=name
+
+  - id:                  resonance_engineering
+    kind:                mechanic
+    rubric:              Realm-Tech / Arcane Mechanic
+    foundation:          rune_sense
+    base_actions:       [study, meditate]
+    item_name_required: [moonglass, spirit_essence]
+    skill_tags:         [calibrated, luminous]
+    element_tags:       [earth]
+    tools:              [soldering_iron]
+    quelle:              gegenstaende=verteilt tags=verteilt

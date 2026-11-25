@@ -1,0 +1,120 @@
+# Smoke-Test des ProphecyPredictor: `main` legt eine eigene Instanz an und gibt
+# sie an probe weiter (spec/49 §15 — Komposition aus einem anderen Modul).
+
+- import: "prophecy/sources/inference.aiml"
+
+- def:
+    name: probe
+    static_off: ["same_arg", "str_cmp"]
+    args: [[label, string], [bag, string], [pred, ref<ProphecyPredictor>]]
+    body:
+      - decl: [rec, string, { call: [pred.predict_recipe, bag] }]
+      - decl: [et_id,  string, { call: [pred.predict_entity_type, bag] }]
+      # Nach Rang, wie der Server es seit 11.11. tut: eine feste Schwelle
+      # erreicht bei 248 Ausgaengen niemand.
+      - decl: [skills, list<string>, { call: [pred.predict_skills_top, bag, 3] }]
+      - call: [log.info, "[${label}] bag='${bag}'"]
+      - call: [log.info, "    recipe=${rec} (p=${pred.last_pred_p}) entity=${et_id} skills.len=${skills.len}"]
+      - decl: [outs, string, { call: [pred.get_recipe_outputs, rec] }]
+      - decl: [mats, string, { call: [pred.get_recipe_materials, rec] }]
+      - decl: [tols, string, { call: [pred.get_recipe_tools, rec] }]
+      - if:
+          condition: { gt: [outs.len, 0] }
+          then:
+            - call: [log.info, "      outputs=${outs}"]
+            - call: [log.info, "      materials=${mats}"]
+            - call: [log.info, "      tools=${tols}"]
+      - decl: [s_idx, i32, 0]
+      - while:
+          condition: { lt: [s_idx, skills.len] }
+          body:
+            - decl: [sk_id, string, { at: [skills, s_idx] }]
+            - call: [log.info, "      skill: ${sk_id}"]
+            - set: [s_idx, { "+": [s_idx, 1] }]
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [predictor, ptr<ProphecyPredictor>, { new: ProphecyPredictor }]
+      - decl: [ok_load, i32, { call: [predictor.init] }]
+      - if: { condition: { neq: [ok_load, 1] }, then: [{ return: 1 }] }
+      - call: [probe, "rune_craft", "meditate rune-stylus aether-dust", predictor]
+      - call: [probe, "metal_smithing", "workout iron anvil forge-bench", predictor]
+      - call: [probe, "alchemy", "breathe herb alchemy-station", predictor]
+      - call: [probe, "fiber_weave", "sing silk loom", predictor]
+      # Trefferchance gegen bekannte Paarungen aus data/combat.txt
+      - call: [chance_probe, predictor, "Hammer vs Eisenruestung (soll 0.40)",
+               "heavy hard hardened blunt pure enduring grippy robust massive earth iron oakwood",
+               "heavy hard robust massive shielding rigid hardened blunt earth iron leather", 0.40]
+      - call: [chance_probe, predictor, "Hammer vs Sturmrobe (soll 0.80)",
+               "heavy hard hardened blunt pure enduring grippy robust massive earth iron oakwood",
+               "light foldable elastic fleeting wearable permeable plain air storm_sail wind_dust spider_silk", 0.80]
+      # Was das Spiel wirklich fragt: Waffe gegen die ECHTEN Marken eines
+      # Gegners.  Sollwerte aus der Regel in
+      # scripts/generate_clustered_corpus.py: chance_waffe_gegen_gegner.
+      - call: [chance_probe, predictor, "Faust vs koerperlos+flink",
+               "light soft blunt grippy plain",
+               "ethereal fast medium-threat", 0.03]
+      - call: [chance_probe, predictor, "Hammer vs koerperlos+flink",
+               "heavy hard hardened blunt grippy massive earth iron oakwood",
+               "ethereal fast medium-threat", 0.14]
+      - call: [chance_probe, predictor, "Hammer vs Panzerkoloss",
+               "heavy hard hardened blunt grippy massive earth iron oakwood",
+               "scale-plated sluggish large", 0.43]
+      - call: [chance_probe, predictor, "Faust vs Panzerkoloss",
+               "light soft blunt grippy plain",
+               "scale-plated sluggish large", 0.07]
+      - call: [chance_probe, predictor, "Dolch vs stichanfaellig",
+               "light sharp piercing precise hardened iron leather",
+               "chitin-shelled weak-to-piercing medium-size", 0.65]
+      - call: [chance_probe, predictor, "Dolch vs Kristallpanzer",
+               "light sharp piercing precise hardened iron leather",
+               "crystal-armored guarding large", 0.23]
+      - call: [chance_probe, predictor, "Feuerklinge vs kaelteanfaellig",
+               "sharp edged hardened precise fire steel",
+               "hide-armor weak-to-fire medium-size", 0.92]
+      # Entdecker-Kopf: beantwortet er die Frage, die der Korpus lehrt?
+      # Kontext + Aktion + Faehigkeit sollen die Fundart bestimmen.
+      - call: [fund_probe, predictor, "workout resource_lore terrain_sense rocky brittle", "harvestable"]
+      - call: [fund_probe, predictor, "breathe focus_breath fertile mossy damp", "growable"]
+      - call: [fund_probe, predictor, "sing navigation sheltered calm trodden", "npc"]
+      - call: [fund_probe, predictor, "workout tracking animal_sense stormy hazardous", "enemy"]
+      - call: [fund_probe, predictor, "meditate rune_sense magic_aptitude shimmering echoing", "portal"]
+      - call: [fund_probe, predictor, "study rune_sense terrain_sense sealed ancient", "locked"]
+      - call: [fund_probe, predictor, "sleep", "nothing"]
+      - return: 0
+
+# Welche Fundart sagt der Kopf fuer diesen Beutel vorher?
+- def:
+    name: fund_probe
+    static_off: ["same_arg", "str_cmp"]
+    args: [[pred, ref<ProphecyPredictor>], [bag, string], [soll, string]]
+    body:
+      - decl: [ist, string, { call: [pred.predict_entity_type, bag] }]
+      - decl: [marke, string, "  "]
+      - if: { condition: { eq: [ist, soll] }, then: [{ set: [marke, "ok"] }] }
+      # Wahrscheinlichkeiten mitschreiben: ein falscher Spitzenreiter sagt
+      # wenig, wenn die richtige Art knapp dahinter liegt.
+      - decl: [arten, list<string>, { call: [pred.entity_type_vocab] }]
+      - decl: [werte, list<f32>, { call: [pred.entity_type_probs, bag] }]
+      - decl: [zeile, string, ""]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, arten.len] }
+          body:
+            - decl: [art, string, { at: [arten, idx] }]
+            - decl: [proz, i32, { call: [math.round, { "*": [{ at: [werte, idx] }, 100.0] }] }]
+            - set: [zeile, "${zeile} ${art}=${proz}"]
+            - set: [idx, { "+": [idx, 1] }]
+      - call: [log.info, "FUND ${marke} soll=${soll} ist=${ist} ·${zeile}"]
+
+# Trefferchance gegen die handgeschriebenen Paarungen aus data/combat.txt.
+- def:
+    name: chance_probe
+    static_off: ["same_arg", "str_cmp"]
+    args: [[pred, ref<ProphecyPredictor>], [was, string], [atk, string], [def_, string], [soll, f32]]
+    body:
+      - decl: [ist, f32, { call: [pred.trefferchance, atk, def_] }]
+      - call: [log.info, "CHANCE ${was}: ist ${ist} · Wucht ${pred.letzte_wucht} · soll ${soll}"]

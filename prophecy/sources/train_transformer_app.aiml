@@ -1,0 +1,184 @@
+# Trainer des Rezept-Transformers.
+#
+# Zwei Befunde vom 14.11.2026, nach 60 Epochen gemessen (Verlust pendelte
+# zwischen 2,55 und 2,94 statt zu fallen, 0 von 150 erzeugten Folgen endeten
+# auf <end>):
+#
+#   1 Lernrate 0,01 ist fuer Adam auf einem Transformer rund 30-fach zu hoch.
+#     Jetzt 3e-4 mit linearem Aufwaermen ueber die erste Epoche.
+#   2 Der Korpus liegt GRUPPIERT: acht aufeinanderfolgende sample-Zeilen
+#     gehoeren zum GLEICHEN Rezept.  Ohne Durchmischung sieht das Modell bei
+#     Batchgroesse 1 achtmal dieselbe Marke und wird von Rezept zu Rezept
+#     gerissen.  Jetzt Fisher-Yates je Epoche, mit `Zufall` -- also
+#     reproduzierbar (Seed = Epochennummer).
+#
+# Folgen werden EINMAL kodiert und FLACH gehalten (alle_ids + starts +
+# laengen); Neukodierung je Epoche wuerde die Zeitmessung verfaelschen.
+- import: "prophecy/sources/transformer.aiml"
+- import: "prophecy/sources/folge.aiml"
+- import: "prophecy/sources/zufall.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [fge, ptr<Folge>, { new: Folge }]
+      - decl: [bereit, i32, { call: [fge.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "transformer: Wortschatz nicht ladbar"]
+            - return: 1
+      - decl: [n_wort, i32, { call: [fge.gesamt_tokens] }]
+
+      # ── Korpus einmal kodieren ──────────────────────────────────────────
+      - decl: [pfad, string, "itemgen/data/items_augmented.txt"]
+      - decl: [prio, list<string>, { call: [fge.prio_lesen, pfad] }]
+      - call: [fge.prio_setzen, prio]
+      - decl: [text, string, { call: [io.read_file, pfad] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.error, "transformer: Korpus nicht lesbar"]
+            - return: 1
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [rez_nach_id, map<string:string>]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, zeilen.len] }
+          body:
+            - decl: [zle, string, { at: [zeilen, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle.starts_with, "recipe "] }, 1] }
+                then:
+                  - decl: [spl, list<string>, { call: [zle.split, "|"] }]
+                  - if:
+                      condition: { ge: [spl.len, 7] }
+                      then:
+                        - decl: [rid_roh, string, { at: [spl, 1] }]
+                        - call: [rez_nach_id.put, { call: [rid_roh.trim] }, zle]
+            - set: [pos, { "+": [pos, 1] }]
+
+      - decl: [alle_ids, list<i32>]
+      - decl: [starts,   list<i32>]
+      - decl: [laengen,  list<i32>]
+      - decl: [n_ctx,    i32, 128]
+      - set: [pos, 0]
+      - while:
+          condition: { lt: [pos, zeilen.len] }
+          body:
+            - decl: [zl2, string, { at: [zeilen, pos] }]
+            - if:
+                condition: { eq: [{ call: [zl2.starts_with, "sample "] }, 1] }
+                then:
+                  - decl: [sp2, list<string>, { call: [zl2.split, "|"] }]
+                  - if:
+                      condition: { ge: [sp2.len, 3] }
+                      then:
+                        - decl: [bag_roh, string, { at: [sp2, 1] }]
+                        - decl: [bag, string, { call: [bag_roh.trim] }]
+                        - decl: [rid_roh2, string, { at: [sp2, 2] }]
+                        - decl: [rid, string, { call: [rid_roh2.trim] }]
+                        - if:
+                            condition: { eq: [{ call: [rez_nach_id.contains, rid] }, 1] }
+                            then:
+                              - decl: [rzl, string, { call: [rez_nach_id.get, rid] }]
+                              - decl: [ids, list<i32>, { call: [fge.kodiere_rezept, bag, rzl] }]
+                              - if:
+                                  condition: { "&&": [{ ge: [ids.len, 4] }, { le: [ids.len, n_ctx] }] }
+                                  then:
+                                    - call: [starts.push, alle_ids.len]
+                                    - call: [laengen.push, ids.len]
+                                    - decl: [kdx, i32, 0]
+                                    - while:
+                                        condition: { lt: [kdx, ids.len] }
+                                        body:
+                                          - call: [alle_ids.push, { at: [ids, kdx] }]
+                                          - set: [kdx, { "+": [kdx, 1] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - decl: [n_folgen, i32, laengen.len]
+      - if:
+          condition: { eq: [n_folgen, 0] }
+          then:
+            - call: [log.error, "transformer: keine Folgen kodiert"]
+            - return: 1
+      - call: [log.info, "transformer: ${n_folgen} Folgen, ${alle_ids.len} Tokens insgesamt"]
+
+      # ── Modell + Mischer ────────────────────────────────────────────────
+      - decl: [mdl, ptr<RezeptModell>, { new: RezeptModell }]
+      - call: [mdl.init, n_wort]
+      - decl: [wrf, ptr<Zufall>, { new: Zufall }]
+      - decl: [reihe, list<i32>]
+      - decl: [rdx, i32, 0]
+      - while:
+          condition: { lt: [rdx, n_folgen] }
+          body:
+            - call: [reihe.push, rdx]
+            - set: [rdx, { "+": [rdx, 1] }]
+
+      - decl: [lr_ziel, f32, 0.0003]
+      - decl: [n_epochen, i32, 60]
+      - decl: [epoche, i32, 0]
+      - while:
+          condition: { lt: [epoche, n_epochen] }
+          body:
+            - decl: [t_start, i64, { call: [time.now] }]
+            # Fisher-Yates, Seed = Epoche+1 -> reproduzierbare Mischung
+            - call: [wrf.setze, { cast: [{ "+": [epoche, 1] }, i64] }]
+            - decl: [mdx, i32, { "-": [n_folgen, 1] }]
+            - while:
+                condition: { gt: [mdx, 0] }
+                body:
+                  - decl: [jdx, i32, { call: [wrf.ganzzahl, { "+": [mdx, 1] }] }]
+                  - decl: [a_wert, i32, { at: [reihe, mdx] }]
+                  - decl: [b_wert, i32, { at: [reihe, jdx] }]
+                  - idx: [reihe, mdx, b_wert]
+                  - idx: [reihe, jdx, a_wert]
+                  - set: [mdx, { "-": [mdx, 1] }]
+            - decl: [summe, f32, 0.0]
+            - decl: [gezaehlt, i32, 0]
+            - decl: [sdx, i32, 0]
+            - while:
+                condition: { lt: [sdx, n_folgen] }
+                body:
+                  - decl: [wahl, i32, { at: [reihe, sdx] }]
+                  - decl: [beg, i32, { at: [starts, wahl] }]
+                  - decl: [lng, i32, { at: [laengen, wahl] }]
+                  - decl: [npos, i32, { "-": [lng, 1] }]
+                  # Aufwaermen ueber die erste Epoche: ohne das springt Adam
+                  # bei frischen Gewichten weit und findet nicht zurueck.
+                  - decl: [lrn, f32, lr_ziel]
+                  - if:
+                      condition: { eq: [epoche, 0] }
+                      then:
+                        - decl: [anteil, f32, { "/": [{ cast: [{ "+": [sdx, 1] }, f32] }, { cast: [n_folgen, f32] }] }]
+                        - set: [lrn, { "*": [lr_ziel, anteil] }]
+                  - call: [tensor.begin_graph]
+                  - decl: [ein_t, tensor, { call: [tensor.zeros, npos] }]
+                  - decl: [soll_t, tensor, { call: [tensor.zeros, npos] }]
+                  - decl: [pdx, i32, 0]
+                  - while:
+                      condition: { lt: [pdx, npos] }
+                      body:
+                        - decl: [tin, i32, { at: [alle_ids, { "+": [beg, pdx] }] }]
+                        - decl: [tso, i32, { at: [alle_ids, { "+": [{ "+": [beg, pdx] }, 1] }] }]
+                        - call: [ein_t.set, pdx, { cast: [tin, f32] }]
+                        - call: [soll_t.set, pdx, { cast: [tso, f32] }]
+                        - set: [pdx, { "+": [pdx, 1] }]
+                  - decl: [logits, tensor, { call: [mdl.vorwaerts, ein_t, npos] }]
+                  - decl: [verlust, tensor, { call: [tensor.cross_entropy, logits, soll_t, npos] }]
+                  - call: [tensor.backward, verlust]
+                  - call: [mdl.schritt, lrn]
+                  - set: [summe, { "+": [summe, { call: [verlust.item] }] }]
+                  - set: [gezaehlt, { "+": [gezaehlt, 1] }]
+                  - set: [sdx, { "+": [sdx, 1] }]
+            - decl: [t_ende, i64, { call: [time.now] }]
+            - decl: [dauer_ms, i64, { "-": [t_ende, t_start] }]
+            - decl: [gz_f, f32, { cast: [gezaehlt, f32] }]
+            - decl: [mittel, f32, { "/": [summe, gz_f] }]
+            - call: [log.info, "epoche ${epoche}: Verlust ${mittel}, ${gezaehlt} Folgen, ${dauer_ms} ms"]
+            - set: [epoche, { "+": [epoche, 1] }]
+      - call: [mdl.sichern]
+      - call: [log.info, "transformer: Training fertig"]
+      - return: 0

@@ -1,0 +1,76 @@
+# Hit-Resolution-spezifische Tokens.
+#
+# ⚠️ DIESE DATEI BLEIBT, obwohl der hit_resolution_head am 12.11.2026 entfernt
+# wurde (Trainer, Korpus und predict_hit_kind sind weg).  Der Grund steht nicht
+# in ihr, sondern in den Korpus-Kopfzeilen: `synthetic:hit_resolution_tokens`
+# ist eine DOMÄNE in der `@domain_priority`-Liste, die der Trainer zu den
+# Gewichten legt und die Inferenz beim Laden wieder liest
+# (corpus_loader.aiml: priority_save).  Sie zu löschen verschiebt die
+# Domänen-Reihenfolge und damit die Token-Auflösung ALLER Köpfe — genau der
+# Fehler, der am 11.11. schon einmal 71 % der Kampf-Tokens in die falsche
+# Domäne geschoben hat.
+#
+# Wer sie wirklich los will: Atlas neu bauen (prophecy_build), dann JEDEN Kopf
+# neu trainieren, vorher die alten KV-Stände sichern.  Das ist eine eigene
+# Aufgabe, kein Aufräumen.
+#
+# Eine Zeile = ein Token.  Kommentare/Leerzeilen ignoriert.
+
+# ── Armor-Archetypes (ARMOR_PROFILES in generate_clustered_corpus.py) ───
+plate_armor
+scale_armor
+chain_mail
+leather_armor
+cloth_robe
+fire_cloak
+ice_mantle
+storm_shield
+stone_plate
+aether_robe
+ward_amulet
+
+# ── Weapon-Archetypes (WEAPON_PROFILES) ─────────────────────────────────
+greatsword
+fire_staff
+frost_wand
+storm_staff
+claw_blade
+
+# ── Element-Boost/Resist Tokens (Hit-Resolution-spezifisch) ─────────────
+boost_fire
+boost_water
+boost_earth
+boost_air
+boost_aether
+resist_fire
+resist_water
+resist_earth
+resist_air
+resist_aether
+
+# ── Defender-Passives (DEFENDER_PASSIVES) ───────────────────────────────
+status_immune
+evasive
+armored
+nimble
+warded
+
+# ── Property-Tags die in atk/def-bags vorkommen ─────────────────────────
+bladed
+piercing
+caster
+channeling
+etching
+blunt
+rigid
+flexible
+soft
+accessory
+natural
+status
+
+# ── Hit-Kind labels (auch im Vocab damit das predict-Modell sie ausgeben kann) ──
+miss
+glancing
+normal
+critical

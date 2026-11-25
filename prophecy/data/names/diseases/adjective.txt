@@ -1,0 +1,23 @@
+# Disease-Modifier-Adjektive — werden für Display-Name-Generation mit den
+# Nouns kombiniert (z.B. "creeping bone_curse", "raging shard_flu").
+
+creeping
+raging
+dormant
+acute
+chronic
+silent
+roaring
+mild
+moderate
+severe
+festering
+slow
+sudden
+recurring
+unstable
+phantom
+seasonal
+persistent
+hollow
+brittle

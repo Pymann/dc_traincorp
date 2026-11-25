@@ -1,0 +1,91 @@
+# Der Streifzug: eine frische Kreatur, alle Zonen des Realms, drei Runden.
+#
+# Gleicher Startseed = gleiche Reise.  Jede Runde wechselt Aktion und
+# Fertigkeit durch, nach jeder Zone wird ein Herstellversuch gemacht -- so ist
+# zu sehen, wie mit wachsendem Besitz mehr moeglich wird.
+- import: "prophecy/sources/streifzug.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [stf, ptr<Streifzug>, { new: Streifzug }]
+      - decl: [bereit, i32, { call: [stf.init, "assets/realms/realm_example.json", "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "streifzug: nicht bereit"]
+            - return: 1
+      - decl: [aktionen, list<string>]
+      - call: [aktionen.push, "workout"]
+      - call: [aktionen.push, "meditate"]
+      - call: [aktionen.push, "study"]
+      - call: [aktionen.push, "breathe"]
+      - call: [aktionen.push, "sing"]
+      - call: [aktionen.push, "sleep"]
+      - decl: [fertigkeiten, list<string>]
+      - call: [fertigkeiten.push, "animal_sense"]
+      - call: [fertigkeiten.push, "resource_lore"]
+      - call: [fertigkeiten.push, "magic_aptitude"]
+      - decl: [baenke, list<string>]
+      - call: [baenke.push, "bone_bench"]
+      - call: [baenke.push, "woodworker_bench"]
+      - call: [baenke.push, "enchanter_table"]
+      - call: [baenke.push, "weaver_bench"]
+
+      - decl: [n_zon, i32, { call: [stf.n_zonen] }]
+      - decl: [saat, i64, 1000]
+      # Sechs Runden, nicht drei: bei drei war nicht zu sehen, ob das
+      # Dazulernen aufhoert oder nur langsamer wird.
+      - decl: [n_runden, i32, 6]
+      - decl: [runde, i32, 0]
+      - while:
+          condition: { lt: [runde, n_runden] }
+          body:
+            - call: [log.info, "── Runde ${runde} ───────────────────────────"]
+            - call: [stf.runde_beginnt]
+            - decl: [zidx, i32, 0]
+            - while:
+                condition: { lt: [zidx, n_zon] }
+                body:
+                  - decl: [adx, i32, { "%": [{ "+": [{ "*": [runde, n_zon] }, zidx] }, aktionen.len] }]
+                  - decl: [fdx, i32, { "%": [{ "+": [runde, zidx] }, fertigkeiten.len] }]
+                  - decl: [akt, string, { at: [aktionen, adx] }]
+                  - decl: [frt, string, { at: [fertigkeiten, fdx] }]
+                  # Selbst gelernte Fertigkeiten gehen in den Beutel ein --
+                  # genau daran ist das Dazulernen zu sehen.
+                  - if:
+                      condition: { gt: [{ call: [stf.n_gelernt] }, 0] }
+                      then:
+                        - decl: [gdx, i32, { "%": [{ "+": [runde, zidx] }, { call: [stf.n_gelernt] }] }]
+                        - decl: [eig, string, { call: [stf.gelernte, gdx] }]
+                        - if: { condition: { gt: [eig.len, 0] }, then: [{ set: [frt, eig] }] }
+                  - call: [stf.erkunden, zidx, akt, frt, saat]
+                  - set: [saat, { "+": [saat, 17] }]
+                  # zweite Aktion in derselben Zone
+                  - decl: [adx2, i32, { "%": [{ "+": [adx, 3] }, aktionen.len] }]
+                  - decl: [akt2, string, { at: [aktionen, adx2] }]
+                  - call: [stf.erkunden, zidx, akt2, frt, saat]
+                  - set: [saat, { "+": [saat, 17] }]
+                  # Lernen: erst eine Fertigkeit aus dem Besitz, dann -- wenn
+                  # sie einem Gegner begegnet ist -- eine Kampffertigkeit.
+                  - call: [stf.lernen, akt, saat]
+                  - set: [saat, { "+": [saat, 17] }]
+                  - call: [stf.kampf_lernen, akt2, saat]
+                  - set: [saat, { "+": [saat, 17] }]
+                  # Herstellversuch mit dem, was sie jetzt hat
+                  - decl: [bdx, i32, { "%": [{ "+": [runde, zidx] }, baenke.len] }]
+                  - decl: [bnk, string, { at: [baenke, bdx] }]
+                  - call: [stf.herstellen, frt, bnk, saat]
+                  - set: [saat, { "+": [saat, 17] }]
+                  - set: [zidx, { "+": [zidx, 1] }]
+            - set: [runde, { "+": [runde, 1] }]
+      - call: [stf.bericht]
+      - call: [stf.tagebuch_schreiben, "reports/nacht_2026-11-14/streifzug_tagebuch.md"]
+      - if:
+          condition: { eq: [stf.entdeckt, 0] }
+          then:
+            - call: [log.error, "streifzug: keine einzige Entdeckung"]
+            - return: 1
+      - return: 0

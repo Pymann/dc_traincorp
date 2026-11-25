@@ -1,0 +1,72 @@
+# Pet-Tags — für Beastmaster-System (siehe Skill-Doc "Future: Beastmaster").
+# Pet = Creature-Subset mit owner_creature_id Binding.
+
+# Disposition
+loyal
+skittish
+fierce
+playful
+calm
+aggressive
+curious
+docile
+proud
+clever
+
+# Größenklasse
+tiny
+small
+medium
+large
+massive
+
+# Lebensraum-Affinität
+forest
+desert
+arctic
+swamp
+mountain
+urban
+cave
+volcanic
+aquatic
+aerial
+
+# Aktivitätszeit
+diurnal
+nocturnal
+crepuscular
+
+# Wertschätzung / Seltenheit
+common_breed
+uncommon_breed
+rare_breed
+legendary_breed
+chimeric
+
+# Trainings-Status
+wild
+captured_recent
+partially_trained
+fully_trained
+bonded
+breeding_pair
+
+# Nützlichkeit für Owner
+combat_helper
+harvest_helper
+travel_companion
+scout
+guard
+crafting_assistant
+emotional_support
+performance_animal
+
+# Spezial-Eigenschaft
+prismatic_coat
+glow_in_dark
+silent_movement
+quick_learner
+slow_learner
+empathic
+telepathic_link

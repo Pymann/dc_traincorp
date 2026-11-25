@@ -1,0 +1,13 @@
+# Einstiegspunkt.  Die Klasse ItemHeadTrainer liegt in train_item_head_app.aiml, damit `main`
+# ein Modul von ausserhalb komponiert (spec/49 §15) statt alles selbst zu tragen.
+
+- import: "prophecy/sources/train_item_head_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [trainer, ptr<ItemHeadTrainer>, { new: ItemHeadTrainer }]
+      - call: [trainer.run]
+      - return: 0

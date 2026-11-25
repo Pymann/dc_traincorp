@@ -1,0 +1,697 @@
+# Eine Kreatur zieht durch die Welt, findet und stellt her.
+#
+# Das ist die Vorfuehrung, nicht eine Messung: eine frische Kreatur geht durch
+# alle Zonen des Realms, fuehrt dort ihre Grundaktionen aus, und aus Zonen-,
+# Gelaende- und Wettertags plus ihren eigenen Fertigkeiten ERZEUGT das Modell
+# eine Entdeckung.  Was die Regel annimmt, behaelt sie -- und mit dem
+# Behaltenen werden neue Rezepte moeglich.  Genau das ist das "Dazulernen":
+# nicht das Modell aendert sich, sondern was die Kreatur erreichen kann.
+#
+# Jeder Schritt haengt an einem Seed, also ist der ganze Streifzug
+# wiederholbar: gleicher Startseed, gleiche Reise.
+- import: "prophecy/sources/erzeuger.aiml"
+- import: "sources/shared/realm_file.aiml"
+
+- class:
+    name: Streifzug
+    members:
+      - [erz,          Erzeuger]
+      - [welt,         ptr<RealmFile>, null]
+      - [besitz,       map<string:i32>]
+      - [besitz_reihe, list<string>]
+      - [rezepte,      map<string:i32>]
+      - [rezept_reihe, list<string>]
+      - [entdeckt,     i32, 0, { access: public }]
+      - [nichts,       i32, 0, { access: public }]
+      - [gecraftet,    i32, 0, { access: public }]
+      - [verworfen,    i32, 0, { access: public }]
+      - [tagebuch,     list<string>]
+      - [gelernt,      map<string:i32>]
+      - [gelernt_reihe, list<string>]
+      - [kampf_gelernt, map<string:i32>]
+      - [kampf_reihe,  list<string>]
+      - [letzte_gegner, string, ""]
+      # Vorrat je Materialart -- was Rezepte verlangen.
+      - [vorrat,       map<string:i32>]
+      - [vorrat_reihe, list<string>]
+      - [fehlversuch,  i32, 0, { access: public }]
+      - [art_zahl,     map<string:i32>]
+      - [art_reihe,    list<string>]
+      # Je Runde: Funde, Herstellungen, gelernte Fertigkeiten.  Daran -- und
+      # nur daran -- ist zu sehen, ob die Kreatur DAZUlernt oder nur laeuft.
+      - [runde,        i32, 0]
+      - [r_fund,       list<i32>]
+      - [r_bau,        list<i32>]
+      - [r_lern,       list<i32>]
+    methods:
+      - def:
+          name: init
+          access: public
+          args: [[realm_pfad, string], [korpus, string]]
+          return: i32
+          body:
+            - decl: [ok_e, i32, { call: [<.erz.init] }]
+            - if: { condition: { neq: [ok_e, 1] }, then: [{ return: 0 }] }
+            - decl: [prio, list<string>, { call: [<.erz.fge.prio_lesen, korpus] }]
+            - call: [<.erz.prio_setzen, prio]
+            - call: [<.erz.korpora_lesen, korpus, "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+            - call: [<.erz.gueltig_init, korpus, realm_pfad]
+            - decl: [roh, string, { call: [io.read_file, realm_pfad] }]
+            - if: { condition: { eq: [roh.len, 0] }, then: [{ return: 0 }] }
+            - set: [<.welt, { call: [sys.deserialize, roh, "RealmFile"] }]
+            - if: { condition: { eq: [<.welt, null] }, then: [{ return: 0 }] }
+            - decl: [zahl, i32, <.welt.zones.len]
+            - call: [log.info, "streifzug: ${zahl} Zonen bereit"]
+            - return: 1
+
+      - def:
+          name: tags_anfuegen
+          args: [[aus, string], [liste, list<string>]]
+          return: string
+          body:
+            - decl: [raus, string, aus]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, liste.len] }
+                body:
+                  - decl: [tag, string, { at: [liste, pos] }]
+                  - if:
+                      condition: { gt: [tag.len, 0] }
+                      then:
+                        - if:
+                            condition: { eq: [raus.len, 0] }
+                            then: [{ set: [raus, tag] }]
+                            else: [{ set: [raus, "${raus} ${tag}"] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: raus
+
+      # Der Beutel einer Zone: Zonentags + Gelaende + Wetter + Aktion + Fertigkeit.
+      # Dieselben Tag-Sorten, aus denen der Entdeckungskorpus seine Beutel baut.
+      - def:
+          name: zonen_beutel
+          access: public
+          args: [[zidx, i32], [aktion, string], [fertigkeit, string]]
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - if: { condition: { ge: [zidx, <.welt.zones.len] }, then: [{ return: aus }] }
+            - decl: [zon, ref<Zone>, { at: [<.welt.zones, zidx] }]
+            - set: [aus, { call: [<.tags_anfuegen, aus, zon.zone_tags] }]
+            - decl: [tid_s, string, zon.terrain_id]
+            - decl: [wid_s, string, zon.weather_id]
+            - decl: [tpos, i32, 0]
+            - while:
+                condition: { lt: [tpos, <.welt.terrains.len] }
+                body:
+                  - decl: [ter, ref<Terrain>, { at: [<.welt.terrains, tpos] }]
+                  - if:
+                      condition: { eq: [ter.terrain_id, tid_s] }
+                      then: [{ set: [aus, { call: [<.tags_anfuegen, aus, ter.terrain_tags] }] }]
+                  - set: [tpos, { "+": [tpos, 1] }]
+            - decl: [wpos, i32, 0]
+            - while:
+                condition: { lt: [wpos, <.welt.weathers.len] }
+                body:
+                  - decl: [wet, ref<Weather>, { at: [<.welt.weathers, wpos] }]
+                  - if:
+                      condition: { eq: [wet.weather_id, wid_s] }
+                      then: [{ set: [aus, { call: [<.tags_anfuegen, aus, wet.weather_tags] }] }]
+                  - set: [wpos, { "+": [wpos, 1] }]
+            - return: "${aus} ${aktion} ${fertigkeit}"
+
+      - def:
+          name: besitz_dazu
+          args: [[name, string], [menge, i32]]
+          body:
+            - if:
+                condition: { eq: [{ call: [<.besitz.contains, name] }, 0] }
+                then:
+                  - call: [<.besitz.put, name, menge]
+                  - call: [<.besitz_reihe.push, name]
+                else: [{ call: [<.besitz.put, name, { "+": [{ call: [<.besitz.get, name] }, menge] }] }]
+            # Rezepte rechnen in ARTEN ("stone x3"), Funde sind Stuecke
+            # (`quartz`).  Darum wird parallel der Vorrat je Art gefuehrt.
+            - decl: [art, string, { call: [<.erz.fge.material_art, name] }]
+            - if:
+                condition: { gt: [art.len, 0] }
+                then:
+                  - if:
+                      condition: { eq: [{ call: [<.vorrat.contains, art] }, 0] }
+                      then:
+                        - call: [<.vorrat.put, art, menge]
+                        - call: [<.vorrat_reihe.push, art]
+                      else: [{ call: [<.vorrat.put, art, { "+": [{ call: [<.vorrat.get, art] }, menge] }] }]
+
+      - def:
+          name: erkunden
+          access: public
+          args: [[zidx, i32], [aktion, string], [fertigkeit, string], [saat, i64]]
+          return: i32
+          body:
+            - decl: [beutel, string, { call: [<.zonen_beutel, zidx, aktion, fertigkeit] }]
+            - if: { condition: { eq: [beutel.len, 0] }, then: [{ return: 0 }] }
+            - decl: [fls, list<i32>, { call: [<.erz.erzeuge_gueltig, "<a:entdeckung>", beutel, saat] }]
+            - decl: [zon, ref<Zone>, { at: [<.welt.zones, zidx] }]
+            - if:
+                condition: { eq: [fls.len, 0] }
+                then:
+                  - set: [<.verworfen, { "+": [<.verworfen, 1] }]
+                  - call: [<.tagebuch.push, "${zon.name}: ${aktion} — 16 Versuche ohne gueltigen Fund"]
+                  - return: 0
+            - decl: [art, string, { call: [<.erz.abschnitt_text, fls, "<art>"] }]
+            - decl: [fart, i32, { call: [<.erz.fundart, art] }]
+            - decl: [ertrag, string, { call: [<.erz.abschnitt_text, fls, "<ertrag>"] }]
+            - decl: [nam, string, { call: [<.erz.abschnitt_text, fls, "<name>"] }]
+            - if:
+                condition: { eq: [fart, Fundart.Nothing] }
+                then:
+                  - set: [<.nichts, { "+": [<.nichts, 1] }]
+                  - call: [<.tagebuch.push, "${zon.name}: ${aktion} — nichts gefunden"]
+                  - return: 0
+            # Ein Gegnerfund ist der Lernanlass fuer eine Kampffertigkeit.
+            - if:
+                condition: { eq: [fart, Fundart.Enemy] }
+                then:
+                  # <tags> ist bei 9478 von 25000 Korpusfunden LEER -- der
+                  # Name ist der verlaessliche Teil der Begegnung.
+                  - decl: [gtg, string, { call: [<.erz.abschnitt_text, fls, "<tags>"] }]
+                  - set: [<.letzte_gegner, nam]
+                  - if: { condition: { eq: [nam.len, 0] }, then: [{ set: [<.letzte_gegner, "einem Gegner"] }] }
+                  - if: { condition: { gt: [gtg.len, 0] }, then: [{ set: [<.letzte_gegner, "${<.letzte_gegner} (${gtg})"] }] }
+            - set: [<.entdeckt, { "+": [<.entdeckt, 1] }]
+            - call: [<.zaehle, 0]
+            # Welche Fundarten kommen ueberhaupt vor?  Der Korpus haelt alle
+            # sieben gleich stark (je ~3550 von 25000) -- was der Streifzug
+            # daraus macht, ist das Mass fuer die Vielfalt der Welt.
+            - if:
+                condition: { eq: [{ call: [<.art_zahl.contains, art] }, 0] }
+                then:
+                  - call: [<.art_zahl.put, art, 1]
+                  - call: [<.art_reihe.push, art]
+                else: [{ call: [<.art_zahl.put, art, { "+": [{ call: [<.art_zahl.get, art] }, 1] }] }]
+            # Ertrag einsammeln: "moss x3 marsh-clay x1"
+            - decl: [teile, list<string>, { call: [ertrag.split, " "] }]
+            - decl: [pos, i32, 0]
+            - decl: [letzt_n, string, ""]
+            - while:
+                condition: { lt: [pos, teile.len] }
+                body:
+                  - decl: [stk, string, { at: [teile, pos] }]
+                  - if:
+                      condition: { eq: [{ call: [stk.starts_with, "x"] }, 1] }
+                      then:
+                        - if:
+                            condition: { gt: [letzt_n.len, 0] }
+                            then:
+                              # Mengenmarken sind nur x1..x9 -- kein string->i32
+                              # Cast (den gibt es nicht, spec/04_1 §7).
+                              - decl: [mng, i32, 1]
+                              - decl: [zdx, i32, 1]
+                              - while:
+                                  condition: { le: [zdx, 9] }
+                                  body:
+                                    - if: { condition: { eq: [stk, "x${zdx}"] }, then: [{ set: [mng, zdx] }] }
+                                    - set: [zdx, { "+": [zdx, 1] }]
+                              - call: [<.besitz_dazu, letzt_n, mng]
+                              - set: [letzt_n, ""]
+                      else: [{ set: [letzt_n, stk] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - if: { condition: { gt: [letzt_n.len, 0] }, then: [{ call: [<.besitz_dazu, letzt_n, 1] }] }
+            - call: [<.tagebuch.push, "${zon.name}: ${aktion} -> ${art} '${nam}', Ertrag: ${ertrag}"]
+            - return: 1
+
+      # "x3" -> 3.  Mengenmarken sind nur x1..x9; `cast: string -> i32` gibt
+      # es nicht (spec/04_1 §7).
+      - def:
+          name: menge_von
+          args: [[stk, string]]
+          return: i32
+          body:
+            - decl: [mng, i32, 0]
+            - decl: [zdx, i32, 1]
+            - while:
+                condition: { le: [zdx, 9] }
+                body:
+                  - if: { condition: { eq: [stk, "x${zdx}"] }, then: [{ set: [mng, zdx] }] }
+                  - set: [zdx, { "+": [zdx, 1] }]
+            - return: mng
+
+      # Reicht der Vorrat fuer "essence x1 stone x3"?  "" heisst ja, sonst
+      # steht hier, was fehlt.  Ohne diese Pruefung baute die Kreatur aus
+      # Material, das sie nie gefunden hatte.
+      - def:
+          name: pruefe_vorrat
+          args: [[mat, string]]
+          return: string
+          body:
+            - decl: [teile, list<string>, { call: [mat.split, " "] }]
+            - decl: [gebraucht, map<string:i32>]
+            - decl: [reihe, list<string>]
+            - decl: [letzt, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, teile.len] }
+                body:
+                  - decl: [stk, string, { at: [teile, pos] }]
+                  - decl: [mng, i32, { call: [<.menge_von, stk] }]
+                  - if:
+                      condition: { gt: [mng, 0] }
+                      then:
+                        - if:
+                            condition: { gt: [letzt.len, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [gebraucht.contains, letzt] }, 0] }
+                                  then:
+                                    - call: [gebraucht.put, letzt, mng]
+                                    - call: [reihe.push, letzt]
+                                  else: [{ call: [gebraucht.put, letzt, { "+": [{ call: [gebraucht.get, letzt] }, mng] }] }]
+                              - set: [letzt, ""]
+                      else: [{ set: [letzt, stk] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, reihe.len] }
+                body:
+                  - decl: [art, string, { at: [reihe, pos] }]
+                  - decl: [will, i32, { call: [gebraucht.get, art] }]
+                  - decl: [hat, i32, 0]
+                  - if: { condition: { eq: [{ call: [<.vorrat.contains, art] }, 1] }, then: [{ set: [hat, { call: [<.vorrat.get, art] }] }] }
+                  - if: { condition: { lt: [hat, will] }, then: [{ return: "${art} x${will} (hat ${hat})" }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: ""
+
+      # Nach bestandener Pruefung abziehen.
+      - def:
+          name: verbrauche
+          args: [[mat, string]]
+          body:
+            - decl: [teile, list<string>, { call: [mat.split, " "] }]
+            - decl: [letzt, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, teile.len] }
+                body:
+                  - decl: [stk, string, { at: [teile, pos] }]
+                  - decl: [mng, i32, { call: [<.menge_von, stk] }]
+                  - if:
+                      condition: { gt: [mng, 0] }
+                      then:
+                        - if:
+                            condition: { "&&": [{ gt: [letzt.len, 0] }, { eq: [{ call: [<.vorrat.contains, letzt] }, 1] }] }
+                            then:
+                              - decl: [neu, i32, { "-": [{ call: [<.vorrat.get, letzt] }, mng] }]
+                              - if: { condition: { lt: [neu, 0] }, then: [{ set: [neu, 0] }] }
+                              - call: [<.vorrat.put, letzt, neu]
+                        - set: [letzt, ""]
+                      else: [{ set: [letzt, stk] }]
+                  - set: [pos, { "+": [pos, 1] }]
+
+      # Der Beutel fuers Herstellen: die MATERIALARTEN im Vorrat, plus
+      # Fertigkeit und eine Werkbank.  Arten, nicht Fundstuecke: so sind die
+      # Beutel des Itemkorpus gebaut (`gem rune-stylus elemental stone`), und
+      # nur dann schlaegt das Modell etwas vor, das die Kreatur bauen kann.
+      - def:
+          name: craft_beutel
+          access: public
+          args: [[fertigkeit, string], [werkbank, string]]
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - decl: [zahl, i32, 0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [pos, <.vorrat_reihe.len] }, { lt: [zahl, 8] }] }
+                body:
+                  - decl: [nam, string, { at: [<.vorrat_reihe, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  # Aufgebrauchte Arten bleiben in der Reihe stehen -- wer sie
+                  # trotzdem in den Beutel legt, laesst das Modell aus Besitz
+                  # schliessen, den es nicht mehr gibt.
+                  - decl: [hat, i32, 0]
+                  - if: { condition: { eq: [{ call: [<.vorrat.contains, nam] }, 1] }, then: [{ set: [hat, { call: [<.vorrat.get, nam] }] }] }
+                  - if:
+                      condition: { gt: [hat, 0] }
+                      then:
+                        - set: [zahl, { "+": [zahl, 1] }]
+                        - if:
+                            condition: { eq: [aus.len, 0] }
+                            then: [{ set: [aus, nam] }]
+                            else: [{ set: [aus, "${aus} ${nam}"] }]
+            - if: { condition: { eq: [aus.len, 0] }, then: [{ return: "" }] }
+            - return: "${aus} ${werkbank} ${fertigkeit}"
+
+      - def:
+          name: herstellen
+          access: public
+          args: [[fertigkeit, string], [werkbank, string], [saat, i64]]
+          return: i32
+          body:
+            - decl: [beutel, string, { call: [<.craft_beutel, fertigkeit, werkbank] }]
+            - if: { condition: { eq: [beutel.len, 0] }, then: [{ return: 0 }] }
+            # Mehrere Einfaelle, bis einer aus dem VORRAT baubar ist.  Das
+            # beugt keine Regel: §7 hat jedem einzelnen Vorschlag schon
+            # zugestimmt, hier entscheidet der Besitz.  Ohne das stand im
+            # Tagebuch neunmal derselbe Fehlversuch (`essence x3`), weil das
+            # Modell bei EINEM Seed bleibt, der Vorrat aber ein anderer ist.
+            - decl: [ausgabe, string, ""]
+            - decl: [mat, string, ""]
+            - decl: [typ, string, ""]
+            - decl: [fehlt, string, ""]
+            - decl: [baubar, i32, 0]
+            - decl: [idee, i64, 0]
+            - while:
+                condition: { "&&": [{ lt: [idee, 6] }, { eq: [baubar, 0] }] }
+                body:
+                  - decl: [wurf, i64, { "+": [saat, { "*": [idee, 101] }] }]
+                  - decl: [fls, list<i32>, { call: [<.erz.erzeuge_gueltig, "<a:rezept>", beutel, wurf] }]
+                  - set: [idee, { "+": [idee, 1] }]
+                  - if:
+                      condition: { eq: [fls.len, 0] }
+                      then: [{ set: [<.verworfen, { "+": [<.verworfen, 1] }] }]
+                      else:
+                        - set: [ausgabe, { call: [<.erz.abschnitt_text, fls, "<out>"] }]
+                        - set: [mat, { call: [<.erz.abschnitt_text, fls, "<mat>"] }]
+                        - set: [typ, { call: [<.erz.abschnitt_text, fls, "<type>"] }]
+                        - set: [fehlt, { call: [<.pruefe_vorrat, mat] }]
+                        - if: { condition: { eq: [fehlt.len, 0] }, then: [{ set: [baubar, 1] }] }
+            - if:
+                condition: { eq: [baubar, 0] }
+                then:
+                  - set: [<.fehlversuch, { "+": [<.fehlversuch, 1] }]
+                  - if:
+                      condition: { gt: [ausgabe.len, 0] }
+                      then: [{ call: [<.tagebuch.push, "  ${idee} Einfaelle, keiner baubar — zuletzt fehlte ${fehlt} fuer ${ausgabe}"] }]
+                  - return: 0
+            - call: [<.verbrauche, mat]
+            - if:
+                condition: { eq: [{ call: [<.rezepte.contains, ausgabe] }, 0] }
+                then:
+                  - call: [<.rezepte.put, ausgabe, 1]
+                  - call: [<.rezept_reihe.push, ausgabe]
+            - set: [<.gecraftet, { "+": [<.gecraftet, 1] }]
+            - call: [<.zaehle, 1]
+            - call: [<.tagebuch.push, "  hergestellt: ${ausgabe} (${typ}) aus ${mat} an der ${werkbank}"]
+            - return: 1
+
+      # Dazulernen, zweiter Weg: aus dem, was sie BESITZT und TUT, folgert das
+      # Modell eine Fertigkeit (<a:fertigkeit>, die zuverlaessigste der vier
+      # Aufgaben).  Eine gelernte Fertigkeit wandert in den Beutel der
+      # naechsten Zone -- damit wird der Fortschritt im Tagebuch sichtbar.
+      - def:
+          name: lern_beutel
+          args: [[aktion, string]]
+          return: string
+          body:
+            # Die ZULETZT gefundenen fuenf Arten, nicht die ersten fuenf:
+            # standen immer dieselben im Beutel, schlug das Modell immer
+            # dieselbe Fertigkeit vor, und die Kreatur lernte nach Runde 0
+            # nichts mehr dazu (Bilanz: 5 / 0 / 0).
+            - decl: [aus, string, ""]
+            - decl: [erst, i32, { "-": [<.besitz_reihe.len, 5] }]
+            - if: { condition: { lt: [erst, 0] }, then: [{ set: [erst, 0] }] }
+            - decl: [pos, i32, erst]
+            - while:
+                condition: { lt: [pos, <.besitz_reihe.len] }
+                body:
+                  - decl: [nam, string, { at: [<.besitz_reihe, pos] }]
+                  - if:
+                      condition: { eq: [aus.len, 0] }
+                      then: [{ set: [aus, nam] }]
+                      else: [{ set: [aus, "${aus} ${nam}"] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - if: { condition: { eq: [aus.len, 0] }, then: [{ return: "" }] }
+            - return: "${aus} ${aktion}"
+
+      - def:
+          name: lernen
+          access: public
+          args: [[aktion, string], [saat, i64]]
+          return: i32
+          body:
+            - decl: [beutel, string, { call: [<.lern_beutel, aktion] }]
+            - if: { condition: { eq: [beutel.len, 0] }, then: [{ return: 0 }] }
+            - decl: [fls, list<i32>, { call: [<.erz.erzeuge_gueltig, "<a:fertigkeit>", beutel, saat] }]
+            - if:
+                condition: { eq: [fls.len, 0] }
+                then:
+                  - set: [<.verworfen, { "+": [<.verworfen, 1] }]
+                  - return: 0
+            - decl: [ski, string, { call: [<.erz.abschnitt_text, fls, "<skill>"] }]
+            - if: { condition: { eq: [ski.len, 0] }, then: [{ return: 0 }] }
+            - if:
+                condition: { eq: [{ call: [<.gelernt.contains, ski] }, 1] }
+                then: [{ return: 0 }]
+            - call: [<.gelernt.put, ski, 1]
+            - call: [<.gelernt_reihe.push, ski]
+            - call: [<.zaehle, 2]
+            - call: [<.tagebuch.push, "  gelernt: ${ski} (aus ${beutel})"]
+            - return: 1
+
+      # Der Beutel fuer die Kampffertigkeit.
+      #
+      # NICHT die Tags des Gegners: der Kampfkorpus hat `enemies` gar nicht in
+      # seiner @domain_priority, also loest `cave-spider` dort NIE auf, und
+      # uebrig blieb die Aktion allein -- ein Prompt, wie er im Training nicht
+      # vorkommt (gemessen: 21 % gueltig gegen 100 % mit korpusnahem Beutel).
+      # Was aufloest, ist was die Kreatur HAT und KANN: Materialien
+      # (items:craft_material), gelernte Fertigkeiten (skills:*) und die
+      # Aktion (actions:base_actions).  Die Begegnung bleibt der Anlass.
+      - def:
+          name: kampf_beutel
+          args: [[aktion, string]]
+          return: string
+          body:
+            - decl: [aus, string, aktion]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [pos, <.besitz_reihe.len] }, { lt: [pos, 3] }] }
+                body:
+                  - set: [aus, "${aus} ${{ at: [<.besitz_reihe, pos] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - set: [pos, 0]
+            - while:
+                condition: { "&&": [{ lt: [pos, <.gelernt_reihe.len] }, { lt: [pos, 2] }] }
+                body:
+                  - set: [aus, "${aus} ${{ at: [<.gelernt_reihe, pos] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      # Trifft sie auf einen Gegner, folgert das Modell eine Kampffertigkeit
+      # aus dem, was sie dabei hat -- die Begegnung selbst ist der Lernanlass.
+      - def:
+          name: kampf_lernen
+          access: public
+          args: [[aktion, string], [saat, i64]]
+          return: i32
+          body:
+            - if: { condition: { eq: [<.letzte_gegner.len, 0] }, then: [{ return: 0 }] }
+            - decl: [beutel, string, { call: [<.kampf_beutel, aktion] }]
+            - if: { condition: { eq: [beutel.len, 0] }, then: [{ return: 0 }] }
+            - decl: [fls, list<i32>, { call: [<.erz.erzeuge_gueltig, "<a:kampf>", beutel, saat] }]
+            - if:
+                condition: { eq: [fls.len, 0] }
+                then:
+                  - set: [<.verworfen, { "+": [<.verworfen, 1] }]
+                  - return: 0
+            - decl: [ski, string, { call: [<.erz.abschnitt_text, fls, "<skill>"] }]
+            - if: { condition: { eq: [ski.len, 0] }, then: [{ return: 0 }] }
+            - if:
+                condition: { eq: [{ call: [<.kampf_gelernt.contains, ski] }, 1] }
+                then: [{ return: 0 }]
+            - call: [<.kampf_gelernt.put, ski, 1]
+            - call: [<.kampf_reihe.push, ski]
+            - call: [<.tagebuch.push, "  Kampffertigkeit: ${ski} (gegen ${<.letzte_gegner})"]
+            - return: 1
+
+      # Was die Kreatur schon kann -- der Beutel der naechsten Zone nimmt es auf.
+      - def:
+          name: n_gelernt
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: <.gelernt_reihe.len
+
+      - def:
+          name: gelernte
+          access: public
+          args: [[idx, i32]]
+          return: string
+          body:
+            - if: { condition: { ge: [idx, <.gelernt_reihe.len] }, then: [{ return: "" }] }
+            - return: { at: [<.gelernt_reihe, idx] }
+
+      # "harvestable 8 locked 10 ..." -- auch fuers Tagebuch.
+      - def:
+          name: runde_beginnt
+          access: public
+          args: []
+          body:
+            - set: [<.runde, <.r_fund.len]
+            - call: [<.r_fund.push, 0]
+            - call: [<.r_bau.push, 0]
+            - call: [<.r_lern.push, 0]
+
+      - def:
+          name: zaehle
+          args: [[welche, i32]]
+          body:
+            - if: { condition: { ge: [<.runde, <.r_fund.len] }, then: [{ return: }] }
+            - if: { condition: { eq: [welche, 0] }, then: [{ idx: [<.r_fund, <.runde, { "+": [{ at: [<.r_fund, <.runde] }, 1] }] }] }
+            - if: { condition: { eq: [welche, 1] }, then: [{ idx: [<.r_bau, <.runde, { "+": [{ at: [<.r_bau, <.runde] }, 1] }] }] }
+            - if: { condition: { eq: [welche, 2] }, then: [{ idx: [<.r_lern, <.runde, { "+": [{ at: [<.r_lern, <.runde] }, 1] }] }] }
+
+      # "Runde 0: 9 Funde, 1 gebaut, 3 gelernt | Runde 1: ..."
+      - def:
+          name: runden_text
+          access: public
+          args: []
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.r_fund.len] }
+                body:
+                  - set: [aus, "${aus}Runde ${pos}: ${{ at: [<.r_fund, pos] }} Funde, ${{ at: [<.r_bau, pos] }} gebaut, ${{ at: [<.r_lern, pos] }} gelernt. "]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      - def:
+          name: arten_text
+          args: []
+          return: string
+          body:
+            - decl: [aus, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.art_reihe.len] }
+                body:
+                  - decl: [nam, string, { at: [<.art_reihe, pos] }]
+                  - set: [aus, "${aus} ${nam} ${{ call: [<.art_zahl.get, nam] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: aus
+
+      - def:
+          name: bericht
+          access: public
+          args: []
+          body:
+            - call: [log.info, "── Tagebuch ─────────────────────────────────"]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.tagebuch.len] }
+                body:
+                  - decl: [zle, string, { at: [<.tagebuch, pos] }]
+                  - call: [log.info, "${zle}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - call: [log.info, "── Bilanz ───────────────────────────────────"]
+            - call: [log.info, "Entdeckungen: ${<.entdeckt}, davon nichts: ${<.nichts}, verworfen: ${<.verworfen}"]
+            - call: [log.info, "Fundarten:${{ call: [<.arten_text] }}"]
+            - call: [log.info, "${{ call: [<.runden_text] }}"]
+            - call: [log.info, "Hergestellt: ${<.gecraftet}, verschiedene Rezepte: ${<.rezept_reihe.len}"]
+            - decl: [fer, string, ""]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.gelernt_reihe.len] }
+                body:
+                  - set: [fer, "${fer} ${{ at: [<.gelernt_reihe, pos] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - decl: [kmf, string, ""]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.kampf_reihe.len] }
+                body:
+                  - set: [kmf, "${kmf} ${{ at: [<.kampf_reihe, pos] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - call: [log.info, "Fertigkeiten gelernt (${<.gelernt_reihe.len}):${fer}"]
+            - call: [log.info, "Kampffertigkeiten (${<.kampf_reihe.len}):${kmf}"]
+            - decl: [bes, string, ""]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.besitz_reihe.len] }
+                body:
+                  - decl: [nam, string, { at: [<.besitz_reihe, pos] }]
+                  - decl: [mng, i32, { call: [<.besitz.get, nam] }]
+                  - set: [bes, "${bes} ${nam}x${mng}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - call: [log.info, "Besitz (${<.besitz_reihe.len} Arten):${bes}"]
+
+      - def:
+          name: n_zonen
+          access: public
+          args: []
+          return: i32
+          body:
+            - if: { condition: { eq: [<.welt, null] }, then: [{ return: 0 }] }
+            - return: <.welt.zones.len
+
+      # Das Tagebuch als Datei -- lesbar ohne Logfilter.
+      - def:
+          name: tagebuch_schreiben
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [txt, string, "# Streifzug einer Datenkreatur\n\n"]
+            - set: [txt, "${txt}Jede Zeile ist ein Schluss des Transformers aus dem, was die\n"]
+            - set: [txt, "${txt}Kreatur gerade sieht und hat -- kein Wuerfeln aus einer Tabelle.\n\n"]
+            - set: [txt, "${txt}## Tagebuch\n\n"]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.tagebuch.len] }
+                body:
+                  - decl: [zle, string, { at: [<.tagebuch, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  # Was in der Zone passiert, haengt unter dem Fund.
+                  - if:
+                      condition: { eq: [{ call: [zle.starts_with, "  "] }, 1] }
+                      then: [{ set: [txt, "${txt}  - ${{ call: [zle.trim] }}\n"] }]
+                      else: [{ set: [txt, "${txt}- ${zle}\n"] }]
+            - set: [txt, "${txt}\n## Bilanz\n\n"]
+            - set: [txt, "${txt}| | |\n|---|---|\n"]
+            - set: [txt, "${txt}| Entdeckungen | ${<.entdeckt} (davon nichts: ${<.nichts}, verworfen: ${<.verworfen}) |\n"]
+            - set: [txt, "${txt}| Fundarten |${{ call: [<.arten_text] }} |\n"]
+            - set: [txt, "${txt}| Je Runde | ${{ call: [<.runden_text] }} |\n"]
+            - set: [txt, "${txt}| Hergestellt | ${<.gecraftet}, davon ${<.rezept_reihe.len} verschiedene Rezepte |\n| Material fehlte | ${<.fehlversuch}x |\n"]
+            - set: [txt, "${txt}| Fertigkeiten gelernt | ${<.gelernt_reihe.len} |\n"]
+            - set: [txt, "${txt}| Kampffertigkeiten | ${<.kampf_reihe.len} |\n"]
+            - set: [txt, "${txt}| Besitzarten | ${<.besitz_reihe.len} |\n\n"]
+            - set: [txt, "${txt}### Gelernte Fertigkeiten\n\n"]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.gelernt_reihe.len] }
+                body:
+                  - set: [txt, "${txt}- ${{ at: [<.gelernt_reihe, pos] }}\n"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - set: [txt, "${txt}\n### Kampffertigkeiten\n\n"]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.kampf_reihe.len] }
+                body:
+                  - set: [txt, "${txt}- ${{ at: [<.kampf_reihe, pos] }}\n"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - set: [txt, "${txt}\n### Hergestellt\n\n"]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.rezept_reihe.len] }
+                body:
+                  - set: [txt, "${txt}- ${{ at: [<.rezept_reihe, pos] }}\n"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - set: [txt, "${txt}\n### Besitz\n\n"]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, <.besitz_reihe.len] }
+                body:
+                  - decl: [nam, string, { at: [<.besitz_reihe, pos] }]
+                  - set: [txt, "${txt}- ${nam} x${{ call: [<.besitz.get, nam] }}\n"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - decl: [schrieb, i32, { call: [io.write_file, pfad, txt] }]
+            - if:
+                condition: { neq: [schrieb, 0] }
+                then:
+                  - call: [log.error, "streifzug: Tagebuch nicht schreibbar: ${pfad}"]
+                  - return: 0
+            - call: [log.info, "streifzug: Tagebuch -> ${pfad}"]
+            - return: 1

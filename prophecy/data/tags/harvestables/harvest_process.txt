@@ -1,0 +1,46 @@
+# Harvestable-OUT-Tags — beschreiben den HARVEST-PROZESS, nicht die Materialien
+# (Materialien stehen in der yield-csv mit count; Tools in der tools-csv).
+
+# ── Schwierigkeit ──────────────────────────────────────────────────────────
+trivial
+easy
+moderate
+hard
+treacherous
+expert_only
+
+# ── Dauer ──────────────────────────────────────────────────────────────────
+quick
+short
+medium_duration
+long
+multi_session
+multi_day
+
+# ── Risiko / Zustand ──────────────────────────────────────────────────────
+safe
+unstable
+collapse_risk
+toxic
+charged
+slippery
+sharp_edged
+buried_deep
+exposed
+hidden
+
+# ── Ertrag-Verhalten ───────────────────────────────────────────────────────
+depleting
+rich_vein
+sparse
+single_yield
+respawning
+seasonal
+
+# ── Welt-Bezug ─────────────────────────────────────────────────────────────
+surface
+shallow
+deep
+cavern_bound
+shore_bound
+high_altitude

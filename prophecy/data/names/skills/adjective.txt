@@ -1,0 +1,89 @@
+# Skill-Adjektive — für Skill-Namen, Skill-Familien oder prozedurale Skill-
+# Beschreibungen. Kebab-Case Konvention, passend zum übrigen Korpus.
+#
+# Eine Zeile = ein Adjektiv oder adjektivische Form. Leere Zeilen / # Kommentare
+# ignoriert.
+
+# ── Power / Intensity ───────────────────────────────────────────────────────
+ancient
+primal
+fierce
+savage
+unyielding
+furious
+merciless
+relentless
+mighty
+shattering
+
+# ── Elemental / Weather ─────────────────────────────────────────────────────
+ember
+frost
+storm
+thunder
+ashen
+glacial
+tidal
+gale
+voltaic
+molten
+
+# ── Arcane / Shard ──────────────────────────────────────────────────────────
+arcane
+aetheric
+runic
+sigiled
+crystalline
+sharded
+resonant
+prismatic
+veiled
+astral
+
+# ── Motion / Precision ──────────────────────────────────────────────────────
+swift
+silent
+precise
+honed
+balanced
+spiraling
+lunging
+piercing
+coiled
+measured
+
+# ── Defense / Endurance ─────────────────────────────────────────────────────
+steady
+ironbound
+warded
+shielded
+rooted
+stubborn
+patient
+enduring
+stonebound
+weathered
+
+# ── Techno-Fantasy / Signal ─────────────────────────────────────────────────
+quantum
+coherent
+phased
+static
+mirrored
+glitched
+signal_born
+lattice_bound
+clockwork
+conductive
+
+# ── Social / Mind / Spirit ──────────────────────────────────────────────────
+calm
+keen
+watchful
+cunning
+inspiring
+disciplined
+haunting
+resolute
+lucid
+whispering

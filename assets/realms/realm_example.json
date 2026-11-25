@@ -1,0 +1,1480 @@
+{
+  "realm": {
+    "realm_id": "realm_shard_garden",
+    "name": "Shard Garden",
+    "realm_kind": "frontier",
+    "realm_subtype": "fragmental_quantum_meadow",
+    "realm_tags": [
+      "fragmental",
+      "cultivable",
+      "quantum_biotech",
+      "meadowlike",
+      "unstable"
+    ],
+    "primary_terrain": {
+      "terrain_id": "terrain_fragment_field",
+      "terrain_kind": "fragmental",
+      "terrain_subtype": "shard_plain",
+      "terrain_tags": [
+        "sharp_edged",
+        "porous",
+        "echoing",
+        "brittle",
+        "rough"
+      ]
+    },
+    "primary_weather": {
+      "weather_id": "weather_soft_static",
+      "weather_kind": "charged",
+      "weather_subtype": "soft_static",
+      "weather_tags": [
+        "charged",
+        "calm",
+        "shimmering"
+      ]
+    },
+    "state_tags": [
+      "partially_stable",
+      "seeded",
+      "settleable"
+    ]
+  },
+  "terrains": [
+    {
+      "terrain_id": "terrain_fragment_field",
+      "terrain_kind": "fragmental",
+      "terrain_subtype": "shard_plain",
+      "terrain_tags": [
+        "sharp_edged",
+        "porous",
+        "echoing",
+        "brittle",
+        "rough"
+      ],
+      "description": "A broken field of data_shards and fractured plates. Traversal is possible, but footing is unstable and surfaces splinter easily."
+    },
+    {
+      "terrain_id": "terrain_qbit_garden",
+      "terrain_kind": "cultivation",
+      "terrain_subtype": "quantum_ai_bed",
+      "terrain_tags": [
+        "open",
+        "compacted",
+        "load_bearing",
+        "resonant",
+        "yielding"
+      ],
+      "description": "Prepared growth beds for quantum AI cultivation. Qbit entanglements are naturally favored here, enabling stable planting and accelerated coherence growth."
+    },
+    {
+      "terrain_id": "terrain_meadow_plain",
+      "terrain_kind": "plain",
+      "terrain_subtype": "meadow_steppe",
+      "terrain_tags": [
+        "open",
+        "flat",
+        "loose",
+        "bare",
+        "overgrown"
+      ],
+      "description": "Wide meadow_plains with soft grasses, low growth and clear lines of sight. Ideal for travel, grazing and light settlement."
+    }
+  ],
+  "weathers": [
+    {
+      "weather_id": "weather_soft_static",
+      "weather_kind": "charged",
+      "weather_subtype": "soft_static",
+      "weather_tags": [
+        "charged",
+        "calm",
+        "shimmering"
+      ]
+    },
+    {
+      "weather_id": "weather_clear_bloom",
+      "weather_kind": "clear",
+      "weather_subtype": "bloomlight",
+      "weather_tags": [
+        "clear",
+        "warm",
+        "gentle"
+      ]
+    },
+    {
+      "weather_id": "weather_shard_drift",
+      "weather_kind": "windy",
+      "weather_subtype": "shard_drift",
+      "weather_tags": [
+        "windy",
+        "dusty",
+        "crackling"
+      ]
+    }
+  ],
+  "zones": [
+    {
+      "zone_id": "zone_shatter_rim",
+      "name": "Shatter Rim",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_fragment_field",
+      "weather_id": "weather_shard_drift",
+      "zone_tags": [
+        "frontier",
+        "hazardous",
+        "salvage"
+      ],
+      "description": "Outer shard belts where broken plates collide and valuable fragments can be harvested."
+    },
+    {
+      "zone_id": "zone_glass_mouth",
+      "name": "Glass Mouth",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_fragment_field",
+      "weather_id": "weather_soft_static",
+      "zone_tags": [
+        "entry",
+        "trade_route",
+        "watchpost"
+      ],
+      "description": "A traversable breach through the fragment fields used by caravans and scouts."
+    },
+    {
+      "zone_id": "zone_qbit_nursery",
+      "name": "Qbit Nursery",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_qbit_garden",
+      "weather_id": "weather_soft_static",
+      "zone_tags": [
+        "cultivation",
+        "research",
+        "entanglement_favored"
+      ],
+      "description": "Managed beds where quantum AI seedlings are planted. Entanglement chains form more easily here than anywhere else in the realm."
+    },
+    {
+      "zone_id": "zone_coherence_farm",
+      "name": "Coherence Farm",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_qbit_garden",
+      "weather_id": "weather_clear_bloom",
+      "zone_tags": [
+        "cultivation",
+        "stable_growth",
+        "protected"
+      ],
+      "description": "A calmer agricultural band for raising mature quantum AI growths under controlled conditions."
+    },
+    {
+      "zone_id": "zone_green_span",
+      "name": "Green Span",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_meadow_plain",
+      "weather_id": "weather_clear_bloom",
+      "zone_tags": [
+        "settlement",
+        "pasture",
+        "open_travel"
+      ],
+      "description": "Broad meadow_plains with clear horizons and easy movement, serving as the realm's most hospitable zone."
+    },
+    {
+      "zone_id": "zone_rim_markt",
+      "name": "Rim Market",
+      "realm_id": "realm_shard_garden",
+      "terrain_id": "terrain_fragment_field",
+      "weather_id": "weather_soft_static",
+      "zone_tags": [
+        "settlement",
+        "trade",
+        "sheltered"
+      ],
+      "description": "Ein Lagerplatz am Rand der Scherbenguertel -- die naechste Siedlung, die man ohne Umwege erreicht."
+    }
+  ],
+  "buildings": [
+    {
+      "building_id": "building_green_span_hall",
+      "name": "Green Span Hall",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_kind": "settlement",
+      "building_subtype": "hall",
+      "building_tags": [
+        "community",
+        "shelter",
+        "trade"
+      ],
+      "entry_location_id": "location_green_span_hall_entry",
+      "location_ids": [
+        "location_green_span_hall_entry",
+        "location_green_span_hall_trade_room",
+        "location_green_span_hall_store"
+      ],
+      "description": "A communal hall on the meadow edge where caravans rest, deals are made and supplies are stored.",
+      "provides_tools": [],
+      "oeffnet": 0,
+      "schliesst": 0,
+      "npc_ids": []
+    },
+    {
+      "building_id": "building_green_span_markt",
+      "name": "Green Span Market",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_kind": "markt",
+      "building_subtype": "general",
+      "building_tags": [
+        "trade",
+        "supply"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Haendler, Vorraete, und wer etwas loswerden will.",
+      "provides_tools": [],
+      "oeffnet": 8,
+      "schliesst": 20,
+      "npc_ids": [
+        "npc_market_sool"
+      ]
+    },
+    {
+      "building_id": "building_green_span_handwerk",
+      "name": "Green Span Workshop",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_kind": "handwerk",
+      "building_subtype": "workshop",
+      "building_tags": [
+        "craft"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Esse, Webstuhl, Gerberrahmen - was man nicht tragen kann.",
+      "provides_tools": [
+        "forge_bench",
+        "woodworker_bench",
+        "alchemy_station",
+        "jeweller_bench",
+        "loom",
+        "tanning_rack",
+        "calibrator",
+        "smithy"
+      ],
+      "oeffnet": 6,
+      "schliesst": 22,
+      "npc_ids": []
+    },
+    {
+      "building_id": "building_green_span_heiler",
+      "name": "Green Span Infirmary",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_kind": "heiler",
+      "building_subtype": "infirmary",
+      "building_tags": [
+        "heal"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Wunden, Gift, Krankheit - hier wird man sie los.",
+      "provides_tools": [],
+      "oeffnet": 8,
+      "schliesst": 18,
+      "npc_ids": [
+        "npc_medic_sool"
+      ]
+    },
+    {
+      "building_id": "building_green_span_gilde",
+      "name": "Green Span Guildhall",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_kind": "gilde",
+      "building_subtype": "guildhall",
+      "building_tags": [
+        "community"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Auftraege, Mitstreiter, und wer sonst noch da ist.",
+      "provides_tools": [],
+      "oeffnet": 0,
+      "schliesst": 0,
+      "npc_ids": [
+        "npc_guild_vice_moland"
+      ]
+    },
+    {
+      "building_id": "building_rim_markt_settlement",
+      "name": "Rim Market Camp",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "building_kind": "settlement",
+      "building_subtype": "camp",
+      "building_tags": [
+        "shelter"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Der Platz selbst: Feuerstellen, Planen, ein Brunnen.",
+      "provides_tools": [],
+      "oeffnet": 0,
+      "schliesst": 0,
+      "npc_ids": []
+    },
+    {
+      "building_id": "building_rim_markt_markt",
+      "name": "Rim Market Stalls",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "building_kind": "markt",
+      "building_subtype": "general",
+      "building_tags": [
+        "trade",
+        "supply"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Haendler, Vorraete, und wer etwas loswerden will.",
+      "provides_tools": [],
+      "oeffnet": 8,
+      "schliesst": 20,
+      "npc_ids": [
+        "npc_market_vane"
+      ]
+    },
+    {
+      "building_id": "building_rim_markt_handwerk",
+      "name": "Rim Market Workshop",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "building_kind": "handwerk",
+      "building_subtype": "workshop",
+      "building_tags": [
+        "craft"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Esse, Webstuhl, Gerberrahmen - was man nicht tragen kann.",
+      "provides_tools": [
+        "forge_bench",
+        "woodworker_bench",
+        "alchemy_station",
+        "jeweller_bench",
+        "loom",
+        "tanning_rack",
+        "calibrator",
+        "smithy"
+      ],
+      "oeffnet": 6,
+      "schliesst": 22,
+      "npc_ids": []
+    },
+    {
+      "building_id": "building_rim_markt_heiler",
+      "name": "Rim Market Infirmary",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "building_kind": "heiler",
+      "building_subtype": "infirmary",
+      "building_tags": [
+        "care"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Wunden, Krankheiten, und ein Bett fuer eine Nacht.",
+      "provides_tools": [],
+      "oeffnet": 8,
+      "schliesst": 20,
+      "npc_ids": [
+        "npc_medic_vane"
+      ]
+    },
+    {
+      "building_id": "building_rim_markt_gilde",
+      "name": "Rim Market Guildhall",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "building_kind": "gilde",
+      "building_subtype": "hall",
+      "building_tags": [
+        "guild"
+      ],
+      "entry_location_id": "",
+      "location_ids": [],
+      "description": "Auftraege, Ruf, und wer wen kennt.",
+      "provides_tools": [],
+      "oeffnet": 0,
+      "schliesst": 0,
+      "npc_ids": [
+        "npc_guild_scribe_ruun"
+      ]
+    }
+  ],
+  "locations": [
+    {
+      "location_id": "location_green_span_hall_entry",
+      "name": "Hall Entry",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_id": "building_green_span_hall",
+      "location_kind": "interior",
+      "location_subtype": "entry",
+      "location_tags": [
+        "threshold",
+        "guarded",
+        "public"
+      ],
+      "connected_location_ids": [
+        "location_green_span_hall_trade_room"
+      ],
+      "description": "A sheltered threshold where arrivals are checked and dust from the meadow is brushed away."
+    },
+    {
+      "location_id": "location_green_span_hall_trade_room",
+      "name": "Trade Room",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_id": "building_green_span_hall",
+      "location_kind": "interior",
+      "location_subtype": "trade_room",
+      "location_tags": [
+        "market",
+        "public",
+        "negotiation"
+      ],
+      "connected_location_ids": [
+        "location_green_span_hall_entry",
+        "location_green_span_hall_store"
+      ],
+      "description": "The central chamber of the hall, used for barter, briefings and hosting travelers."
+    },
+    {
+      "location_id": "location_green_span_hall_store",
+      "name": "Supply Store",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "building_id": "building_green_span_hall",
+      "location_kind": "interior",
+      "location_subtype": "storage",
+      "location_tags": [
+        "storage",
+        "restricted",
+        "supplies"
+      ],
+      "connected_location_ids": [
+        "location_green_span_hall_trade_room"
+      ],
+      "description": "A back room with tools, dry packs and trade goods needed for short frontier expeditions."
+    }
+  ],
+  "zone_transfers": [
+    {
+      "zone_transfer_id": "zt_glass_to_shatter",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_glass_mouth",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_shatter_rim",
+      "price": {
+        "hashes": 0,
+        "bytes": 18
+      },
+      "transfer_tags": [
+        "shard_bridge",
+        "dangerous",
+        "salvage_route"
+      ],
+      "duration_ms": 180000,
+      "required_skill_ids": [
+        "shard_walker"
+      ],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_shatter_to_glass",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_shatter_rim",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_glass_mouth",
+      "price": {
+        "hashes": 0,
+        "bytes": 18
+      },
+      "transfer_tags": [
+        "shard_bridge",
+        "dangerous",
+        "salvage_route"
+      ],
+      "duration_ms": 180000,
+      "required_skill_ids": [
+        "shard_walker"
+      ],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_glass_to_nursery",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_glass_mouth",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_qbit_nursery",
+      "price": {
+        "hashes": 1,
+        "bytes": 12
+      },
+      "transfer_tags": [
+        "quantum_pulse",
+        "sterile"
+      ],
+      "duration_ms": 120000,
+      "required_skill_ids": [
+        "qbit_attune"
+      ],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_nursery_to_glass",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_qbit_nursery",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_glass_mouth",
+      "price": {
+        "hashes": 1,
+        "bytes": 12
+      },
+      "transfer_tags": [
+        "quantum_pulse",
+        "sterile"
+      ],
+      "duration_ms": 120000,
+      "required_skill_ids": [
+        "qbit_attune"
+      ],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_nursery_to_farm",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_qbit_nursery",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_coherence_farm",
+      "price": {
+        "hashes": 0,
+        "bytes": 26
+      },
+      "transfer_tags": [
+        "cultivation_path",
+        "requires_lantern"
+      ],
+      "duration_ms": 240000,
+      "required_skill_ids": [
+        "qbit_attune"
+      ],
+      "required_item_ids": [
+        "coherence_lantern"
+      ]
+    },
+    {
+      "zone_transfer_id": "zt_farm_to_nursery",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_coherence_farm",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_qbit_nursery",
+      "price": {
+        "hashes": 0,
+        "bytes": 26
+      },
+      "transfer_tags": [
+        "cultivation_path",
+        "requires_lantern"
+      ],
+      "duration_ms": 240000,
+      "required_skill_ids": [
+        "qbit_attune"
+      ],
+      "required_item_ids": [
+        "coherence_lantern"
+      ]
+    },
+    {
+      "zone_transfer_id": "zt_farm_to_green",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_coherence_farm",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_green_span",
+      "price": {
+        "hashes": 0,
+        "bytes": 14
+      },
+      "transfer_tags": [
+        "meadow_stroll",
+        "safe"
+      ],
+      "duration_ms": 60000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_green_to_farm",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_green_span",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_coherence_farm",
+      "price": {
+        "hashes": 0,
+        "bytes": 14
+      },
+      "transfer_tags": [
+        "meadow_stroll",
+        "safe"
+      ],
+      "duration_ms": 60000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_green_to_glass",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_green_span",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_glass_mouth",
+      "price": {
+        "hashes": 1,
+        "bytes": 4
+      },
+      "transfer_tags": [
+        "meadow_to_shard"
+      ],
+      "duration_ms": 90000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_glass_to_green",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_glass_mouth",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_green_span",
+      "price": {
+        "hashes": 1,
+        "bytes": 4
+      },
+      "transfer_tags": [
+        "meadow_to_shard"
+      ],
+      "duration_ms": 90000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_shatter_to_rim_markt",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_shatter_rim",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_rim_markt",
+      "price": {
+        "hashes": 0,
+        "bytes": 0
+      },
+      "transfer_tags": [
+        "trade_route",
+        "sheltered"
+      ],
+      "duration_ms": 60000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_rim_markt_to_shatter",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_rim_markt",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_shatter_rim",
+      "price": {
+        "hashes": 0,
+        "bytes": 0
+      },
+      "transfer_tags": [
+        "trade_route",
+        "sheltered"
+      ],
+      "duration_ms": 60000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_green_to_rim_markt",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_green_span",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_rim_markt",
+      "price": {
+        "hashes": 0,
+        "bytes": 8
+      },
+      "transfer_tags": [
+        "caravan_path",
+        "meadow_road",
+        "open_travel"
+      ],
+      "duration_ms": 120000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    },
+    {
+      "zone_transfer_id": "zt_rim_markt_to_green",
+      "from_realm_id": "realm_shard_garden",
+      "from_zone_id": "zone_rim_markt",
+      "to_realm_id": "realm_shard_garden",
+      "to_zone_id": "zone_green_span",
+      "price": {
+        "hashes": 0,
+        "bytes": 8
+      },
+      "transfer_tags": [
+        "caravan_path",
+        "meadow_road",
+        "open_travel"
+      ],
+      "duration_ms": 120000,
+      "required_skill_ids": [],
+      "required_item_ids": []
+    }
+  ],
+  "harvestables": [
+    {
+      "harvestable_id": "harv_shard_outcrop_1",
+      "name": "Shard Outcrop",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_shatter_rim",
+      "yield_items": [
+        {
+          "item_id": "crystal_rock",
+          "count": 2,
+          "item_type": 1
+        }
+      ],
+      "required_tool_ids": [
+        "hammer"
+      ],
+      "state_tags": [
+        "rich",
+        "unstable"
+      ],
+      "difficulty": 3,
+      "max_harvests": 8,
+      "harvest_count": 0
+    },
+    {
+      "harvestable_id": "harv_glass_seam_1",
+      "name": "Glass Seam",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_glass_mouth",
+      "yield_items": [
+        {
+          "item_id": "crystal_rock",
+          "count": 1,
+          "item_type": 1
+        }
+      ],
+      "required_tool_ids": [],
+      "state_tags": [
+        "shimmering"
+      ],
+      "difficulty": 2,
+      "max_harvests": 6,
+      "harvest_count": 0
+    },
+    {
+      "harvestable_id": "harv_meadow_grass_1",
+      "name": "Meadow Grass",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "yield_items": [
+        {
+          "item_id": "iron",
+          "count": 1,
+          "item_type": 1
+        }
+      ],
+      "required_tool_ids": [],
+      "state_tags": [
+        "lush"
+      ],
+      "difficulty": 1,
+      "max_harvests": 12,
+      "harvest_count": 0
+    }
+  ],
+  "growables": [
+    {
+      "growable_id": "grow_qbit_seedling_1",
+      "name": "Qbit Seedling",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_qbit_nursery",
+      "growth_stage": 0,
+      "growth_stage_max": 3,
+      "diseases": [],
+      "harvestable": {
+        "harvestable_id": "",
+        "name": "",
+        "realm_id": "",
+        "zone_id": "",
+        "yield_items": [],
+        "required_tool_ids": [],
+        "state_tags": []
+      },
+      "yield_items": [
+        {
+          "item_id": "crystal_rock",
+          "count": 3,
+          "item_type": 1
+        }
+      ],
+      "required_tool_ids": [
+        "runenstift"
+      ],
+      "preferred_weather": [
+        "soft_static"
+      ],
+      "preferred_terrain": [
+        "quantum_ai_bed"
+      ],
+      "state_tags": [
+        "planted"
+      ]
+    },
+    {
+      "growable_id": "grow_coherence_pod_1",
+      "name": "Coherence Pod",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_coherence_farm",
+      "growth_stage": 1,
+      "growth_stage_max": 4,
+      "diseases": [],
+      "harvestable": {
+        "harvestable_id": "",
+        "name": "",
+        "realm_id": "",
+        "zone_id": "",
+        "yield_items": [],
+        "required_tool_ids": [],
+        "state_tags": []
+      },
+      "yield_items": [
+        {
+          "item_id": "iron",
+          "count": 2,
+          "item_type": 1
+        }
+      ],
+      "required_tool_ids": [],
+      "preferred_weather": [
+        "bloomlight"
+      ],
+      "preferred_terrain": [
+        "quantum_ai_bed"
+      ],
+      "state_tags": [
+        "growing"
+      ]
+    }
+  ],
+  "npcs": [
+    {
+      "npc_id": "npc_glass_trader_1",
+      "name": "Glass Trader",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_glass_mouth",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [],
+      "zone_transfer_ids": [
+        "zt_glass_to_shatter",
+        "zt_glass_to_nursery"
+      ],
+      "contact_tags": [
+        "merchant",
+        "friendly"
+      ]
+    },
+    {
+      "npc_id": "npc_meadow_keeper_1",
+      "name": "Meadow Keeper",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [
+        "quest_pasture_walk"
+      ],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "quest_giver",
+        "pastoral"
+      ]
+    },
+    {
+      "npc_id": "npc_guild_vice_moland",
+      "name": "Guild Vice Moland",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [
+        "quest_wraith_five",
+        "quest_guild_medicine",
+        "quest_primordial_titan"
+      ],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "quest_giver",
+        "guild"
+      ]
+    },
+    {
+      "npc_id": "npc_guild_scribe_ruun",
+      "name": "Guild Scribe Ruun",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [
+        "quest_wraith_five",
+        "quest_guild_medicine",
+        "quest_primordial_titan"
+      ],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "quest_giver",
+        "guild"
+      ]
+    },
+    {
+      "npc_id": "npc_medic_vane",
+      "name": "Medic Vane",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "doctor",
+        "healer",
+        "clinic"
+      ]
+    },
+    {
+      "npc_id": "npc_medic_sool",
+      "name": "Medic Sool",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "doctor",
+        "healer",
+        "clinic"
+      ]
+    },
+    {
+      "npc_id": "npc_market_vane",
+      "name": "Market Vane",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_rim_markt",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "merchant",
+        "friendly"
+      ]
+    },
+    {
+      "npc_id": "npc_market_sool",
+      "name": "Market Sool",
+      "attributes": {
+        "normal_hits_max": 4,
+        "normal_hits_remaining": 4,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 1.0,
+        "strength": 0,
+        "endurance": 0,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_green_span",
+      "conversation_ids": [],
+      "trade_offer_ids": [],
+      "quest_offer_ids": [],
+      "zone_transfer_ids": [],
+      "contact_tags": [
+        "merchant",
+        "friendly"
+      ]
+    }
+  ],
+  "enemies": [
+    {
+      "enemy_id": "enemy_shard_wraith_1",
+      "name": "Shard Wraith",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_shatter_rim",
+      "enemy_kind": "wraith",
+      "level": 3,
+      "attributes": {
+        "normal_hits_max": 2,
+        "normal_hits_remaining": 2,
+        "critical_hits_max": 1,
+        "critical_hits_remaining": 1,
+        "bulk_factor": 0.7,
+        "strength": 12,
+        "endurance": 8,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "drop_items": [
+        {
+          "item_id": "crystal_rock",
+          "count": 1,
+          "item_type": 1
+        }
+      ],
+      "threat_rating": 25,
+      "enemy_tags": [
+        "ethereal",
+        "shard_bound"
+      ],
+      "description": "A translucent figure stitched from broken shards. Hard to hit but brittle."
+    },
+    {
+      "enemy_id": "enemy_qbit_glitch_1",
+      "name": "Qbit Glitch",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_qbit_nursery",
+      "enemy_kind": "construct",
+      "level": 2,
+      "attributes": {
+        "normal_hits_max": 12,
+        "normal_hits_remaining": 12,
+        "critical_hits_max": 2,
+        "critical_hits_remaining": 2,
+        "bulk_factor": 4.0,
+        "strength": 9,
+        "endurance": 6,
+        "agility": 0,
+        "charisma": 0,
+        "attraction": 0,
+        "intelligence": 0,
+        "focus": 0,
+        "logic": 0,
+        "semantics": 0,
+        "control": 0,
+        "heart": 0,
+        "feeling": 0,
+        "intuition": 0,
+        "instinct": 0,
+        "clairvoyance": 0,
+        "will": 0,
+        "power": 0
+      },
+      "drop_items": [
+        {
+          "item_id": "raw_crystal",
+          "count": 1,
+          "item_type": 1
+        }
+      ],
+      "threat_rating": 15,
+      "enemy_tags": [
+        "glitchy",
+        "sterile_breach"
+      ],
+      "description": "A coherence_instability that took shape. Phases in and out of existence."
+    }
+  ],
+  "portals": [
+    {
+      "portal_id": "portal_glass_to_shatter_1",
+      "name": "Shard Bridge",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_glass_mouth",
+      "location_id": "",
+      "zone_transfer_id": "zt_glass_to_shatter",
+      "portal_kind": "location_warp",
+      "portal_tags": [
+        "shard_bridge"
+      ],
+      "description": "A precarious bridge of fused shards spanning the rim chasm."
+    }
+  ],
+  "locked_things": [
+    {
+      "lock_id": "lock_farm_strongbox_1",
+      "name": "Cultivator Strongbox",
+      "realm_id": "realm_shard_garden",
+      "zone_id": "zone_coherence_farm",
+      "location_id": "",
+      "lock_kind": "chest",
+      "required_key_item_id": "farm_key",
+      "yield_items": [
+        {
+          "item_id": "iron",
+          "count": 3,
+          "item_type": 1
+        }
+      ],
+      "state": "locked",
+      "lock_tags": [
+        "hidden",
+        "old"
+      ],
+      "description": "An old farm_strongbox half_buried in the qbit bed."
+    }
+  ],
+  "quests": [
+    {
+      "quest_id": "quest_pasture_walk",
+      "art": 1,
+      "titel": "Pasture Walk",
+      "text": "Walk the pasture of Green Span and come back to tell me what grows there.",
+      "geber_id": "npc_meadow_keeper_1",
+      "ziel_zone_id": "zone_green_span",
+      "lohn_hashes": 5,
+      "lohn_bytes": 25,
+      "lohn_items": [],
+      "ziel_id": "",
+      "ziel_zahl": 1,
+      "lohn_skill_id": "",
+      "lohn_skill_name": "",
+      "lohn_wirkungen": {},
+      "lohn_wearable": 0
+    },
+    {
+      "quest_id": "quest_wraith_five",
+      "art": 2,
+      "titel": "Five Shadows",
+      "text": "Lerne die Wiesen von Green Span kennen: Entdecke dort Wraiths und besiege fuenf von ihnen. Im Kampf helfen der i-Knopf und die Grundaktionen: gehen, drehen, schlagen, ausweichen und abwehren. Nur Siege nach Annahme zaehlen. Kehre danach zu Moland oder Ruun in eine der Gildenhallen zurueck. Die Gilde belohnt dich mit Guild Resolve und einem tragbaren Ausruestungsstueck.",
+      "geber_id": "npc_guild_vice_moland",
+      "ziel_zone_id": "",
+      "ziel_id": "wraith",
+      "ziel_zahl": 5,
+      "lohn_hashes": 0,
+      "lohn_bytes": 0,
+      "lohn_items": [],
+      "lohn_skill_id": "guild_resolve",
+      "lohn_skill_name": "Guild Resolve",
+      "lohn_wirkungen": {
+        "attr.strength": 1.0,
+        "attr.will": 1.0
+      },
+      "lohn_wearable": 1
+    },
+    {
+      "geber_id": "npc_guild_vice_moland",
+      "lohn_hashes": 0,
+      "lohn_bytes": 0,
+      "lohn_items": [],
+      "lohn_skill_id": "",
+      "lohn_skill_name": "",
+      "lohn_wirkungen": {},
+      "lohn_wearable": 1,
+      "ziel_zahl": 3,
+      "quest_id": "quest_guild_medicine",
+      "art": 3,
+      "titel": "Heilkraeuter fuer Neri",
+      "text": "Unsere Botin Neri liegt mit Scherbenfieber im Krankenquartier. Die Heiler brauchen drei Sternblattkraeuter fuer ihre spezielle Medizin. Nimm den Auftrag an und reise von Green Span zur Coherence Farm im Shard-Garden. Von Rim Market gelangst du ohne besondere Fertigkeit ueber den Karawanenpfad nach Green Span. Auf der Farm erscheint fuer dich Neris Sternblatt-Beet. Klicke es an und sammle im Ernte-Minispiel die Kraeuter; du brauchst kein Werkzeug. Treffer bringen Ertrag, und du darfst es bei Bedarf erneut versuchen. Bringe drei Kraeuter in eine der Gildenhallen zurueck. Du erhaeltst ein tragbares Ausruestungsstueck: Lege es vor dem naechsten Auftrag an.",
+      "ziel_zone_id": "zone_coherence_farm",
+      "ziel_id": "neri_sternblatt",
+      "vorquest_id": "quest_wraith_five",
+      "fund_stelle": {
+        "harvestable_id": "quest_neri_herbs",
+        "name": "Neris Sternblatt-Beet",
+        "realm_id": "realm_shard_garden",
+        "zone_id": "zone_coherence_farm",
+        "yield_items": [
+          {
+            "item_id": "neri_sternblatt",
+            "count": 3,
+            "item_type": 1
+          }
+        ],
+        "required_tool_ids": [],
+        "state_tags": [
+          "quest",
+          "herb",
+          "medicinal",
+          "guild"
+        ],
+        "difficulty": 2,
+        "max_harvests": 5,
+        "harvest_count": 0
+      }
+    },
+    {
+      "geber_id": "npc_guild_vice_moland",
+      "lohn_hashes": 0,
+      "lohn_bytes": 0,
+      "lohn_items": [],
+      "lohn_skill_id": "shard_walker",
+      "lohn_skill_name": "Shard-Walker",
+      "lohn_wirkungen": {
+        "access.route.shard_walker": 1.0
+      },
+      "lohn_wearable": 0,
+      "ziel_zahl": 1,
+      "quest_id": "quest_primordial_titan",
+      "art": 4,
+      "titel": "Der Titan unter den Scherben",
+      "text": "Neri berichtet von einem urzeitlichen Quantentitanen am Shatter Rim im Shard-Garden. Nimm den Auftrag an, um seinen Ruheplatz zu finden. Du erreichst Shatter Rim ueber Rim Market ohne Shard-Walker. Der Titan traegt dicken Kristallpanzer und laesst sich durch gewoehnliche Treffer nicht aus dem Angriff bringen. Achte auf sein Ausholen: weiche Klauen und Lanze seitlich aus, halte Abstand zum Beben und nutze seine Erholung fuer Angriffe oder Skills. Kehre nach dem Sieg zur Gilde zurueck. Du erhaeltst Shard-Walker dauerhaft und kannst die Scherbenbruecken bereisen.",
+      "ziel_zone_id": "zone_shatter_rim",
+      "ziel_id": "primordial_quantum_titan",
+      "vorquest_id": "quest_guild_medicine",
+      "lohn_skill_dauerhaft": 1,
+      "fund_gegner": {
+        "enemy_id": "quest_primordial_titan",
+        "name": "Urzeitlicher Quantentitan",
+        "realm_id": "realm_shard_garden",
+        "zone_id": "zone_shatter_rim",
+        "enemy_kind": "boss",
+        "level": 8,
+        "attributes": {
+          "strength": 18,
+          "endurance": 24,
+          "agility": 8,
+          "charisma": 0,
+          "attraction": 0,
+          "intelligence": 0,
+          "focus": 16,
+          "logic": 0,
+          "semantics": 0,
+          "control": 0,
+          "heart": 0,
+          "feeling": 0,
+          "intuition": 0,
+          "instinct": 0,
+          "clairvoyance": 0,
+          "will": 20,
+          "power": 18,
+          "normal_hits_max": 12,
+          "normal_hits_remaining": 12,
+          "critical_hits_max": 4,
+          "critical_hits_remaining": 4,
+          "bulk_factor": 8.0
+        },
+        "drop_items": [],
+        "threat_rating": 9,
+        "enemy_tags": [
+          "crystal_armored",
+          "boss_tier",
+          "giant",
+          "ancient",
+          "quantum",
+          "slow",
+          "armored"
+        ],
+        "description": "Ein urzeitlicher Quantentitan erhebt sich zwischen den Scherben. Seine Angriffe sind langsam vorbereitet, treffen aber hart. Normale Treffer unterbrechen ihn nicht. Seitlich der Lanze ausweichen, beim Bodenbeben Abstand gewinnen und nach dem Einschlag kontern; Abwehr und Kontroll-Skills helfen. Nach dem Sieg meldest du dich fuer Shard-Walker bei der Gilde."
+      }
+    }
+  ]
+}

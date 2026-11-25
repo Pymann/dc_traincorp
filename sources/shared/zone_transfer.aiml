@@ -1,0 +1,32 @@
+# Shared NPC zone transfer model.
+#
+# Verbindet zwei Zonen (selber oder anderer Realm) und definiert was die
+# Reise kostet.  Reise ist immer einseitig (gerichtete Kante) — eine
+# bidirektionale Strecke braucht zwei ZoneTransfer-Einträge, sodass z.B.
+# Hin-/Rückrichtung unterschiedliche Preise/Dauern haben können.
+#
+# Felder:
+#   price              — bytes/hashes, einmalig fällig bei Reisestart
+#   duration_ms        — Dauer als ActiveAction (gleicher Lifecycle wie Action/Craft/Hunt)
+#   required_skill_ids — alle müssen in datacreature.skill_ids sein
+#   required_item_ids  — alle müssen im inventory liegen (ownership-check, kein Consume)
+#   transfer_tags      — "shard_bridge", "dangerous", "salvage_route" — fürs UI-Tagging
+#
+# Neue Felder am ENDE damit alte zone_transfers ohne diese Daten defensiv
+# deserialisieren (i64=0, leere Listen).
+
+- import: "sources/shared/currency.aiml"
+
+- model:
+    name: ZoneTransfer
+    fields:
+      - [zone_transfer_id,   string]
+      - [from_realm_id,      string]
+      - [from_zone_id,       string]
+      - [to_realm_id,        string]
+      - [to_zone_id,         string]
+      - [price,              Currency]
+      - [transfer_tags,      list<string>]
+      - [duration_ms,        i64, 0]
+      - [required_skill_ids, list<string>]
+      - [required_item_ids,  list<string>]

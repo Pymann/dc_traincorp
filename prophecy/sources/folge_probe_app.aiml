@@ -1,0 +1,159 @@
+# Rundlauf-Probe des Sequenzformats, VOR dem Modell.
+#
+# Geprueft wird je Aufgabe:
+#   1 Grammatik -- Markenfolge genau wie vorgesehen, Ende auf <end>
+#   2 Rundlauf  -- jede Token-Nummer bildet auf ein Wort zurueck ab
+#   3 Bereich   -- keine Nummer ausserhalb [0, Wortschatz)
+#
+# Die Soll-Markenfolge wird als STRING uebergeben, nicht als list<string>:
+# eine ueber mehrere Aufrufe wiederverwendete Liste an eine freie Funktion
+# zu geben liess den DRITTEN Aufruf abstuerzen (SIGSEGV addr=0x20).
+- import: "prophecy/sources/folge.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [fge, ptr<Folge>, { new: Folge }]
+      - decl: [bereit, i32, { call: [fge.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "folge: Wortschatz nicht ladbar — prophecy_build zuerst"]
+            - return: 1
+      - decl: [fehler, i32, 0]
+      - decl: [hoechstens, i32, 300]
+
+      # ── Rezept ──────────────────────────────────────────────────────────
+      - decl: [soll_r, string, "<a:rezept> <bag> <out> <mat> <tool> <skill> <type> <end>"]
+      - decl: [pfad_r, string, "itemgen/data/items_augmented.txt"]
+      - decl: [prio_r, list<string>, { call: [fge.prio_lesen, pfad_r] }]
+      - call: [fge.prio_setzen, prio_r]
+      - decl: [text_r, string, { call: [io.read_file, pfad_r] }]
+      - decl: [zln_r, list<string>, { call: [text_r.split, "\n"] }]
+      - decl: [rez_nach_id, map<string:string>]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, zln_r.len] }
+          body:
+            - decl: [zle, string, { at: [zln_r, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle.starts_with, "recipe "] }, 1] }
+                then:
+                  - decl: [spl, list<string>, { call: [zle.split, "|"] }]
+                  - if:
+                      condition: { ge: [spl.len, 7] }
+                      then:
+                        - decl: [rid_roh, string, { at: [spl, 1] }]
+                        - call: [rez_nach_id.put, { call: [rid_roh.trim] }, zle]
+            - set: [pos, { "+": [pos, 1] }]
+      - decl: [zahl_r, i32, 0]
+      - set: [pos, 0]
+      - while:
+          condition: { "&&": [{ lt: [pos, zln_r.len] }, { lt: [zahl_r, hoechstens] }] }
+          body:
+            - decl: [zle2, string, { at: [zln_r, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle2.starts_with, "sample "] }, 1] }
+                then:
+                  - decl: [sp2, list<string>, { call: [zle2.split, "|"] }]
+                  - if:
+                      condition: { ge: [sp2.len, 3] }
+                      then:
+                        - decl: [bag_roh, string, { at: [sp2, 1] }]
+                        - decl: [bag, string, { call: [bag_roh.trim] }]
+                        - decl: [rid_roh2, string, { at: [sp2, 2] }]
+                        - decl: [rid, string, { call: [rid_roh2.trim] }]
+                        - if:
+                            condition: { eq: [{ call: [rez_nach_id.contains, rid] }, 1] }
+                            then:
+                              - decl: [rez_borg, string, { call: [rez_nach_id.get, rid] }]
+                              - decl: [rez_zle, string, "${rez_borg}"]
+                              - decl: [ids, list<i32>, { call: [fge.kodiere_rezept, bag, rez_zle] }]
+                              - decl: [bad_r, i32, { call: [fge.pruefe, ids, "<a:rezept>", soll_r] }]
+                              - set: [fehler, { "+": [fehler, bad_r] }]
+                              - set: [zahl_r, { "+": [zahl_r, 1] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - call: [log.info, "folge rezept:     ${zahl_r} Folgen geprueft"]
+
+      # ── Entdeckung ──────────────────────────────────────────────────────
+      - decl: [soll_e, string, "<a:entdeckung> <bag> <art> <tags> <ertrag> <tool> <name> <end>"]
+      - decl: [pfad_e, string, "discovergen/data/discoveries_augmented.txt"]
+      - decl: [prio_e, list<string>, { call: [fge.prio_lesen, pfad_e] }]
+      - call: [fge.prio_setzen, prio_e]
+      - decl: [text_e, string, { call: [io.read_file, pfad_e] }]
+      - decl: [zln_e, list<string>, { call: [text_e.split, "\n"] }]
+      - decl: [zahl_e, i32, 0]
+      - set: [pos, 0]
+      - while:
+          condition: { "&&": [{ lt: [pos, zln_e.len] }, { lt: [zahl_e, hoechstens] }] }
+          body:
+            - decl: [zle3, string, { at: [zln_e, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle3.starts_with, "discover "] }, 1] }
+                then:
+                  - decl: [ids3, list<i32>, { call: [fge.kodiere_entdeckung, zle3] }]
+                  - decl: [bad_e, i32, { call: [fge.pruefe, ids3, "<a:entdeckung>", soll_e] }]
+                  - if:
+                      condition: { lt: [zahl_e, 2] }
+                      then: [{ call: [log.info, "  entdeckung klartext: ${{ call: [fge.lesbar, ids3] }}"] }]
+                  - set: [fehler, { "+": [fehler, bad_e] }]
+                  - set: [zahl_e, { "+": [zahl_e, 1] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - call: [log.info, "folge entdeckung: ${zahl_e} Folgen geprueft"]
+
+      # ── Fertigkeit ──────────────────────────────────────────────────────
+      - decl: [soll_f, string, "<a:fertigkeit> <bag> <skill> <end>"]
+      - decl: [pfad_f, string, "data/skill_corpus.txt"]
+      - decl: [prio_f, list<string>, { call: [fge.prio_lesen, pfad_f] }]
+      - call: [fge.prio_setzen, prio_f]
+      - decl: [text_f, string, { call: [io.read_file, pfad_f] }]
+      - decl: [zln_f, list<string>, { call: [text_f.split, "\n"] }]
+      - decl: [zahl_f, i32, 0]
+      - set: [pos, 0]
+      - while:
+          condition: { "&&": [{ lt: [pos, zln_f.len] }, { lt: [zahl_f, hoechstens] }] }
+          body:
+            - decl: [zle4, string, { at: [zln_f, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle4.starts_with, "sample "] }, 1] }
+                then:
+                  - decl: [ids4, list<i32>, { call: [fge.kodiere_fertigkeit, zle4] }]
+                  - decl: [bad_f, i32, { call: [fge.pruefe, ids4, "<a:fertigkeit>", soll_f] }]
+                  - set: [fehler, { "+": [fehler, bad_f] }]
+                  - set: [zahl_f, { "+": [zahl_f, 1] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - call: [log.info, "folge fertigkeit: ${zahl_f} Folgen geprueft"]
+
+      # ── Kampf ───────────────────────────────────────────────────────────
+      - decl: [soll_k, string, "<a:kampf> <bag> <skill> <end>"]
+      - decl: [pfad_k, string, "data/combat_skill_corpus.txt"]
+      - decl: [prio_k, list<string>, { call: [fge.prio_lesen, pfad_k] }]
+      - call: [fge.prio_setzen, prio_k]
+      - decl: [text_k, string, { call: [io.read_file, pfad_k] }]
+      - decl: [zln_k, list<string>, { call: [text_k.split, "\n"] }]
+      - decl: [zahl_k, i32, 0]
+      - set: [pos, 0]
+      - while:
+          condition: { "&&": [{ lt: [pos, zln_k.len] }, { lt: [zahl_k, hoechstens] }] }
+          body:
+            - decl: [zle5, string, { at: [zln_k, pos] }]
+            - if:
+                condition: { eq: [{ call: [zle5.starts_with, "combat "] }, 1] }
+                then:
+                  - decl: [ids5, list<i32>, { call: [fge.kodiere_kampf, zle5] }]
+                  - decl: [bad_k, i32, { call: [fge.pruefe, ids5, "<a:kampf>", soll_k] }]
+                  - set: [fehler, { "+": [fehler, bad_k] }]
+                  - set: [zahl_k, { "+": [zahl_k, 1] }]
+            - set: [pos, { "+": [pos, 1] }]
+      - call: [log.info, "folge kampf:      ${zahl_k} Folgen geprueft"]
+
+      - call: [log.info, "folge: ${fge.unbekannt} bloße Woerter vom Atlas nicht aufgeloest (Korpus-Kennzahl)"]
+      - if:
+          condition: { gt: [fehler, 0] }
+          then:
+            - call: [log.error, "folge: ${fehler} Folgen fehlerhaft"]
+            - return: 1
+      - call: [log.info, "folge: Grammatik, Rundlauf und Bereich in allen vier Aufgaben gruen"]
+      - return: 0

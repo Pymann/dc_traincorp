@@ -1,0 +1,16 @@
+trousers
+breeches
+hose
+leggings
+kilt
+loincloth
+chausses
+tassets
+faulds
+cuisses
+brais
+
+# tech / data-realm
+tech_pants
+mag_leggings
+exo_greaves

@@ -1,0 +1,185 @@
+# Ziehen aus Toepfen -- wiederholbar, weil `Zufall` seinen Zustand im Objekt
+# haelt (prophecy/sources/zufall.aiml).  Derselbe Seed gibt dieselben Korpora.
+- import: "prophecy/sources/zufall.aiml"
+
+# Eine echte Kopie.  `decl: [a, list<T>, b]` TEILT den Container (spec/61 §5:
+# refcounted handle) -- wer darin loescht, loescht beim Aufrufer.  Gemessen
+# 20.11.2026: die erste Ziehung leerte den Topf des Aufrufers.
+- def:
+    name: liste_kopie
+    args: [[liste, list<string>]]
+    return: list<string>
+    body:
+      - decl: [raus, list<string>]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, liste.len] }
+          body:
+            - call: [raus.push, { at: [liste, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: raus
+
+- class:
+    name: Zieher
+    members:
+      - [wrf, ptr<Zufall>, null]
+    methods:
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          body:
+            - set: [<.wrf, { new: Zufall }]
+            - call: [<.wrf.setze, saat]
+
+      - def:
+          name: muenze
+          access: public
+          args: [[wahrsch, f32]]
+          return: i32
+          body:
+            - if: { condition: { le: [{ call: [<.wrf.bruch] }, wahrsch] }, then: [{ return: 1 }] }
+            - return: 0
+
+      - def:
+          name: zahl
+          access: public
+          args: [[grenze, i32]]
+          return: i32
+          body:
+            - return: { call: [<.wrf.ganzzahl, grenze] }
+
+      # Von `tief` bis `hoch`, beide eingeschlossen.
+      - def:
+          name: spanne
+          access: public
+          args: [[tief, i32], [hoch, i32]]
+          return: i32
+          body:
+            - if: { condition: { ge: [tief, hoch] }, then: [{ return: tief }] }
+            - return: { "+": [tief, { call: [<.wrf.ganzzahl, { "+": [{ "-": [hoch, tief] }, 1] }] }] }
+
+      - def:
+          name: eines
+          access: public
+          args: [[topf, list<string>]]
+          return: string
+          body:
+            - if: { condition: { eq: [topf.len, 0] }, then: [{ return: "" }] }
+            - return: { at: [topf, { call: [<.wrf.ganzzahl, topf.len] }] }
+
+      # `anzahl` verschiedene Eintraege, Reihenfolge gemischt.  Zieht ohne
+      # Zuruecklegen: ein Beutel darf dieselbe Marke nicht zweimal tragen.
+      - def:
+          name: mehrere
+          access: public
+          args: [[topf, list<string>], [anzahl, i32]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - if: { condition: { "||": [{ eq: [topf.len, 0] }, { le: [anzahl, 0] }] }, then: [{ return: raus }] }
+            - decl: [rest, list<string>, { call: [liste_kopie, topf] }]
+            - decl: [wie_viele, i32, anzahl]
+            - if: { condition: { gt: [wie_viele, rest.len] }, then: [{ set: [wie_viele, rest.len] }] }
+            - decl: [genommen, i32, 0]
+            - while:
+                condition: { lt: [genommen, wie_viele] }
+                body:
+                  - decl: [pos, i32, { call: [<.wrf.ganzzahl, rest.len] }]
+                  - call: [raus.push, { at: [rest, pos] }]
+                  - call: [rest.remove, pos]
+                  - set: [genommen, { "+": [genommen, 1] }]
+            - return: raus
+
+      # Eine Liste mischen (Fisher-Yates, von hinten).
+      - def:
+          name: mischen
+          access: public
+          args: [[liste, list<string>]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>, { call: [liste_kopie, liste] }]
+            - if: { condition: { lt: [raus.len, 2] }, then: [{ return: raus }] }
+            - decl: [pos, i32, { "-": [raus.len, 1] }]
+            - while:
+                condition: { gt: [pos, 0] }
+                body:
+                  - decl: [andere, i32, { call: [<.wrf.ganzzahl, { "+": [pos, 1] }] }]
+                  - decl: [hier, string, { at: [raus, pos] }]
+                  - decl: [dort, string, { at: [raus, andere] }]
+                  - idx: [raus, pos, dort]
+                  - idx: [raus, andere, hier]
+                  - set: [pos, { "-": [pos, 1] }]
+            - return: raus
+
+# Doppelte raus, Reihenfolge bleibt.
+- def:
+    name: nur_einmal
+    args: [[liste, list<string>]]
+    return: list<string>
+    body:
+      - decl: [raus, list<string>]
+      - decl: [gesehen, map<string:i32>]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, liste.len] }
+          body:
+            - decl: [eins, string, { at: [liste, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { "&&": [{ gt: [eins.len, 0] }, { eq: [{ call: [gesehen.contains, eins] }, 0] }] }
+                then:
+                  - call: [gesehen.put, eins, 1]
+                  - call: [raus.push, eins]
+      - return: raus
+
+# Marken, die in einem erlaubten Topf stehen -- der Erzeuger prueft gegen die
+# DATEN, nicht gegen den abgelegten Atlas.  Genau daran lag Punkt 3: der Atlas
+# traegt entfernte Starter-Fertigkeiten weiter, die Daten nicht.
+- def:
+    name: nur_erlaubte
+    args: [[werte, list<string>], [erlaubt, map<string:i32>]]
+    return: list<string>
+    body:
+      - decl: [raus, list<string>]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, werte.len] }
+          body:
+            - decl: [eins, string, { at: [werte, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if: { condition: { eq: [{ call: [erlaubt.contains, eins] }, 1] }, then: [{ call: [raus.push, eins] }] }
+      - return: raus
+
+- def:
+    name: topf_als_karte
+    args: [[topf, list<string>]]
+    return: map<string:i32>
+    body:
+      - decl: [raus, map<string:i32>]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, topf.len] }
+          body:
+            - call: [raus.put, { at: [topf, idx] }, 1]
+            - set: [idx, { "+": [idx, 1] }]
+      - return: raus
+
+# Liste zu einer Zeile mit Leerzeichen.
+- def:
+    name: zeile_aus
+    args: [[liste, list<string>]]
+    return: string
+    body:
+      - decl: [raus, string, ""]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, liste.len] }
+          body:
+            - decl: [eins, string, { at: [liste, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - if:
+                condition: { gt: [eins.len, 0] }
+                then:
+                  - if: { condition: { eq: [raus.len, 0] }, then: [{ set: [raus, eins] }], else: [{ set: [raus, "${raus} ${eins}"] }] }
+      - return: raus

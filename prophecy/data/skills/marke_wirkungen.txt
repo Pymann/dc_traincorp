@@ -1,0 +1,48 @@
+# Was eine Fertigkeitsmarke IM KAMPF bewirkt -- Kanal, Wert, Dauer in Runden,
+# Ziel (Entscheid vom 13.11.2026: feste Dauer je Marke, in Runden).
+#
+# Format:  marke = kanal wert dauer ziel
+#   kanal   derselbe Kanalname wie bei Passiven und Krankheiten
+#   wert    Summand auf den Kanal (bei block.* und dot.* ist 1.0 "an")
+#   dauer   in RUNDEN; bei dot.* ohne Bedeutung -- ein Zustand laeuft, bis
+#           sein Budget erschoepft ist (zustaende_gift_brand_2026-11-13.md)
+#   ziel    feind oder held
+#
+# Die Zahlen stehen HIER und nicht im Quelltext: eine andere Balance ist dann
+# eine Zeile, kein Uebersetzungslauf.  Eine Marke ohne Zeile wirkt nicht --
+# das ist Absicht, siehe unten.
+
+# ── Zustaende ueber Zeit ────────────────────────────────────────────────────
+poison_on_hit        = dot.poison   1.0  0  feind
+burn_on_hit          = dot.burn     1.0  0  feind
+bleed_on_hit         = dot.bleed    1.0  0  feind
+
+# ── Der Gegner kommt nicht dazu ─────────────────────────────────────────────
+# Taumeln sperrt seinen Angriff.  1.0 heisst "gesperrt" (ab 0,5 gilt ein
+# block.*-Kanal als zu).
+stagger_chance       = block.attack 1.0  2  feind
+
+# ── Der Held schlaegt haerter ───────────────────────────────────────────────
+# Wucht entscheidet, WAS ein Treffer anrichtet, wenn er durchkommt -- darum
+# landen die drei Schadensmarken hier und nicht auf der Trefferchance.
+damage_multiplier    = hit.wucht    0.25 3  held
+flat_damage_bonus    = hit.wucht    0.15 3  held
+critical_chance_bonus = hit.wucht   0.20 3  held
+
+# ── Beweglichkeit und Gegenwehr ─────────────────────────────────────────────
+hit_and_run          = move.speed   0.40 3  held
+counter_attack       = thorns       1.0  3  held
+parry_bonus          = thorns       0.50 2  held
+
+# ── Ohne Zeile, mit Absicht ─────────────────────────────────────────────────
+# dodge_bonus, defensive, tank, on_defend, on_flanking, on_riposte,
+# on_critical_hit, opener, finisher, duelist, aggressive, balanced,
+# melee_focused, range_focused, neutral/psychic/shock/ice/shadow/fire/
+# holy_aspect, *_cooldown:
+#
+# Teils brauchen sie einen Kanal, den es nicht gibt (Ausweichen muesste den
+# Treffer des GEGNERS verschieben -- dafuer gibt es noch keine Gegnerrechnung
+# im Kampfbild), teils sind sie laengst anderswo verdrahtet (die Aspekte als
+# Element, die Abklingklassen als Abklingzeit), teils beschreiben sie nur,
+# WANN eine Fertigkeit passt, und nicht, was sie tut.  Lieber keine Wirkung
+# als eine erfundene.

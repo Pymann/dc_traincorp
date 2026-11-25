@@ -1,0 +1,1269 @@
+# Prophecy Inference module — reusable singleton predictor for use by
+# server-side discovery logic.  Loads all heads + vocabs from kvwal on
+# init, exposes:
+#
+#   - prophecy_predictor.init()                      → 1 on success
+#   - prophecy_predictor.predict_recipe(tag_bag)     → recipe-id string
+#                                                       (empty if not ready)
+#   - prophecy_predictor.predict_skills(tag_bag,
+#                                       threshold)  → list<string> skill-ids
+#                                                       above sigmoid threshold
+#   - prophecy_predictor.predict_entity_type(tag_bag) → entity-type string
+#
+# Internal state: TagEmbedding + 3 BagBackbones (item/we/skill) + heads +
+# their vocabs + atlas-resolution priority.
+
+- import: "prophecy/sources/embedding.aiml"
+- import: "prophecy/sources/manifest.aiml"
+- import: "prophecy/sources/heads.aiml"
+- import: "prophecy/sources/corpus_loader.aiml"
+
+- class:
+    name: ProphecyPredictor
+    members:
+      - [is_ready,        i32, 0]
+      - [embedder,        ptr<TagEmbedding>, null]
+      - [atlas_kv,        Kv<string:TagAtlasEntry>]
+      - [hidden_dim,      i32, 64]
+      # Item-head module
+      - [item_body,       BagBackbone]
+      - [item_head,       SoftmaxOutputHead]
+      - [item_vocab,      list<string>]
+      # World-entity-head module — 4 heads share one BagBackbone
+      - [we_body,         BagBackbone]
+      # Eigener Rumpf der Fundart -- im gemeinsamen Rumpf bestimmte der
+      # Namens-Kopf (451 Ausgaenge) die verborgene Schicht, und die Fundart
+      # kollabierte auf eine Klasse (11.11.2026: alles "locked").
+      - [we_et_body,      BagBackbone]
+      - [we_et_head,      SoftmaxOutputHead]
+      - [we_tag_head,     BCEOutputHead]
+      - [we_yld_head,     BCEOutputHead]
+      - [we_nm_head,      BCEOutputHead]
+      - [et_vocab,        list<string>]
+      - [we_tag_vocab,    list<string>]
+      - [we_yld_vocab,    list<string>]
+      - [we_nm_vocab,     list<string>]
+      # Skill-head module (recipe-skill prediction, used by item-flow)
+      - [skill_body,      BagBackbone]
+      - [skill_head,      BCEOutputHead]
+      - [skill_vocab,     list<string>]
+      # Combat-skill-head module (per-fight skill-discovery)
+      # SoftmaxOutputHead statt BCE — 166 Klassen mit single positive label
+      # ist categorical, nicht multi-label.  BCE würde im "predict 1/166 für
+      # alle Klassen"-Local-Minimum stecken bleiben (loss ≈ 7.9 flat).
+      - [combat_skill_body,  BagBackbone]
+      - [combat_skill_head,  SoftmaxOutputHead]
+      - [combat_skill_vocab, list<string>]
+      # Hit-Resolution-Head module — 4-way Softmax (miss/glancing/normal/critical)
+      # für Combat-Turn-Resolution.  Input: atk-tokens + def-tokens als single bag.
+      # Trefferchance (combat_score_head): siamesisch -- BEIDE Beutel durch
+      # DASSELBE Backbone, dann score = (att_h - def_h) @ W + b.  Ohne die
+      # trainierbare Zwischenschicht erklaerte der Kopf nur 27 % der Streuung
+      # (die eingefrorene Einbettung ist dafuer zu grob).
+      # Der Score-Kopf hat ein EIGENES kleines Vokabular (nur die Marken
+      # seines Korpus) und eine eigene erste Schicht.  Die eingefrorene
+      # 32er-Einbettung war der gemessene Engpass.
+      - [score_vokabular,    list<string>]
+      - [score_index,        map<string:i32>]
+      - [score_bw,           tensor]
+      - [score_bb,           tensor]
+      # Eigene Auflösungs-Reihenfolge, abgelegt vom Trainer (corpus_loader:
+      # priority_save).  Die globale Liste unten wich vom combat-Header ab.
+      - [score_priority,     list<string>]
+      # Die Domaenen-Reihenfolge des Entdeckungs-Korpus, aus den Gewichten
+      # geladen.  Die handgepflegte `current_priority` war eine zweite
+      # Wahrheit und wich um 15 Domaenen ab (spec-los gewachsen).
+      - [we_priority,        list<string>]
+      - [item_priority,      list<string>]
+      - [skill_priority,     list<string>]
+      - [cskill_priority,    list<string>]
+      - [score_w,            tensor]
+      - [score_b,            tensor]
+      # Der Wert VOR dem Klemmen.  Liegt er weit ausserhalb [0,1], war die
+      # Frage ausserhalb des Gelernten -- die geklemmte 1,0 sieht man der
+      # Antwort sonst nicht an (11.11.2026: Gegner-Marken im Kampf).
+      - [chance_roh,         f32, 0.0, { access: public }]
+      # Zweiter Ausgang: die Wucht eines Treffers (was er anrichtet, WENN er
+      # durchkommt).  `trefferchance` rechnet beide in einem Durchgang und
+      # legt sie hier ab -- der Server liest sie direkt danach.
+      - [wucht_w,            tensor]
+      - [wucht_b,            tensor]
+      - [letzte_wucht,       f32, 0.5, { access: public }]
+      - [score_da,           i32, 0]
+      # Gehoeren die Gewichte dieses Kopfes zu der geladenen Einbettung?
+      # 0 heisst: der abgelegte Satz WIDERSPRICHT ihr -- der Kopf antwortet
+      # dann nicht mehr, der Aufrufer faellt auf seine Regel zurueck
+      # (Spec modell_manifest_2026-11-20.md).
+      - [item_da,            i32, 1]
+      - [we_da,              i32, 1]
+      - [skill_da,           i32, 1]
+      - [cskill_da,          i32, 1]
+      # Token-resolution priority — wide union covering all our domains
+      - [current_priority, list<string>]
+      # Last-prediction state (mirrors itemgen's ig_var pattern)
+      - [last_pred_recipe,   string]
+      - [last_pred_p,        f32, 0.0]
+      - [last_pred_skills,   list<string>]
+      # Recipe metadata — parsed from itemgen/data/items_augmented.txt at init.
+      # Keyed by recipe-id (e.g. "recipe-rune-amulet-002").
+      # Recipe-Schema seit 2026-06-09: nur 1 guaranteed_tag, material_kinds
+      # statt konkrete items, separater out_type für item_type-Code.
+      - [recipe_outputs,    map<string:string>]   # "Charm x1"
+      - [recipe_tags,       map<string:string>]   # "arcane" (1 guaranteed_tag)
+      - [recipe_materials,  map<string:string>]   # "gem x1, essence x2" (kinds × count)
+      - [recipe_tools,      map<string:string>]   # tool kinds CSV
+      - [recipe_out_types,  map<string:string>]   # "amulet" / "rune" / etc.
+
+    methods:
+      # ── Vocab-blob decode (pipe-joined) ───────────────────────────────────
+      - def:
+          name: decode_vocab_blob
+          args: [[blob, string]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if:
+                condition: { eq: [blob.len, 0] }
+                then: [{ return: out }]
+            - decl: [parts, list<string>, { call: [blob.split, "|"] }]
+            - decl: [n_p, i32, parts.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_p] }
+                body:
+                  - decl: [raw, string, { at: [parts, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - call: [out.push, tok]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # ── Token resolution via atlas (priority-ordered) ─────────────────────
+      - def:
+          name: resolve_token
+          args: [[tok_str, string]]
+          return: string
+          body:
+            - return: { call: [<.resolve_token_in, tok_str, <.current_priority] }
+
+      # Dasselbe mit einer mitgegebenen Reihenfolge -- ein Kopf loest so in
+      # DERSELBEN Ordnung auf wie sein Trainingskorpus.
+      - def:
+          name: resolve_token_in
+          args: [[tok_str, string], [prio, list<string>]]
+          return: string
+          body:
+            - decl: [n_prio, i32, prio.len]
+            - decl: [idx,    i32, 0]
+            - while:
+                condition: { lt: [idx, n_prio] }
+                body:
+                  - decl: [dom_str, string, { at: [prio, idx] }]
+                  - decl: [key_tag, string, "tag:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_tag] }, 1] }
+                      then: [{ return: key_tag }]
+                  - decl: [key_name, string, "name:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_name] }, 1] }
+                      then: [{ return: key_name }]
+                  - decl: [key_adj, string, "adj:${dom_str}:${tok_str}"]
+                  - if:
+                      condition: { eq: [{ call: [<.atlas_kv.has, key_adj] }, 1] }
+                      then: [{ return: key_adj }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: ""
+
+      - def:
+          name: tokenize_bag
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - return: { call: [<.tokenize_bag_in, input_str, <.current_priority] }
+
+      # Je Kopf SEINE Reihenfolge.  Jeder Korpus traegt seine eigene im
+      # Dateikopf, der Trainer legt sie zu den Gewichten, die Inferenz
+      # liest sie wieder.  Die frueher gemeinsame, handgepflegte Liste war
+      # eine zweite Wahrheit und wich je Kopf um 16 bis 33 Domaenen ab.
+      - def:
+          name: tokenize_bag_item
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - if: { condition: { eq: [<.item_priority.len, 0] }, then: [{ return: { call: [<.tokenize_bag_in, input_str, <.current_priority] } }] }
+            - return: { call: [<.tokenize_bag_in, input_str, <.item_priority] }
+
+      - def:
+          name: tokenize_bag_skill
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - if: { condition: { eq: [<.skill_priority.len, 0] }, then: [{ return: { call: [<.tokenize_bag_in, input_str, <.current_priority] } }] }
+            - return: { call: [<.tokenize_bag_in, input_str, <.skill_priority] }
+
+      - def:
+          name: tokenize_bag_cskill
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - if: { condition: { eq: [<.cskill_priority.len, 0] }, then: [{ return: { call: [<.tokenize_bag_in, input_str, <.current_priority] } }] }
+            - return: { call: [<.tokenize_bag_in, input_str, <.cskill_priority] }
+
+      # Ein Mehrfach-Kopf (BCE) gibt je Ausgang eine EIGENE Wahrscheinlichkeit.
+      # Das ehrliche Zufallsexperiment dazu ist ein Bernoulli-Versuch je
+      # Eintrag: jede Marke kommt mit IHRER Wahrscheinlichkeit hinein.  Vorher
+      # nahm `top_k_strings` die K groessten -- derselbe Beutel gab damit immer
+      # dieselben Marken und dieselben Ertraege.
+      #
+      # `hoechstens` deckelt den Wurf (ein gut kalibrierter Kopf zieht von
+      # allein zwei bis drei, aber ein schlecht kalibrierter soll das Bild
+      # nicht fluten).  Zieht der Wurf gar nichts, kommt der wahrscheinlichste
+      # Eintrag allein -- ein Fund ohne jede Marke waere kein Fund.
+      # Ein Zug aus einer Liste, gewichtet nach den gegebenen Werten.
+      # Kumulieren, EINMAL wuerfeln, den Eimer nehmen, in den der Wurf faellt.
+      - def:
+          name: ziehe_gewichtet
+          args: [[namen, list<string>], [werte, list<f32>]]
+          return: string
+          body:
+            - if: { condition: { eq: [namen.len, 0] }, then: [{ return: "" }] }
+            - decl: [summe, f32, 0.0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, werte.len] }
+                body:
+                  - decl: [wert, f32, { at: [werte, pos] }]
+                  - if: { condition: { gt: [wert, 0.0] }, then: [{ set: [summe, { "+": [summe, wert] }] }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - if: { condition: { lte: [summe, 0.0] }, then: [{ return: { at: [namen, 0] } }] }
+            - decl: [wurf, f32, { "*": [{ call: [math.random, 0.0, 1.0] }, summe] }]
+            - decl: [lauf, f32, 0.0]
+            - set: [pos, 0]
+            - while:
+                condition: { lt: [pos, werte.len] }
+                body:
+                  - decl: [wert2, f32, { at: [werte, pos] }]
+                  - if: { condition: { gt: [wert2, 0.0] }, then: [{ set: [lauf, { "+": [lauf, wert2] }] }] }
+                  - if: { condition: { lt: [wurf, lauf] }, then: [{ return: { at: [namen, pos] } }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: { at: [namen, { "-": [namen.len, 1] }] }
+
+      - def:
+          name: ziehe_bernoulli
+          args: [[logits, tensor], [vocab, list<string>], [hoechstens, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - decl: [anz, i32, vocab.len]
+            - if: { condition: { eq: [anz, 0] }, then: [{ return: out }] }
+            - decl: [best_idx, i32, 0]
+            - decl: [best_val, f32, -100000.0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, anz] }
+                body:
+                  - decl: [roh, f32, { call: [logits.get, pos] }]
+                  - if: { condition: { gt: [roh, best_val] }, then: [{ set: [best_val, roh] }, { set: [best_idx, pos] }] }
+                  - if:
+                      condition: { lt: [out.len, hoechstens] }
+                      then:
+                        - decl: [wahr, f32, { call: [<.sigmoid_scalar, roh] }]
+                        - decl: [wurf, f32, { call: [math.random, 0.0, 1.0] }]
+                        - if: { condition: { lt: [wurf, wahr] }, then: [{ call: [out.push, { at: [vocab, pos] }] }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - if: { condition: { eq: [out.len, 0] }, then: [{ call: [out.push, { at: [vocab, best_idx] }] }] }
+            - return: out
+
+      # Der Beutel des world_entity-Kopfes -- mit SEINER Reihenfolge.
+      - def:
+          name: tokenize_bag_we
+          args: [[input_str, string]]
+          return: list<i32>
+          body:
+            - if: { condition: { eq: [<.we_priority.len, 0] }, then: [{ return: { call: [<.tokenize_bag_in, input_str, <.current_priority] } }] }
+            - return: { call: [<.tokenize_bag_in, input_str, <.we_priority] }
+
+      - def:
+          name: tokenize_bag_in
+          args: [[input_str, string], [prio, list<string>]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [toks, list<string>, { call: [input_str.split, " "] }]
+            - decl: [n_tok, i32, toks.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_tok] }
+                body:
+                  - decl: [raw, string, { at: [toks, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tok.len, 0] }
+                      then:
+                        - decl: [key, string, { call: [<.resolve_token_in, tok, prio] }]
+                        - if:
+                            condition: { gt: [key.len, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.embedder.vocab_index.contains, key] }, 1] }
+                                  then:
+                                    - decl: [tid, i32, { call: [<.embedder.vocab_index.get, key] }]
+                                    - call: [out.push, tid]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # ── Stable softmax of one position ─────────────────────────────────────
+      - def:
+          name: softmax_at
+          args: [[logits, tensor], [n_outputs, i32], [target_idx, i32]]
+          return: f32
+          body:
+            - decl: [maxv, f32, -100000.0]
+            - decl: [i_idx, i32, 0]
+            - while:
+                condition: { lt: [i_idx, n_outputs] }
+                body:
+                  - decl: [val, f32, { call: [logits.get, i_idx] }]
+                  - if: { condition: { gt: [val, maxv] }, then: [{ set: [maxv, val] }] }
+                  - set: [i_idx, { "+": [i_idx, 1] }]
+            - decl: [sum_exp, f32, 0.0]
+            - decl: [i_idx2, i32, 0]
+            - while:
+                condition: { lt: [i_idx2, n_outputs] }
+                body:
+                  - decl: [val, f32, { call: [logits.get, i_idx2] }]
+                  - decl: [d_val, f32, { "-": [val, maxv] }]
+                  - decl: [e_val, f32, { call: [math.exp, d_val] }]
+                  - set: [sum_exp, { "+": [sum_exp, e_val] }]
+                  - set: [i_idx2, { "+": [i_idx2, 1] }]
+            - decl: [tv_val, f32, { call: [logits.get, target_idx] }]
+            - decl: [td_val, f32, { "-": [tv_val, maxv] }]
+            - decl: [te_val, f32, { call: [math.exp, td_val] }]
+            - return: { "/": [te_val, sum_exp] }
+
+      - def:
+          name: sigmoid_scalar
+          args: [[x_arg, f32]]
+          return: f32
+          body:
+            - decl: [neg_x, f32, { "*": [x_arg, -1.0] }]
+            - decl: [exp_neg, f32, { call: [math.exp, neg_x] }]
+            - decl: [one_plus, f32, { "+": [1.0, exp_neg] }]
+            - return: { "/": [1.0, one_plus] }
+
+      # ── Argmax over a 1×N logits tensor ───────────────────────────────────
+      - def:
+          name: argmax_logit
+          args: [[logits, tensor], [n_outputs, i32]]
+          return: i32
+          body:
+            - decl: [best_idx, i32, 0]
+            - decl: [best_val, f32, { call: [logits.get, 0] }]
+            - decl: [i_idx, i32, 1]
+            - while:
+                condition: { lt: [i_idx, n_outputs] }
+                body:
+                  - decl: [val, f32, { call: [logits.get, i_idx] }]
+                  - if:
+                      condition: { gt: [val, best_val] }
+                      then:
+                        - set: [best_val, val]
+                        - set: [best_idx, i_idx]
+                  - set: [i_idx, { "+": [i_idx, 1] }]
+            - return: best_idx
+
+      # 1, wenn die gemeinsame Einbettung zufaellig ist -- dann sind alle
+      # Antworten der klassischen Koepfe bedeutungslos.
+      - def:
+          name: einbettung_blind
+          access: public
+          args: []
+          return: i32
+          body:
+            - if: { condition: { eq: [<.embedder, null] }, then: [{ return: 1 }] }
+            - return: <.embedder.zufaellig
+
+      # ── Predict recipe-id from a tag-bag input string ─────────────────────
+      # Gehoert ein Kopf-Speicher zu DIESER Einbettung?  1 = benutzbar.
+      # Nur ein Widerspruch (Code 2) sperrt; ein fehlender Satz ist der
+      # Zustand von heute und bleibt laut, aber benutzbar.
+      - def:
+          name: kopf_pruefung
+          access: public
+          args: [[speicher, string]]
+          return: i32
+          body:
+            - decl: [soll, ManifestSatz]
+            - set: [soll.wortschatz, <.embedder.wortschatz_fp]
+            - set: [soll.n_marken,   <.embedder.n_tokens]
+            - set: [soll.d_wert,     <.embedder.d_embed]
+            - set: [soll.grundlage,  <.embedder.wortschatz_fp]
+            - decl: [abgelegt, string, { call: [manifest_lade, speicher] }]
+            - decl: [code, i32, { call: [manifest_pruefen, abgelegt, soll] }]
+            - if:
+                condition: { eq: [code, 2] }
+                then:
+                  - call: [log.error, "[manifest] '${speicher}' gehoert nicht zu dieser Einbettung (${<.embedder.wortschatz_fp}) — abgelegt: ${abgelegt}. Der Kopf antwortet nicht; erst nachtrainieren."]
+                  - return: 0
+            - if:
+                condition: { eq: [code, 1] }
+                then: [{ call: [log.error, "[manifest] '${speicher}' hat keinen Satz — Herkunft nicht nachgewiesen (Spec modell_manifest_2026-11-20.md)."] }]
+            - return: 1
+
+      - def:
+          name: predict_recipe
+          args: [[tag_bag, string]]
+          return: string
+          body:
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: "" }] }
+            - if: { condition: { neq: [<.item_da, 1] }, then: [{ return: "" }] }
+            # spec/50 §14.1: sammelt die Zwischen-Tensoren der vorigen Vorhersage
+            # ein.  Gewichte sind requires_grad=1 und bleiben stehen.  Ohne das
+            # leckt jeder forward_logits-Aufruf seine matmul/add-Temporaere.
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_item, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: "" }] }
+            - decl: [hidden, tensor, { call: [<.item_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.item_head.forward_logits, hidden] }]
+            - decl: [n_out, i32, <.item_vocab.len]
+            - decl: [best_idx, i32, { call: [<.argmax_logit, logits, n_out] }]
+            - decl: [best_name, string, { at: [<.item_vocab, best_idx] }]
+            - decl: [best_p, f32, { call: [<.softmax_at, logits, n_out, best_idx] }]
+            - set: [<.last_pred_recipe, best_name]
+            - set: [<.last_pred_p, best_p]
+            - return: best_name
+
+      # ── Predict skills above a sigmoid-probability threshold ──────────────
+      - def:
+          name: predict_skills
+          args: [[tag_bag, string], [threshold, f32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - if: { condition: { neq: [<.skill_da, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_skill, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: out }] }
+            - decl: [hidden, tensor, { call: [<.skill_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.skill_head.forward_logits, hidden] }]
+            - decl: [n_out, i32, <.skill_vocab.len]
+            - decl: [i_idx, i32, 0]
+            - while:
+                condition: { lt: [i_idx, n_out] }
+                body:
+                  - decl: [lv_val, f32, { call: [logits.get, i_idx] }]
+                  - decl: [p_val, f32, { call: [<.sigmoid_scalar, lv_val] }]
+                  - if:
+                      condition: { ge: [p_val, threshold] }
+                      then:
+                        - decl: [sk_name, string, { at: [<.skill_vocab, i_idx] }]
+                        - call: [out.push, sk_name]
+                  - set: [i_idx, { "+": [i_idx, 1] }]
+            - set: [<.last_pred_skills, out]
+            - return: out
+
+      # Returns 1 wenn `sid` im Entdeckungs-Wortschatz steht -- also ob diese
+      # Fertigkeit ueberhaupt gefunden werden KANN.  Der Reise-Pfad prueft
+      # damit beim Laden eines Realms, ob eine Route etwas verlangt, das es
+      # nirgends gibt (dann waere sie dauerhaft gesperrt).  Bindestrich und
+      # Unterstrich gelten als dieselbe Schreibweise.
+      - def:
+          name: is_discover_skill
+          access: public
+          static_off: ["str_cmp"]
+          args: [[sid, string]]
+          return: i32
+          body:
+            - decl: [klein, string, { call: [sid.lower] }]
+            - decl: [gesucht, string, { call: [klein.replace, "-", "_"] }]
+            - decl: [count, i32, <.skill_vocab.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, count] }
+                body:
+                  - decl: [vorhanden, string, { at: [<.skill_vocab, idx] }]
+                  - decl: [v_klein, string, { call: [vorhanden.lower] }]
+                  - decl: [v_norm, string, { call: [v_klein.replace, "-", "_"] }]
+                  - if: { condition: { eq: [v_norm, gesucht] }, then: [{ return: 1 }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: 0
+
+      # Returns 1 wenn skill_id im combat_skill_vocab ist.  Server filtert
+      # damit creature.skill_ids → combat_skill_ids für CreatureDetail.
+      - def:
+          name: is_combat_skill
+          args: [[sid, string]]
+          return: i32
+          body:
+            - decl: [count, i32, <.combat_skill_vocab.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, count] }
+                body:
+                  - decl: [existing, string, { at: [<.combat_skill_vocab, idx] }]
+                  - if: { condition: { eq: [existing, sid] }, then: [{ return: 1 }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: 0
+
+      # ── Skills nach Rang (top-k) ──────────────────────────────────────────
+      # `predict_skills` liefert alles ueber einer Schwelle, und zwar in
+      # Vokabular-Reihenfolge — bei 248 Ausgaengen ist eine feste Schwelle
+      # unerreichbar (gemessen: p_top ~ 3e-4).  Diese Variante macht es wie
+      # der Kampf-Kopf: nach Wahrscheinlichkeit sortiert, die besten k.  Der
+      # Server entscheidet dann, ob und welcher davon vergeben wird.
+      - def:
+          name: predict_skills_top
+          access: public
+          args: [[tag_bag, string], [k_count, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - if: { condition: { neq: [<.skill_da, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_skill, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: out }] }
+            - decl: [hidden, tensor, { call: [<.skill_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.skill_head.forward_logits, hidden] }]
+            - return: { call: [<.top_k_strings, logits, <.skill_vocab, k_count] }
+
+      # Welche ART ist dieser Skill?  Der Atlas traegt jeden Namen unter
+      # seiner Liste (name:skills:<liste>:<name>), also weiss er es ohne
+      # zweite Quelle.  1 Kampf · 2 passiv · 3 aktiv · 4 mechanisch · 5 Basis,
+      # 0 unbekannt.  Der Server speichert Skills unterstrichen
+      # (normalize_skill_name), die Listen schreiben sie mit Bindestrich --
+      # darum beide Schreibweisen.
+      - def:
+          name: skill_kind_for
+          access: public
+          args: [[sid, string]]
+          return: i32
+          body:
+            - if: { condition: { eq: [sid.len, 0] }, then: [{ return: 0 }] }
+            - decl: [kebab, string, { call: [sid.replace, "_", "-"] }]
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "combat_skills", sid, kebab] }, 1] }, then: [{ return: 1 }] }
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "passive_skills", sid, kebab] }, 1] }, then: [{ return: 2 }] }
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "active_skills", sid, kebab] }, 1] }, then: [{ return: 3 }] }
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "mechanic_skills", sid, kebab] }, 1] }, then: [{ return: 4 }] }
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "base_skills", sid, kebab] }, 1] }, then: [{ return: 5 }] }
+            - if: { condition: { eq: [{ call: [<.kind_in_liste, "starter_skills", sid, kebab] }, 1] }, then: [{ return: 5 }] }
+            - return: 0
+
+      - def:
+          name: kind_in_liste
+          access: public
+          args: [[liste, string], [sid, string], [kebab, string]]
+          return: i32
+          body:
+            - if: { condition: { eq: [{ call: [<.atlas_kv.has, "name:skills:${liste}:${sid}"] }, 1] }, then: [{ return: 1 }] }
+            - if: { condition: { eq: [{ call: [<.atlas_kv.has, "name:skills:${liste}:${kebab}"] }, 1] }, then: [{ return: 1 }] }
+            - return: 0
+
+      # ── Predict combat-skill (top-k Softmax) ──────────────────────────────
+      # Genutzt aus sources/server/combat.aiml::try_discover_combat_skill nach
+      # erfolgreichem Combat-Action.  Naive top-k ohne foundation-gate-Filter;
+      # Server muss already-learned-Skips selbst machen.
+      #
+      # Returnt list<string> mit top-k skill_ids (descending probability).
+      # Leer wenn tokenize_bag nichts ergibt oder Modell nicht ready.
+      - def:
+          name: predict_combat_skills
+          args: [[tag_bag, string], [k_count, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - if: { condition: { neq: [<.cskill_da, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_cskill, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: out }] }
+            - decl: [hidden, tensor, { call: [<.combat_skill_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.combat_skill_head.forward_logits, hidden] }]
+            - return: { call: [<.top_k_strings, logits, <.combat_skill_vocab, k_count] }
+
+      # Marken eines Beutels → Kennungen im EIGENEN Vokabular des Score-Kopfs.
+      # Unbekannte Marken fallen weg; kennt der Kopf keine einzige, faellt die
+      # Chance auf 0,5 statt zu raten.
+      - def:
+          name: score_ids
+          access: public
+          args: [[bag_str, string]]
+          return: list<i32>
+          body:
+            - decl: [out, list<i32>]
+            - decl: [toks, list<string>, { call: [bag_str.split, " "] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, toks.len] }
+                body:
+                  - decl: [raw, string, { at: [toks, idx] }]
+                  - decl: [tok, string, { call: [raw.trim] }]
+                  - if:
+                      condition: { gt: [tok.len, 0] }
+                      then:
+                        - decl: [key, string, { call: [<.resolve_token_in, tok, <.score_priority] }]
+                        - if:
+                            condition: { gt: [key.len, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.score_index.contains, key] }, 1] }
+                                  then: [{ call: [out.push, { call: [<.score_index.get, key] }] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # Beutel → verborgene Schicht (dieselbe Rechnung wie im Trainer).
+      - def:
+          name: score_lage
+          access: public
+          args: [[ids, list<i32>]]
+          return: tensor
+          body:
+            - decl: [n_f, f32, ids.len]
+            - decl: [anteil, f32, { "/": [1.0, n_f] }]
+            - decl: [beutel, tensor, { call: [tensor.zeros, 1, <.score_vokabular.len] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, ids.len] }
+                body:
+                  - decl: [tid, i32, { at: [ids, idx] }]
+                  - decl: [cur, f32, { call: [beutel.get, tid] }]
+                  - call: [beutel.set, tid, { "+": [cur, anteil] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [roh, tensor, { call: [tensor.matmul, beutel, <.score_bw] }]
+            - decl: [mit_b, tensor, { call: [tensor.add, roh, <.score_bb] }]
+            - return: { call: [tensor.relu, mit_b] }
+
+      # ── Trefferchance einer Paarung ───────────────────────────────────────
+      # Gibt zurueck, wie gut der Angreifer den Verteidiger trifft: 1 = sicher,
+      # 0 = daneben.  Das Wissen dahinter ist von Hand gepflegt
+      # (data/combat.txt, 288 Materialpaarungen).  Aus dieser EINEN Zahl leitet
+      # der Kampf die vier Ausgaenge ab (spec: siehe trefferverteilung in
+      # scripts/generate_clustered_corpus.py).
+      - def:
+          name: trefferchance
+          access: public
+          args: [[atk_bag, string], [def_bag, string]]
+          return: f32
+          body:
+            - set: [<.chance_roh, 0.5]
+            - set: [<.letzte_wucht, 0.5]
+            - if: { condition: { "||": [{ neq: [<.is_ready, 1] }, { eq: [<.score_da, 0] }] }, then: [{ return: 0.5 }] }
+            - call: [tensor.begin_graph]
+            - decl: [atk_ids, list<i32>, { call: [<.score_ids, atk_bag] }]
+            - decl: [def_ids, list<i32>, { call: [<.score_ids, def_bag] }]
+            - if: { condition: { "||": [{ eq: [atk_ids.len, 0] }, { eq: [def_ids.len, 0] }] }, then: [{ return: 0.5 }] }
+            - decl: [atk_e, tensor, { call: [<.score_lage, atk_ids] }]
+            - decl: [def_e, tensor, { call: [<.score_lage, def_ids] }]
+            # Differenz UND Produkt -- dieselbe Form wie im Trainer
+            # (train_combat_score_head_app.aiml).
+            - decl: [diff, tensor, { call: [tensor.sub, atk_e, def_e] }]
+            - decl: [prod, tensor, { call: [tensor.mul, atk_e, def_e] }]
+            - decl: [paar, tensor, { call: [tensor.concat, diff, prod, 1] }]
+            - decl: [roh, tensor, { call: [tensor.matmul, paar, <.score_w] }]
+            - decl: [summe, tensor, { call: [tensor.add, roh, <.score_b] }]
+            - decl: [wert, f32, { call: [summe.get, 0] }]
+            - set: [<.chance_roh, wert]
+            - set: [<.letzte_wucht, 0.5]
+            - if:
+                condition: { neq: [<.wucht_w, null] }
+                then:
+                  - decl: [wu_lin, tensor, { call: [tensor.matmul, paar, <.wucht_w] }]
+                  - decl: [wu_t, tensor, { call: [tensor.add, wu_lin, <.wucht_b] }]
+                  - set: [<.letzte_wucht, { call: [math.clamp, { call: [wu_t.get, 0] }, 0.05, 1.0] }]
+            - return: { call: [math.clamp, wert, 0.0, 1.0] }
+
+      # ── Predict hit-kind (4-way Softmax über miss/glancing/normal/critical) ──
+      # ── Recipe metadata accessors (used by server/discovery.aiml) ─────────
+      - def:
+          name: get_recipe_outputs
+          args: [[recipe_id, string]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_outputs.contains, recipe_id] }, 1] }
+                then: [{ return: { call: [<.recipe_outputs.get, recipe_id] } }]
+            - return: ""
+
+      - def:
+          name: get_recipe_tags
+          args: [[recipe_id, string]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_tags.contains, recipe_id] }, 1] }
+                then: [{ return: { call: [<.recipe_tags.get, recipe_id] } }]
+            - return: ""
+
+      - def:
+          name: get_recipe_materials
+          args: [[recipe_id, string]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_materials.contains, recipe_id] }, 1] }
+                then: [{ return: { call: [<.recipe_materials.get, recipe_id] } }]
+            - return: ""
+
+      - def:
+          name: get_recipe_tools
+          args: [[recipe_id, string]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_tools.contains, recipe_id] }, 1] }
+                then: [{ return: { call: [<.recipe_tools.get, recipe_id] } }]
+            - return: ""
+
+      - def:
+          name: get_recipe_out_type
+          args: [[recipe_id, string]]
+          return: string
+          body:
+            - if:
+                condition: { eq: [{ call: [<.recipe_out_types.contains, recipe_id] }, 1] }
+                then: [{ return: { call: [<.recipe_out_types.get, recipe_id] } }]
+            - return: ""
+
+      - def:
+          name: has_recipe
+          args: [[recipe_id, string]]
+          return: i32
+          body:
+            - return: { call: [<.recipe_outputs.contains, recipe_id] }
+
+      # ── Continual-learning stubs ──────────────────────────────────────────
+      # Real per-creature update is a future feature (Foundation-Doc Phase B3).
+      # For now: log the intent so discovery.aiml flow is preserved.
+      - def:
+          name: update_creature_recipe
+          args: [[creature_id, string], [tag_bag, string], [recipe_idx, i32], [learn_rate, f32]]
+          body:
+            - call: [log.debug, "[prophecy stub] update_creature_recipe creature='${creature_id}' rec_idx=${recipe_idx} lr=${learn_rate}"]
+
+      - def:
+          name: update_creature_skill
+          args: [[creature_id, string], [tag_bag, string], [skill_idx, i32], [learn_rate, f32]]
+          body:
+            - call: [log.debug, "[prophecy stub] update_creature_skill creature='${creature_id}' skill_idx=${skill_idx} lr=${learn_rate}"]
+
+      # ── Predict entity-type for a discovery context ───────────────────────
+      - def:
+          name: predict_entity_type
+          args: [[tag_bag, string]]
+          return: string
+          body:
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: "" }] }
+            - if: { condition: { neq: [<.we_da, 1] }, then: [{ return: "" }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_we, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: "" }] }
+            - decl: [hidden, tensor, { call: [<.we_et_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.we_et_head.forward_logits, hidden] }]
+            - decl: [n_out, i32, <.et_vocab.len]
+            - decl: [best_idx, i32, { call: [<.argmax_logit, logits, n_out] }]
+            - return: { at: [<.et_vocab, best_idx] }
+
+      # ── Top-K names from any BCE logits + vocab ──────────────────────────
+      # Returns top-k vocab entries by raw logit value (no sigmoid threshold).
+      # Sorted descending.  Useful for discover-flow tag/yield/name picks.
+      - def:
+          name: top_k_strings
+          args: [[logits, tensor], [vocab, list<string>], [k_count, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - decl: [n_out, i32, vocab.len]
+            - if: { condition: { eq: [n_out, 0] }, then: [{ return: out }] }
+            - decl: [picked, list<i32>]
+            - decl: [k_iter, i32, 0]
+            - while:
+                condition: { lt: [k_iter, k_count] }
+                body:
+                  - decl: [best_idx, i32, -1]
+                  - decl: [best_val, f32, -100000.0]
+                  - decl: [i_idx, i32, 0]
+                  - while:
+                      condition: { lt: [i_idx, n_out] }
+                      body:
+                        - decl: [is_used, i32, 0]
+                        - decl: [u_idx, i32, 0]
+                        - while:
+                            condition: { lt: [u_idx, picked.len] }
+                            body:
+                              - decl: [uv_idx, i32, { at: [picked, u_idx] }]
+                              - if: { condition: { eq: [uv_idx, i_idx] }, then: [{ set: [is_used, 1] }] }
+                              - set: [u_idx, { "+": [u_idx, 1] }]
+                        - if:
+                            condition: { eq: [is_used, 0] }
+                            then:
+                              - decl: [val, f32, { call: [logits.get, i_idx] }]
+                              - if:
+                                  condition: { gt: [val, best_val] }
+                                  then:
+                                    - set: [best_val, val]
+                                    - set: [best_idx, i_idx]
+                        - set: [i_idx, { "+": [i_idx, 1] }]
+                  - if:
+                      condition: { ge: [best_idx, 0] }
+                      then:
+                        - call: [picked.push, best_idx]
+                        - call: [out.push, { at: [vocab, best_idx] }]
+                  - set: [k_iter, { "+": [k_iter, 1] }]
+            - return: out
+
+      # ── Predict top-k entity process tags for a discovery context ────────
+      - def:
+          name: predict_world_tags
+          args: [[tag_bag, string], [k_count, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_we, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: out }] }
+            - decl: [hidden, tensor, { call: [<.we_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.we_tag_head.forward_logits, hidden] }]
+            - return: { call: [<.ziehe_bernoulli, logits, <.we_tag_vocab, k_count] }
+
+      # ── Predict top-k yield-materials for a discovery context ────────────
+      - def:
+          name: predict_world_yields
+          args: [[tag_bag, string], [k_count, i32]]
+          return: list<string>
+          body:
+            - decl: [out, list<string>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_we, tag_bag] }]
+            # Keine der Marken steht im Wortschatz -- dann gibt es kein Signal.
+            # Eine LEERE Antwort waere hier die schlechteste: im Spiel liegt
+            # danach ein Gewaechs, das nichts traegt (gemeldet 21.11.2026, Beutel
+            # 'terrain_meadow_plain weather_bloomlight growing': 7 von 12 leer,
+            # auch nachdem der Transformer-Rueckfall schon griff).  Also ein
+            # plausibler Stoff statt nichts; dass er geraten ist, steht im Log.
+            - if:
+                condition: { eq: [ids.len, 0] }
+                then:
+                  - if: { condition: { eq: [<.we_yld_vocab.len, 0] }, then: [{ return: out }] }
+                  - decl: [blind, i32, { call: [math.random_int, 0, <.we_yld_vocab.len] }]
+                  - call: [out.push, { at: [<.we_yld_vocab, blind] }]
+                  - call: [log.warn, "[prophecy] Ertrag geraten: keine bekannte Marke in '${tag_bag}'"]
+                  - return: out
+            - decl: [hidden, tensor, { call: [<.we_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.we_yld_head.forward_logits, hidden] }]
+            - return: { call: [<.ziehe_bernoulli, logits, <.we_yld_vocab, k_count] }
+
+      # ── Predict name-token for a discovery context (temperature-sampled) ──
+      # Vorher: top-1 (argmax) → globaler Mode-Token ("fragrant") dominierte.
+      # Jetzt: top-K mit K∝temperature → random pick aus dem Set für Vielfalt.
+      # temperature → K:  0.0..0.5 → 1, 0.5..1.0 → 2, 1.0..1.5 → 4, 1.5..∞ → 8.
+      - def:
+          name: predict_world_name
+          args: [[tag_bag, string], [temperature, f32]]
+          return: string
+          body:
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: "" }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_we, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: "" }] }
+            - decl: [hidden, tensor, { call: [<.we_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.we_nm_head.forward_logits, hidden] }]
+            # K aus temperature.  Niedrige temp → wenige Tokens (greedy);
+            # hohe temp → großer Pool (random).
+            - decl: [k_count, i32, 2]
+            - if: { condition: { lte: [temperature, 0.5] }, then: [{ set: [k_count, 1] }] }
+            - if: { condition: { gt: [temperature, 1.0] }, then: [{ set: [k_count, 4] }] }
+            - if: { condition: { gt: [temperature, 1.5] }, then: [{ set: [k_count, 8] }] }
+            - decl: [topk, list<string>, { call: [<.top_k_strings, logits, <.we_nm_vocab, k_count] }]
+            - if: { condition: { eq: [topk.len, 0] }, then: [{ return: "" }] }
+            # Aus dem Topf nach WAHRSCHEINLICHKEIT ziehen, nicht gleichverteilt:
+            # vorher war der zehntbeste Name so haeufig wie der beste.
+            - decl: [gewichte, list<f32>]
+            - decl: [gpos, i32, 0]
+            - while:
+                condition: { lt: [gpos, topk.len] }
+                body:
+                  - decl: [nam, string, { at: [topk, gpos] }]
+                  - decl: [vpos, i32, 0]
+                  - decl: [gew, f32, 0.0]
+                  - while:
+                      condition: { lt: [vpos, <.we_nm_vocab.len] }
+                      body:
+                        - if:
+                            condition: { eq: [{ at: [<.we_nm_vocab, vpos] }, nam] }
+                            then: [{ set: [gew, { call: [<.sigmoid_scalar, { call: [logits.get, vpos] }] }] }]
+                        - set: [vpos, { "+": [vpos, 1] }]
+                  - call: [gewichte.push, gew]
+                  - set: [gpos, { "+": [gpos, 1] }]
+            - return: { call: [<.ziehe_gewichtet, topk, gewichte] }
+
+      # ── Vorschau: alle Fundarten mit ihrer Wahrscheinlichkeit ────────────
+      # Der Kopf rechnet ohnehin alle sieben Ausgaenge; `predict_entity_type`
+      # nimmt nur den groessten.  Fuer die Anzeige der drei wahrscheinlichsten
+      # braucht der Server beide Listen in DERSELBEN Reihenfolge.
+      - def:
+          name: entity_type_vocab
+          access: public
+          args: []
+          return: list<string>
+          body:
+            - return: <.et_vocab
+
+      - def:
+          name: entity_type_probs
+          access: public
+          args: [[tag_bag, string]]
+          return: list<f32>
+          body:
+            - decl: [out, list<f32>]
+            - if: { condition: { neq: [<.is_ready, 1] }, then: [{ return: out }] }
+            - call: [tensor.begin_graph]
+            - decl: [ids, list<i32>, { call: [<.tokenize_bag_we, tag_bag] }]
+            - if: { condition: { eq: [ids.len, 0] }, then: [{ return: out }] }
+            - decl: [hidden, tensor, { call: [<.we_et_body.encode_bag, ids] }]
+            - decl: [logits, tensor, { call: [<.we_et_head.forward_logits, hidden] }]
+            - decl: [n_out, i32, <.et_vocab.len]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, n_out] }
+                body:
+                  - call: [out.push, { call: [<.softmax_at, logits, n_out, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: out
+
+      # ── Entity-type → dg_var-compatible idx (0..5, -1 for "nothing"/unknown)
+      # discover.aiml branches by 0..5 → harvestable/growable/npc/enemy/portal/locked.
+      # Returns -1 for "nothing" — caller MUST treat that as "no discovery this time"
+      # and surface it as a user-visible message (no silent fallback).
+      - def:
+          name: predict_world_entity_idx
+          args: [[tag_bag, string]]
+          return: i32
+          static_off: ["str_cmp"]
+          body:
+            - decl: [et_str, string, { call: [<.predict_entity_type, tag_bag] }]
+            - if: { condition: { eq: [et_str, "harvestable"] }, then: [{ return: 0 }] }
+            - if: { condition: { eq: [et_str, "growable"]    }, then: [{ return: 1 }] }
+            - if: { condition: { eq: [et_str, "npc"]         }, then: [{ return: 2 }] }
+            - if: { condition: { eq: [et_str, "enemy"]       }, then: [{ return: 3 }] }
+            - if: { condition: { eq: [et_str, "portal"]      }, then: [{ return: 4 }] }
+            - if: { condition: { eq: [et_str, "locked"]      }, then: [{ return: 5 }] }
+            - return: -1
+
+      # Parse `recipe | <id> | <output x1> | <tags-csv> | <materials-csv> | <tools-csv>`
+      # rows from a corpus file into the four recipe_* maps.
+      - def:
+          name: load_recipe_metadata
+          args: [[file_path, string]]
+          body:
+            - decl: [text, string, { call: [io.read_file, file_path] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.warn, "[prophecy] recipe metadata file missing: ${file_path}"]
+                  - return: 0
+            - decl: [lines, list<string>, { call: [text.split, "\n"] }]
+            - decl: [n_ln, i32, lines.len]
+            - decl: [ln_idx, i32, 0]
+            - decl: [n_recipes, i32, 0]
+            - while:
+                condition: { lt: [ln_idx, n_ln] }
+                body:
+                  - decl: [raw_ln, string, { at: [lines, ln_idx] }]
+                  - decl: [ln_str, string, { call: [raw_ln.trim] }]
+                  - decl: [is_recipe_row, i32, 0]
+                  - if:
+                      condition: { eq: [{ call: [ln_str.starts_with, "recipe "] }, 1] }
+                      then: [{ set: [is_recipe_row, 1] }]
+                  - if:
+                      condition: { eq: [is_recipe_row, 1] }
+                      then:
+                        - decl: [cols, list<string>, { call: [ln_str.split, "|"] }]
+                        - if:
+                            condition: { ge: [cols.len, 7] }
+                            then:
+                              - decl: [rid_raw,  string, { at: [cols, 1] }]
+                              - decl: [rid,      string, { call: [rid_raw.trim] }]
+                              - decl: [out_raw,  string, { at: [cols, 2] }]
+                              - decl: [tag_raw,  string, { at: [cols, 3] }]
+                              - decl: [mat_raw,  string, { at: [cols, 4] }]
+                              - decl: [tool_raw, string, { at: [cols, 5] }]
+                              - decl: [ot_raw,   string, { at: [cols, 6] }]
+                              - call: [<.recipe_outputs.put,    rid, { call: [out_raw.trim] }]
+                              - call: [<.recipe_tags.put,       rid, { call: [tag_raw.trim] }]
+                              - call: [<.recipe_materials.put,  rid, { call: [mat_raw.trim] }]
+                              - call: [<.recipe_tools.put,      rid, { call: [tool_raw.trim] }]
+                              - call: [<.recipe_out_types.put,  rid, { call: [ot_raw.trim] }]
+                              - set: [n_recipes, { "+": [n_recipes, 1] }]
+                  - set: [ln_idx, { "+": [ln_idx, 1] }]
+            - call: [log.info, "[prophecy] loaded ${n_recipes} recipes from ${file_path}"]
+
+      # ── One-time init: load embedding + 3 backbones + 3 heads + 3 vocabs ─
+      - def:
+          name: init
+          args: []
+          return: i32
+          body:
+            - if: { condition: { eq: [<.is_ready, 1] }, then: [{ return: 1 }] }
+            - call: [log.info, "[prophecy] init: loading foundation embedder…"]
+            - set: [<.embedder, { new: TagEmbedding }]
+            - decl: [ok_load, i32, { call: [<.embedder.load_vocab] }]
+            - if:
+                condition: { neq: [ok_load, 1] }
+                then:
+                  - call: [log.error, "[prophecy] vocab load failed — run prophecy_build first"]
+                  - return: 0
+            - call: [<.embedder.init_model]
+            # Blinde Tabelle: die Koepfe laden gleich sauber und rechnen gegen
+            # Rauschen.  Nichts bricht ab, darum muss es hier laut sein.
+            # Ein Widerspruch am gemeinsamen Satz trifft ALLE Koepfe -- hier
+            # wird nicht weitergemacht (Spec modell_manifest_2026-11-20.md).
+            - if:
+                condition: { eq: [<.embedder.unvereinbar, 1] }
+                then:
+                  - call: [log.error, "[prophecy] init abgebrochen: die abgelegte Einbettung gehoert nicht zu diesem Wortschatz. Kette nachziehen: ./prophecy_pretrain, dann die Koepfe."]
+                  - return: 0
+            - if:
+                condition: { eq: [<.embedder.zufaellig, 1] }
+                then:
+                  - call: [log.error, "[prophecy] die gemeinsame Einbettung ist ZUFAELLIG — jede Antwort der klassischen Koepfe ist bedeutungslos. Kette nachziehen: ./prophecy_pretrain, dann prophecy_train_item_head / _combat_skill_head / _world_entity_head / _combat_score_head / _chance_kopf."]
+            - call: [log.info, "[prophecy] embedder: ${<.embedder.n_tokens} tokens × d=${<.embedder.d_embed}"]
+            - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
+
+            # ── Item module ───────────────────────────────────────────────
+            - set: [<.item_body.foundation, <.embedder]
+            - set: [<.item_body.hidden_dim, <.hidden_dim]
+            - set: [<.item_body.weights_name, "prophecy_head_body"]
+            - call: [<.item_body.init_model]
+            - decl: [iv_kv, Kv<string:string>, { call: [db.open_kv, "prophecy_item_head_vocab", {persist: true}] }]
+            - decl: [iv_blob, string, { call: [iv_kv.get, "recipes"] }]
+            - set: [<.item_vocab, { call: [<.decode_vocab_blob, iv_blob] }]
+            - set: [<.item_head.weights_name, "prophecy_head_outputs"]
+            - set: [<.item_head.head_id_str, "recipe"]
+            - set: [<.item_head.n_outputs_val, <.item_vocab.len]
+            - call: [<.item_head.init_params, <.hidden_dim]
+            - set: [<.item_da, { call: [<.kopf_pruefung, "prophecy_head_outputs"] }]
+            - set: [<.item_priority, { call: [priority_load, "prophecy_item_head_priority"] }]
+            - if:
+                condition: { eq: [<.item_priority.len, 0] }
+                then: [{ call: [log.warn, "[prophecy] item_head: keine domain_priority abgelegt -- loest in fremder Ordnung auf"] }]
+                else: [{ call: [log.info, "[prophecy] item_head: ${<.item_priority.len} Domaenen aus dem Korpus-Header"] }]
+            - call: [log.info, "[prophecy] item_head: ${<.item_vocab.len} recipes"]
+
+            # ── World-entity module — 4 heads (et_str+tags+yields+names) ─────
+            - set: [<.we_body.foundation, <.embedder]
+            - set: [<.we_body.hidden_dim, <.hidden_dim]
+            - set: [<.we_body.weights_name, "prophecy_world_entity_body"]
+            - set: [<.we_et_body.foundation, <.embedder]
+            - set: [<.we_et_body.hidden_dim, <.hidden_dim]
+            - set: [<.we_et_body.weights_name, "prophecy_world_entity_et_body"]
+            - call: [<.we_et_body.init_model]
+            - call: [<.we_body.init_model]
+            - decl: [we_kv, Kv<string:string>, { call: [db.open_kv, "prophecy_world_entity_head_vocab", {persist: true}] }]
+            - decl: [et_blob, string, { call: [we_kv.get, "entity_type"] }]
+            - decl: [tg_blob, string, { call: [we_kv.get, "tags"] }]
+            - decl: [yd_blob, string, { call: [we_kv.get, "yields"] }]
+            - decl: [nm_blob, string, { call: [we_kv.get, "names"] }]
+            - set: [<.et_vocab,     { call: [<.decode_vocab_blob, et_blob] }]
+            - set: [<.we_tag_vocab, { call: [<.decode_vocab_blob, tg_blob] }]
+            - set: [<.we_yld_vocab, { call: [<.decode_vocab_blob, yd_blob] }]
+            - set: [<.we_nm_vocab,  { call: [<.decode_vocab_blob, nm_blob] }]
+            - decl: [we_outs, string, "prophecy_world_entity_outputs"]
+            - set: [<.we_et_head.weights_name, we_outs]
+            - set: [<.we_et_head.head_id_str, "entity_type"]
+            - set: [<.we_et_head.n_outputs_val, <.et_vocab.len]
+            - call: [<.we_et_head.init_params, <.hidden_dim]
+            - set: [<.we_tag_head.weights_name, we_outs]
+            - set: [<.we_tag_head.head_id_str, "tags"]
+            - set: [<.we_tag_head.n_outputs_val, <.we_tag_vocab.len]
+            - call: [<.we_tag_head.init_params, <.hidden_dim]
+            - set: [<.we_yld_head.weights_name, we_outs]
+            - set: [<.we_yld_head.head_id_str, "yields"]
+            - set: [<.we_yld_head.n_outputs_val, <.we_yld_vocab.len]
+            - call: [<.we_yld_head.init_params, <.hidden_dim]
+            - set: [<.we_nm_head.weights_name, we_outs]
+            - set: [<.we_nm_head.head_id_str, "names"]
+            - set: [<.we_nm_head.n_outputs_val, <.we_nm_vocab.len]
+            - call: [<.we_nm_head.init_params, <.hidden_dim]
+            - set: [<.we_priority, { call: [priority_load, "prophecy_world_entity_priority"] }]
+            - if:
+                condition: { eq: [<.we_priority.len, 0] }
+                then:
+                  - call: [log.warn, "[prophecy] world_entity: keine domain_priority abgelegt -- der Fund loest in fremder Ordnung auf"]
+                else:
+                  - call: [log.info, "[prophecy] world_entity: ${<.we_priority.len} Domaenen aus dem Korpus-Header"]
+            - call: [log.info, "[prophecy] world_entity head: et=${<.et_vocab.len} tags=${<.we_tag_vocab.len} yields=${<.we_yld_vocab.len} names=${<.we_nm_vocab.len}"]
+            - set: [<.we_da, { call: [<.kopf_pruefung, "prophecy_world_entity_head_outputs"] }]
+
+            # ── Skill module ──────────────────────────────────────────────
+            - set: [<.skill_body.foundation, <.embedder]
+            - set: [<.skill_body.hidden_dim, <.hidden_dim]
+            - set: [<.skill_body.weights_name, "prophecy_skill_head_body"]
+            - call: [<.skill_body.init_model]
+            - decl: [sk_kv, Kv<string:string>, { call: [db.open_kv, "prophecy_skill_head_vocab", {persist: true}] }]
+            - decl: [sk_blob, string, { call: [sk_kv.get, "skills"] }]
+            - set: [<.skill_vocab, { call: [<.decode_vocab_blob, sk_blob] }]
+            - set: [<.skill_head.weights_name, "prophecy_skill_head_outputs"]
+            - set: [<.skill_head.head_id_str, "skill"]
+            - set: [<.skill_head.n_outputs_val, <.skill_vocab.len]
+            - call: [<.skill_head.init_params, <.hidden_dim]
+            - set: [<.skill_priority, { call: [priority_load, "prophecy_skill_head_priority"] }]
+            - if:
+                condition: { eq: [<.skill_priority.len, 0] }
+                then: [{ call: [log.warn, "[prophecy] skill_head: keine domain_priority abgelegt -- loest in fremder Ordnung auf"] }]
+                else: [{ call: [log.info, "[prophecy] skill_head: ${<.skill_priority.len} Domaenen aus dem Korpus-Header"] }]
+            - call: [log.info, "[prophecy] skill_head: ${<.skill_vocab.len} skills"]
+            - set: [<.skill_da, { call: [<.kopf_pruefung, "prophecy_skill_head_outputs"] }]
+
+            # ── Combat-skill module ────────────────────────────────────────
+            # Trainiert: 166 Klassen Softmax über alle combat_skill ids.
+            # Magic-Foundation-Pfad lernt gut (fire/rune/arcane discrimination),
+            # physical-Pfad ist Magic-biased (foundation-imbalance 78 vs 9).
+            # Server filtert über skill-ownership (already-learned skip), kein
+            # foundation-gate filter da Inferenz-Genauigkeit nicht perfekt ist.
+            - set: [<.combat_skill_body.foundation, <.embedder]
+            - set: [<.combat_skill_body.hidden_dim, <.hidden_dim]
+            - set: [<.combat_skill_body.weights_name, "prophecy_combat_skill_head_body"]
+            - call: [<.combat_skill_body.init_model]
+            - decl: [csk_kv, Kv<string:string>, { call: [db.open_kv, "prophecy_combat_skill_vocab", {persist: true}] }]
+            - decl: [csk_blob, string, { call: [csk_kv.get, "skills"] }]
+            - set: [<.combat_skill_vocab, { call: [<.decode_vocab_blob, csk_blob] }]
+            - set: [<.combat_skill_head.weights_name, "prophecy_combat_skill_head_outputs"]
+            - set: [<.combat_skill_head.head_id_str, "combat_skill"]
+            - set: [<.combat_skill_head.n_outputs_val, <.combat_skill_vocab.len]
+            - call: [<.combat_skill_head.init_params, <.hidden_dim]
+            - set: [<.cskill_priority, { call: [priority_load, "prophecy_combat_skill_head_priority"] }]
+            - if:
+                condition: { eq: [<.cskill_priority.len, 0] }
+                then: [{ call: [log.warn, "[prophecy] combat_skill_head: keine domain_priority abgelegt -- loest in fremder Ordnung auf"] }]
+                else: [{ call: [log.info, "[prophecy] combat_skill_head: ${<.cskill_priority.len} Domaenen aus dem Korpus-Header"] }]
+            - call: [log.info, "[prophecy] combat_skill_head: ${<.combat_skill_vocab.len} skills"]
+            - set: [<.cskill_da, { call: [<.kopf_pruefung, "prophecy_combat_skill_head_outputs"] }]
+
+            # ── Trefferchance (Regression auf [0,1]) ───────────────────────
+            - set: [<.score_priority, { call: [priority_load, "prophecy_combat_score_priority"] }]
+            - if:
+                condition: { eq: [<.score_priority.len, 0] }
+                then:
+                  - call: [log.warn, "[prophecy] combat_score: keine domain_priority abgelegt — Trefferchance loest in fremder Ordnung auf"]
+                  - set: [<.score_priority, <.current_priority]
+                else:
+                  - call: [log.info, "[prophecy] combat_score: ${<.score_priority.len} Domaenen aus dem Korpus-Header"]
+            - decl: [cs_kv, Kv<string:string>, { call: [db.open_kv, "prophecy_combat_score_vocab", {persist: true}] }]
+            - decl: [cs_blob, string, { call: [cs_kv.get, "tokens"] }]
+            - set: [<.score_vokabular, { call: [<.decode_vocab_blob, cs_blob] }]
+            - decl: [cs_idx, i32, 0]
+            - while:
+                condition: { lt: [cs_idx, <.score_vokabular.len] }
+                body:
+                  - decl: [cs_tok, string, { at: [<.score_vokabular, cs_idx] }]
+                  - call: [<.score_index.put, cs_tok, cs_idx]
+                  - set: [cs_idx, { "+": [cs_idx, 1] }]
+            - set: [<.wucht_w, { call: [tensor.load, "prophecy_combat_score_weights", "wucht_w"] }]
+            - set: [<.wucht_b, { call: [tensor.load, "prophecy_combat_score_weights", "wucht_b"] }]
+            - if:
+                condition: { "&&": [{ neq: [<.wucht_w, null] }, { neq: [<.wucht_b, null] }] }
+                then:
+                  - call: [<.wucht_w.keep]
+                  - call: [<.wucht_b.keep]
+            - set: [<.score_bw, { call: [tensor.load, "prophecy_combat_score_body", "bag_w"] }]
+            - set: [<.score_bb, { call: [tensor.load, "prophecy_combat_score_body", "bag_b"] }]
+            - if:
+                condition: { "&&": [{ neq: [<.score_bw, null] }, { neq: [<.score_bb, null] }] }
+                then:
+                  - call: [<.score_bw.keep]
+                  - call: [<.score_bb.keep]
+                  - call: [log.info, "[prophecy] combat_score: eigenes Vokabular ${<.score_vokabular.len} Marken"]
+            - set: [<.score_w, { call: [tensor.load, "prophecy_combat_score_weights", "score_w"] }]
+            - set: [<.score_b, { call: [tensor.load, "prophecy_combat_score_weights", "score_b"] }]
+            - if:
+                condition: { "&&": [{ neq: [<.score_w, null] }, { neq: [<.score_b, null] }] }
+                then:
+                  - call: [<.score_w.keep]
+                  - call: [<.score_b.keep]
+                  - if:
+                      condition: { "&&": [{ neq: [<.score_bw, null] }, { gt: [<.score_vokabular.len, 0] }] }
+                      then:
+                        # Dieser Kopf traegt sein EIGENES Vokabular; seine
+                        # Identitaet ist dessen Blob, nicht die gemeinsame
+                        # Einbettung (Spec modell_manifest_2026-11-20.md).
+                        - decl: [cs_soll, ManifestSatz]
+                        - set: [cs_soll.wortschatz, { call: [manifest_fp, cs_blob] }]
+                        - set: [cs_soll.n_marken,   <.score_vokabular.len]
+                        - set: [cs_soll.d_wert,     { call: [<.score_bw.shape, 1] }]
+                        - decl: [cs_code, i32, { call: [manifest_pruefen, { call: [manifest_lade, "prophecy_combat_score_weights"] }, cs_soll] }]
+                        - if:
+                            condition: { eq: [cs_code, 2] }
+                            then:
+                              - call: [log.error, "[manifest] 'prophecy_combat_score_weights' gehoert nicht zu diesem Vokabular (${<.score_vokabular.len} Marken) — Trefferchance faellt auf die Regel."]
+                            else:
+                              - if:
+                                  condition: { eq: [cs_code, 1] }
+                                  then: [{ call: [log.error, "[manifest] 'prophecy_combat_score_weights' hat keinen Satz — Herkunft nicht nachgewiesen."] }]
+                              - set: [<.score_da, 1]
+                      else: [{ call: [log.warn, "[prophecy] combat_score: Koerper oder Vokabular fehlt — Trefferchance faellt auf 0.5"] }]
+                  - call: [log.info, "[prophecy] combat_score: Gewichte geladen"]
+                else:
+                  - call: [log.warn, "[prophecy] combat_score: keine Gewichte — Trefferchance faellt auf 0.5"]
+
+            # ── Token-resolution priority (broad union) ───────────────────
+            - call: [<.current_priority.push, "cross:element"]
+            - call: [<.current_priority.push, "actions:base_actions"]
+            - call: [<.current_priority.push, "skills:starter_skills"]
+            - call: [<.current_priority.push, "skills:base_skills"]
+            - call: [<.current_priority.push, "skills:active_skills"]
+            - call: [<.current_priority.push, "skills:combat_skills"]
+            - call: [<.current_priority.push, "skills:combat_skill_tags"]
+            - call: [<.current_priority.push, "skills:passive_skills"]
+            - call: [<.current_priority.push, "skills:mechanic_skills"]
+            - call: [<.current_priority.push, "skills"]
+            - call: [<.current_priority.push, "items:starter_items"]
+            - call: [<.current_priority.push, "items:weapon"]
+            - call: [<.current_priority.push, "items:tool"]
+            - call: [<.current_priority.push, "items:utility"]
+            - call: [<.current_priority.push, "items:device"]
+            - call: [<.current_priority.push, "items:rune"]
+            - call: [<.current_priority.push, "items:craft_material"]
+            - call: [<.current_priority.push, "items:craft_materials:metal"]
+            - call: [<.current_priority.push, "items:craft_materials:wood"]
+            - call: [<.current_priority.push, "items:craft_materials:gem"]
+            - call: [<.current_priority.push, "items:craft_materials:essence"]
+            - call: [<.current_priority.push, "items:craft_materials:fiber"]
+            - call: [<.current_priority.push, "items:craft_materials:fungus"]
+            - call: [<.current_priority.push, "items:craft_materials:herb"]
+            - call: [<.current_priority.push, "items:craft_materials:mineral"]
+            - call: [<.current_priority.push, "items:craft_materials:stone"]
+            - call: [<.current_priority.push, "items:craft_materials:tech"]
+            - call: [<.current_priority.push, "items:craft_materials:liquid"]
+            - call: [<.current_priority.push, "items:craft_materials:animal"]
+            - call: [<.current_priority.push, "items:craft_materials:quantum"]
+            - call: [<.current_priority.push, "items:craft_materials:food"]
+            - call: [<.current_priority.push, "cross:entity_type"]
+            - call: [<.current_priority.push, "realm:realm_tags"]
+            - call: [<.current_priority.push, "zone:zone_tags"]
+            - call: [<.current_priority.push, "terrain:terrain_only_tags"]
+            - call: [<.current_priority.push, "weather:weather_only_tags"]
+            - call: [<.current_priority.push, "common:common_tags"]
+            - call: [<.current_priority.push, "items:weapon_tags"]
+            - call: [<.current_priority.push, "items:utility_tags"]
+            - call: [<.current_priority.push, "items:tool_tags"]
+            - call: [<.current_priority.push, "items:craft_recipe_tags"]
+            - call: [<.current_priority.push, "items:socketable_tags"]
+            - call: [<.current_priority.push, "items:rune_tags"]
+            - call: [<.current_priority.push, "items:item_only_tags"]
+            - call: [<.current_priority.push, "items:universal_tags"]
+            - call: [<.current_priority.push, "items:craft_material_tags"]
+            - call: [<.current_priority.push, "synthetic:cluster_extras"]
+            # ── Recipe metadata: parse items_augmented.txt recipe rows ────
+            - call: [<.load_recipe_metadata, "itemgen/data/items_augmented.txt"]
+
+            - set: [<.is_ready, 1]
+            - call: [log.info, "[prophecy] init: READY"]
+            - return: 1
+
+# ── Module-level singleton ───────────────────────────────────────────────────
+# Server code does:
+#   - decl: [_p_init, i32, { call: [prophecy_predictor.init] }]
+#   - decl: [rec, string, { call: [prophecy_predictor.predict_recipe, tag_bag] }]
+- decl: [prophecy_predictor, ProphecyPredictor]

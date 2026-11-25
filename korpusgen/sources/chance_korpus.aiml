@@ -1,0 +1,606 @@
+# Der erzeugte Teil von `data/combat.txt`: Waffe gegen Gegner, Chance und
+# Wucht.  Portiert aus scripts/generate_clustered_corpus.py
+# (`chance_waffe_gegen_gegner`, `wucht_waffe_gegen_gegner`) -- Zahl fuer Zahl,
+# damit der Kopf dieselbe Regel lernt wie bisher.  Nur der handgeschriebene
+# Teil der Datei bleibt stehen; ersetzt wird der markierte Block.
+#
+# Die Regel in zwei Teilen (so steht sie auch im Dateikopf):
+#   DURCHKOMMEN   Panzerklasse, Waffenklasse, Werkstoff, Element, Schwaeche
+#   TREFFBARKEIT  Groesse, Tempo, Bedrohung, Verhalten -- sie SKALIERT das
+#                 Durchkommen, ersetzt es nicht.
+- import: "korpusgen/sources/topf.aiml"
+- import: "korpusgen/sources/ziehen.aiml"
+
+# Zwei Nachkommastellen, wie im Python-Erzeuger (`:.2f`).
+- def:
+    name: zwei_stellen
+    args: [[wert, f32]]
+    return: string
+    body:
+      - decl: [hundert, i32, { call: [math.round, { "*": [wert, 100.0] }] }]
+      - if: { condition: { lt: [hundert, 0] }, then: [{ set: [hundert, 0] }] }
+      - decl: [ganz, i32, { "/": [hundert, 100] }]
+      - decl: [rest, i32, { "%": [hundert, 100] }]
+      - if: { condition: { lt: [rest, 10] }, then: [{ return: "${ganz}.0${rest}" }] }
+      - return: "${ganz}.${rest}"
+
+- class:
+    name: ChanceKorpus
+    members:
+      - [zie, ptr<Zieher>, null]
+      # Tabellen der Regel
+      - [panzer_grund,  map<string:f32>]
+      - [groesse_mod,   map<string:f32>]
+      - [tempo_mod,     map<string:f32>]
+      - [bedrohung_mod, map<string:f32>]
+      - [verhalten_mod, map<string:f32>]
+      - [aspekt_elem,   map<string:string>]
+      - [gegenelement,  map<string:string>]
+      - [schwaeche_waffe, map<string:string>]
+      - [schwaeche_elem,  map<string:string>]
+      - [klasse_wucht,  map<string:f32>]
+      - [panzer_daempft, map<string:f32>]
+      - [hart,  map<string:i32>]
+      - [weich, map<string:i32>]
+      - [arkan, map<string:i32>]
+      # Klassenmarken und Klasse-gegen-Panzer (flach: "klasse|panzer")
+      - [marken_blunt,    map<string:i32>]
+      - [marken_sharp,    map<string:i32>]
+      - [marken_piercing, map<string:i32>]
+      - [klasse_panzer,   map<string:f32>]
+      # Statt Literal-Vergleiche in der Regel: zwei Tabellen.  Die statische
+      # Pruefung hat recht -- ein festes Vokabular gehoert in eine Tabelle,
+      # nicht fuenfmal in eine Bedingung.
+      - [panzer_hart,       map<string:i32>]   # bricht die blosse Faust
+      - [panzer_koerperlos, map<string:i32>]   # Stahl geht hindurch
+      # Toepfe
+      - [waffen_topf, list<string>]
+      - [uni_topf,    list<string>]
+      - [mat_topf,    list<string>]
+      - [elemente,    list<string>]
+      - [zeilen,      list<string>, null, { access: public }]
+    methods:
+      - def:
+          name: tabellen
+          access: public
+          args: []
+          body:
+            - call: [<.panzer_grund.put, "unarmored", 0.78]
+            - call: [<.panzer_grund.put, "hide_armor", 0.58]
+            - call: [<.panzer_grund.put, "chitin_shelled", 0.46]
+            - call: [<.panzer_grund.put, "scale_plated", 0.36]
+            - call: [<.panzer_grund.put, "crystal_armored", 0.30]
+            - call: [<.panzer_grund.put, "ethereal", 0.32]
+            - call: [<.panzer_grund.put, "phasing", 0.26]
+            - call: [<.groesse_mod.put, "tiny", -0.22]
+            - call: [<.groesse_mod.put, "small", -0.12]
+            - call: [<.groesse_mod.put, "medium_size", 0.0]
+            - call: [<.groesse_mod.put, "large", 0.10]
+            - call: [<.groesse_mod.put, "giant", 0.16]
+            - call: [<.tempo_mod.put, "darting", -0.15]
+            - call: [<.tempo_mod.put, "quick", -0.10]
+            - call: [<.tempo_mod.put, "fast", -0.08]
+            - call: [<.tempo_mod.put, "moderate_speed", 0.0]
+            - call: [<.tempo_mod.put, "slow", 0.07]
+            - call: [<.tempo_mod.put, "sluggish", 0.12]
+            - call: [<.bedrohung_mod.put, "minimal_threat", 0.08]
+            - call: [<.bedrohung_mod.put, "low_threat", 0.04]
+            - call: [<.bedrohung_mod.put, "medium_threat", 0.0]
+            - call: [<.bedrohung_mod.put, "high_threat", -0.06]
+            - call: [<.bedrohung_mod.put, "boss_tier", -0.12]
+            - call: [<.verhalten_mod.put, "guarding", -0.04]
+            - call: [<.verhalten_mod.put, "territorial", -0.02]
+            - call: [<.verhalten_mod.put, "ambush", -0.03]
+            - call: [<.verhalten_mod.put, "aggressive", 0.02]
+            - call: [<.verhalten_mod.put, "fleeing", -0.05]
+            - call: [<.verhalten_mod.put, "patrolling", 0.0]
+            - call: [<.verhalten_mod.put, "pack_hunter", 0.0]
+            - call: [<.verhalten_mod.put, "solitary", 0.0]
+            - call: [<.aspekt_elem.put, "fire_aspect", "fire"]
+            - call: [<.aspekt_elem.put, "cold_aspect", "water"]
+            - call: [<.aspekt_elem.put, "shock_aspect", "air"]
+            - call: [<.aspekt_elem.put, "shadow_aspect", "aether"]
+            - call: [<.aspekt_elem.put, "shard_aspect", "earth"]
+            - call: [<.aspekt_elem.put, "qbit_aspect", "aether"]
+            - call: [<.gegenelement.put, "fire", "water"]
+            - call: [<.gegenelement.put, "water", "fire"]
+            - call: [<.gegenelement.put, "earth", "air"]
+            - call: [<.gegenelement.put, "air", "earth"]
+            - call: [<.schwaeche_waffe.put, "weak_to_blunt", "blunt"]
+            - call: [<.schwaeche_waffe.put, "weak_to_piercing", "piercing"]
+            - call: [<.schwaeche_elem.put, "weak_to_fire", "fire"]
+            - call: [<.schwaeche_elem.put, "weak_to_cold", "water"]
+            - call: [<.schwaeche_elem.put, "weak_to_runic", "aether"]
+            - call: [<.klasse_wucht.put, "blunt", 0.90]
+            - call: [<.klasse_wucht.put, "sharp", 0.40]
+            - call: [<.klasse_wucht.put, "piercing", 0.55]
+            - call: [<.panzer_daempft.put, "unarmored", 1.00]
+            - call: [<.panzer_daempft.put, "hide_armor", 0.85]
+            - call: [<.panzer_daempft.put, "chitin_shelled", 0.70]
+            - call: [<.panzer_daempft.put, "scale_plated", 0.60]
+            - call: [<.panzer_daempft.put, "crystal_armored", 0.55]
+            - call: [<.panzer_daempft.put, "ethereal", 0.40]
+            - call: [<.panzer_daempft.put, "phasing", 0.40]
+            - call: [<.klasse_panzer.put, "blunt|unarmored", 0.00]
+            - call: [<.klasse_panzer.put, "blunt|hide_armor", -0.06]
+            - call: [<.klasse_panzer.put, "blunt|chitin_shelled", 0.12]
+            - call: [<.klasse_panzer.put, "blunt|scale_plated", -0.06]
+            - call: [<.klasse_panzer.put, "blunt|crystal_armored", 0.08]
+            - call: [<.klasse_panzer.put, "blunt|ethereal", -0.04]
+            - call: [<.klasse_panzer.put, "blunt|phasing", -0.04]
+            - call: [<.klasse_panzer.put, "sharp|unarmored", 0.12]
+            - call: [<.klasse_panzer.put, "sharp|hide_armor", 0.06]
+            - call: [<.klasse_panzer.put, "sharp|chitin_shelled", -0.10]
+            - call: [<.klasse_panzer.put, "sharp|scale_plated", -0.14]
+            - call: [<.klasse_panzer.put, "sharp|crystal_armored", -0.12]
+            - call: [<.klasse_panzer.put, "sharp|ethereal", -0.02]
+            - call: [<.klasse_panzer.put, "sharp|phasing", -0.02]
+            - call: [<.klasse_panzer.put, "piercing|unarmored", 0.12]
+            - call: [<.klasse_panzer.put, "piercing|hide_armor", 0.16]
+            - call: [<.klasse_panzer.put, "piercing|chitin_shelled", 0.02]
+            - call: [<.klasse_panzer.put, "piercing|scale_plated", 0.04]
+            - call: [<.klasse_panzer.put, "piercing|crystal_armored", -0.06]
+            - call: [<.klasse_panzer.put, "piercing|ethereal", 0.00]
+            - call: [<.klasse_panzer.put, "piercing|phasing", 0.00]
+            - call: [<.panzer_hart.put, "scale_plated", 1]
+            - call: [<.panzer_hart.put, "crystal_armored", 1]
+            - call: [<.panzer_hart.put, "chitin_shelled", 1]
+            - call: [<.panzer_koerperlos.put, "ethereal", 1]
+            - call: [<.panzer_koerperlos.put, "phasing", 1]
+
+      - def:
+          name: woerter_in
+          access: public
+          args: [[karte, map<string:i32>], [woerter, list<string>]]
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, woerter.len] }
+                body:
+                  - call: [karte.put, { at: [woerter, idx] }, 1]
+                  - set: [idx, { "+": [idx, 1] }]
+
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          body:
+            - set: [<.zie, { new: Zieher }]
+            - call: [<.zie.start, saat]
+            - call: [<.tabellen]
+            - decl: [harte, list<string>, ["iron", "steel", "granite", "basalt", "obsidian", "bronze", "quartz", "crystal", "stone", "diamond", "titanium"]]
+            - call: [<.woerter_in, <.hart, harte]
+            - decl: [weiche, list<string>, ["silk", "cloth", "leather", "moss", "feather", "fur", "bastfiber", "wool", "paper", "straw"]]
+            - call: [<.woerter_in, <.weich, weiche]
+            - decl: [arkane, list<string>, ["arcane", "runic", "sealed", "enchanted", "magical", "luminous", "holy"]]
+            - call: [<.woerter_in, <.arkan, arkane]
+            - decl: [stumpf, list<string>, ["blunt", "brutal", "forceful", "massive", "sturdy"]]
+            - call: [<.woerter_in, <.marken_blunt, stumpf]
+            - decl: [scharf, list<string>, ["sharp", "edged", "serrated", "curved", "jagged", "chipped"]]
+            - call: [<.woerter_in, <.marken_sharp, scharf]
+            - decl: [stechend, list<string>, ["piercing", "pointed", "precise", "thorned", "hooked", "notched"]]
+            - call: [<.woerter_in, <.marken_piercing, stechend]
+            - set: [<.waffen_topf, { call: [topf_lesen, "prophecy/data/tags/items/weapon_tags.txt"] }]
+            - set: [<.uni_topf, { call: [topf_lesen, "prophecy/data/tags/items/universal_tags.txt"] }]
+            - set: [<.mat_topf, { call: [topf_lesen, "prophecy/data/tags/items/craft_material_tags.txt"] }]
+            - set: [<.elemente, { call: [topf_lesen, "prophecy/data/tags/cross/element.txt"] }]
+            - call: [log.info, "chance: ${<.waffen_topf.len} Waffenmarken, ${<.uni_topf.len} allgemeine, ${<.mat_topf.len} Werkstoffmarken, ${<.elemente.len} Elemente"]
+
+      # Hat die Markenliste eines der Woerter der Karte?
+      - def:
+          name: hat_eines
+          access: public
+          args: [[marken, list<string>], [karte, map<string:i32>]]
+          return: i32
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, marken.len] }
+                body:
+                  - if: { condition: { eq: [{ call: [karte.contains, { at: [marken, idx] }] }, 1] }, then: [{ return: 1 }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - return: 0
+
+      - def:
+          name: hat_wort
+          access: public
+          args: [[marken, list<string>], [wort, string]]
+          return: i32
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, marken.len] }
+                body:
+                  - decl: [eins, string, { at: [marken, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if: { condition: { eq: [eins, wort] }, then: [{ return: 1 }] }
+            - return: 0
+
+      # Die Klassen einer Waffe.  Eine Waffe kann mehreres sein -- ein Dolch
+      # ist scharf UND stechend.  Ohne Treffer gilt sie als stumpf.
+      - def:
+          name: waffen_klassen
+          access: public
+          args: [[waffe, list<string>]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - if: { condition: { eq: [{ call: [<.hat_eines, waffe, <.marken_blunt] }, 1] }, then: [{ call: [raus.push, "blunt"] }] }
+            - if: { condition: { eq: [{ call: [<.hat_eines, waffe, <.marken_sharp] }, 1] }, then: [{ call: [raus.push, "sharp"] }] }
+            - if: { condition: { eq: [{ call: [<.hat_eines, waffe, <.marken_piercing] }, 1] }, then: [{ call: [raus.push, "piercing"] }] }
+            - if: { condition: { eq: [raus.len, 0] }, then: [{ call: [raus.push, "blunt"] }] }
+            - return: raus
+
+      # Die Panzermarke des Gegners, "" wenn keine.
+      - def:
+          name: panzer_von
+          access: public
+          args: [[gegner, list<string>]]
+          return: string
+          body:
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, gegner.len] }
+                body:
+                  - decl: [eins, string, { at: [gegner, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if: { condition: { eq: [{ call: [<.panzer_grund.contains, eins] }, 1] }, then: [{ return: eins }] }
+            - return: ""
+
+      # Die Elementmarken der Waffe: die vier Grundelemente und `aether`.
+      - def:
+          name: waffen_elemente
+          access: public
+          args: [[waffe, list<string>]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, waffe.len] }
+                body:
+                  - decl: [eins, string, { at: [waffe, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if: { condition: { eq: [{ call: [<.gegenelement.contains, eins] }, 1] }, then: [{ call: [raus.push, eins] }] }
+                  - if: { condition: { eq: [{ call: [<.arkan.contains, eins] }, 1] }, then: [{ call: [raus.push, eins] }] }
+            - return: raus
+
+      # ── Die Chance: Durchkommen x Treffbarkeit ──
+      - def:
+          name: chance_fuer
+          access: public
+          args: [[waffe, list<string>], [gegner, list<string>]]
+          return: f32
+          body:
+            - decl: [panzer, string, { call: [<.panzer_von, gegner] }]
+            - decl: [grund, f32, 0.62]
+            - if: { condition: { gt: [panzer.len, 0] }, then: [{ set: [grund, { call: [<.panzer_grund.get, panzer] }] }] }
+            - decl: [klassen, list<string>, { call: [<.waffen_klassen, waffe] }]
+            - if:
+                condition: { gt: [panzer.len, 0] }
+                then:
+                  - decl: [summe, f32, 0.0]
+                  - decl: [kidx, i32, 0]
+                  - while:
+                      condition: { lt: [kidx, klassen.len] }
+                      body:
+                        - decl: [kla, string, { at: [klassen, kidx] }]
+                        - set: [kidx, { "+": [kidx, 1] }]
+                        - decl: [schl, string, "${kla}|${panzer}"]
+                        - if: { condition: { eq: [{ call: [<.klasse_panzer.contains, schl] }, 1] }, then: [{ set: [summe, { "+": [summe, { call: [<.klasse_panzer.get, schl] }] }] }] }
+                  - decl: [anzahl, f32, klassen.len]
+                  - set: [grund, { "+": [grund, { "/": [summe, anzahl] }] }]
+            # Werkstoff der Waffe
+            - decl: [ist_hart, i32, { call: [<.hat_eines, waffe, <.hart] }]
+            - decl: [ist_weich, i32, { call: [<.hat_eines, waffe, <.weich] }]
+            - if:
+                condition: { eq: [ist_hart, 1] }
+                then: [{ set: [grund, { "+": [grund, 0.05] }] }]
+                else:
+                  - if:
+                      condition: { eq: [ist_weich, 1] }
+                      then: [{ set: [grund, { "-": [grund, 0.08] }] }]
+                      else:
+                        # Gar kein Werkstoff: die blosse Faust.
+                        - set: [grund, { "-": [grund, 0.10] }]
+                        - if:
+                            condition: { eq: [{ call: [<.panzer_hart.contains, panzer] }, 1] }
+                            then: [{ set: [grund, { "-": [grund, 0.10] }] }]
+            # Gewicht gegen Groesse
+            - decl: [schwer, i32, { call: [<.hat_wort, waffe, "heavy"] }]
+            - decl: [leicht, i32, { call: [<.hat_wort, waffe, "light"] }]
+            - decl: [winzig, i32, { call: [<.hat_wort, gegner, "tiny"] }]
+            - decl: [klein, i32, { call: [<.hat_wort, gegner, "small"] }]
+            - decl: [gross, i32, { call: [<.hat_wort, gegner, "large"] }]
+            - decl: [riesig, i32, { call: [<.hat_wort, gegner, "giant"] }]
+            - if: { condition: { "&&": [{ eq: [schwer, 1] }, { "||": [{ eq: [winzig, 1] }, { eq: [klein, 1] }] }] }, then: [{ set: [grund, { "-": [grund, 0.06] }] }] }
+            - if: { condition: { "&&": [{ eq: [leicht, 1] }, { "||": [{ eq: [gross, 1] }, { eq: [riesig, 1] }] }] }, then: [{ set: [grund, { "-": [grund, 0.04] }] }] }
+            # Koerperlos: Stahl geht hindurch, Arkanes greift
+            - decl: [ist_arkan, i32, { call: [<.hat_eines, waffe, <.arkan] }]
+            - if: { condition: { eq: [{ call: [<.hat_wort, waffe, "aether"] }, 1] }, then: [{ set: [ist_arkan, 1] }] }
+            - if:
+                condition: { eq: [{ call: [<.panzer_koerperlos.contains, panzer] }, 1] }
+                then:
+                  - if:
+                      condition: { eq: [ist_arkan, 1] }
+                      then: [{ set: [grund, { "+": [grund, 0.16] }] }]
+                      else: [{ set: [grund, { "-": [grund, 0.18] }] }]
+            # Schwaeche des Gegners
+            - decl: [gidx, i32, 0]
+            - while:
+                condition: { lt: [gidx, gegner.len] }
+                body:
+                  - decl: [marke, string, { at: [gegner, gidx] }]
+                  - set: [gidx, { "+": [gidx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [<.schwaeche_waffe.contains, marke] }, 1] }
+                      then:
+                        - decl: [braucht, string, { call: [<.schwaeche_waffe.get, marke] }]
+                        - if: { condition: { eq: [{ call: [<.hat_wort, klassen, braucht] }, 1] }, then: [{ set: [grund, { "+": [grund, 0.18] }] }] }
+                  - if:
+                      condition: { eq: [{ call: [<.schwaeche_elem.contains, marke] }, 1] }
+                      then:
+                        - decl: [elem, string, { call: [<.schwaeche_elem.get, marke] }]
+                        - if: { condition: { eq: [{ call: [<.hat_wort, waffe, elem] }, 1] }, then: [{ set: [grund, { "+": [grund, 0.18] }] }] }
+            - if: { condition: { eq: [{ call: [<.hat_wort, gegner, "no_known_weakness"] }, 1] }, then: [{ set: [grund, { "-": [grund, 0.05] }] }] }
+            # Element gegen Aspekt
+            - decl: [welem, list<string>, { call: [<.waffen_elemente, waffe] }]
+            - decl: [aidx, i32, 0]
+            - while:
+                condition: { lt: [aidx, gegner.len] }
+                body:
+                  - decl: [marke2, string, { at: [gegner, aidx] }]
+                  - set: [aidx, { "+": [aidx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [<.aspekt_elem.contains, marke2] }, 1] }
+                      then:
+                        - decl: [aspekt, string, { call: [<.aspekt_elem.get, marke2] }]
+                        - if:
+                            condition: { eq: [{ call: [<.hat_wort, welem, aspekt] }, 1] }
+                            then: [{ set: [grund, { "-": [grund, 0.15] }] }]
+                            else:
+                              - if:
+                                  condition: { eq: [{ call: [<.gegenelement.contains, aspekt] }, 1] }
+                                  then:
+                                    - decl: [gegen, string, { call: [<.gegenelement.get, aspekt] }]
+                                    - if: { condition: { eq: [{ call: [<.hat_wort, welem, gegen] }, 1] }, then: [{ set: [grund, { "+": [grund, 0.10] }] }] }
+            - set: [grund, { call: [math.clamp, grund, 0.02, 0.95] }]
+            # Treffbarkeit
+            - decl: [faktor, f32, 1.0]
+            - decl: [fidx, i32, 0]
+            - while:
+                condition: { lt: [fidx, gegner.len] }
+                body:
+                  - decl: [marke3, string, { at: [gegner, fidx] }]
+                  - set: [fidx, { "+": [fidx, 1] }]
+                  - if: { condition: { eq: [{ call: [<.groesse_mod.contains, marke3] }, 1] },   then: [{ set: [faktor, { "+": [faktor, { call: [<.groesse_mod.get, marke3] }] }] }] }
+                  - if: { condition: { eq: [{ call: [<.tempo_mod.contains, marke3] }, 1] },     then: [{ set: [faktor, { "+": [faktor, { call: [<.tempo_mod.get, marke3] }] }] }] }
+                  - if: { condition: { eq: [{ call: [<.bedrohung_mod.contains, marke3] }, 1] }, then: [{ set: [faktor, { "+": [faktor, { call: [<.bedrohung_mod.get, marke3] }] }] }] }
+                  - if: { condition: { eq: [{ call: [<.verhalten_mod.contains, marke3] }, 1] }, then: [{ set: [faktor, { "+": [faktor, { call: [<.verhalten_mod.get, marke3] }] }] }] }
+            - set: [faktor, { call: [math.clamp, faktor, 0.6, 1.35] }]
+            - return: { call: [math.clamp, { "*": [grund, faktor] }, 0.03, 0.95] }
+
+      # ── Die Wucht: was ein Treffer anrichtet, WENN er durchkommt ──
+      - def:
+          name: wucht_fuer
+          access: public
+          args: [[waffe, list<string>], [gegner, list<string>]]
+          return: f32
+          body:
+            - decl: [klassen, list<string>, { call: [<.waffen_klassen, waffe] }]
+            - decl: [summe, f32, 0.0]
+            - decl: [kidx, i32, 0]
+            - while:
+                condition: { lt: [kidx, klassen.len] }
+                body:
+                  - decl: [kla, string, { at: [klassen, kidx] }]
+                  - set: [kidx, { "+": [kidx, 1] }]
+                  - set: [summe, { "+": [summe, { call: [<.klasse_wucht.get, kla] }] }]
+            - decl: [anzahl, f32, klassen.len]
+            - decl: [wucht, f32, { "/": [summe, anzahl] }]
+            - decl: [ist_hart, i32, { call: [<.hat_eines, waffe, <.hart] }]
+            - decl: [ist_weich, i32, { call: [<.hat_eines, waffe, <.weich] }]
+            - if:
+                condition: { eq: [ist_hart, 1] }
+                then: [{ set: [wucht, { "*": [wucht, 1.12] }] }]
+                else:
+                  - if:
+                      condition: { eq: [ist_weich, 1] }
+                      then: [{ set: [wucht, { "*": [wucht, 0.80] }] }]
+                      else: [{ set: [wucht, { "*": [wucht, 0.50] }] }]
+            - if:
+                condition: { "||": [{ eq: [{ call: [<.hat_wort, waffe, "heavy"] }, 1] }, { eq: [{ call: [<.hat_wort, waffe, "massive"] }, 1] }] }
+                then: [{ set: [wucht, { "*": [wucht, 1.15] }] }]
+            - if:
+                condition: { "||": [{ eq: [{ call: [<.hat_wort, waffe, "light"] }, 1] }, { eq: [{ call: [<.hat_wort, waffe, "delicate"] }, 1] }] }
+                then: [{ set: [wucht, { "*": [wucht, 0.82] }] }]
+            - decl: [panzer, string, { call: [<.panzer_von, gegner] }]
+            - decl: [daempft, f32, 0.90]
+            - if: { condition: { gt: [panzer.len, 0] }, then: [{ set: [daempft, { call: [<.panzer_daempft.get, panzer] }] }] }
+            - set: [wucht, { "*": [wucht, daempft] }]
+            - if:
+                condition: { "||": [{ eq: [{ call: [<.hat_wort, gegner, "giant"] }, 1] }, { eq: [{ call: [<.hat_wort, gegner, "large"] }, 1] }] }
+                then: [{ set: [wucht, { "*": [wucht, 0.88] }] }]
+            - if:
+                condition: { "||": [{ eq: [{ call: [<.hat_wort, gegner, "tiny"] }, 1] }, { eq: [{ call: [<.hat_wort, gegner, "small"] }, 1] }] }
+                then: [{ set: [wucht, { "*": [wucht, 1.12] }] }]
+            - return: { call: [math.clamp, wucht, 0.05, 1.0] }
+
+      # Drei bis vier Gegnermarken -- genau so viele setzt der Server beim
+      # Spawn (discover.aiml: predict_world_tags(..., 3)).
+      - def:
+          name: gegner_beutel
+          access: public
+          args: []
+          return: list<string>
+          body:
+            - decl: [gruppen, list<string>, ["panzer", "groesse", "tempo", "bedrohung", "verhalten", "aspekt", "schwaeche"]]
+            - decl: [reihe, list<string>, { call: [<.zie.mischen, gruppen] }]
+            - decl: [wie_viele, i32, 3]
+            - if: { condition: { eq: [{ call: [<.zie.muenze, 0.25] }, 1] }, then: [{ set: [wie_viele, 4] }] }
+            - decl: [raus, list<string>]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [idx, wie_viele] }, { lt: [idx, reihe.len] }] }
+                body:
+                  - decl: [gruppe, string, { at: [reihe, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - call: [raus.push, { call: [<.marke_aus_gruppe, gruppe] }]
+            - return: { call: [nur_einmal, raus] }
+
+      - def:
+          name: marke_aus_gruppe
+          access: public
+          args: [[gruppe, string]]
+          return: string
+          static_off: ["str_cmp"]
+          body:
+            - decl: [topf, list<string>]
+            - if:
+                condition: { eq: [gruppe, "panzer"] }
+                then:
+                  - decl: [panzer_topf, list<string>, ["unarmored", "hide_armor", "chitin_shelled", "scale_plated", "crystal_armored", "ethereal", "phasing"]]
+                  - set: [topf, panzer_topf]
+            - if:
+                condition: { eq: [gruppe, "groesse"] }
+                then:
+                  - decl: [groessen, list<string>, ["tiny", "small", "medium_size", "large", "giant"]]
+                  - set: [topf, groessen]
+            - if:
+                condition: { eq: [gruppe, "tempo"] }
+                then:
+                  - decl: [tempi, list<string>, ["darting", "quick", "fast", "moderate_speed", "slow", "sluggish"]]
+                  - set: [topf, tempi]
+            - if:
+                condition: { eq: [gruppe, "bedrohung"] }
+                then:
+                  - decl: [drohung, list<string>, ["minimal_threat", "low_threat", "medium_threat", "high_threat", "boss_tier"]]
+                  - set: [topf, drohung]
+            - if:
+                condition: { eq: [gruppe, "verhalten"] }
+                then:
+                  - decl: [verhalten, list<string>, ["guarding", "territorial", "ambush", "aggressive", "fleeing", "patrolling", "pack_hunter", "solitary"]]
+                  - set: [topf, verhalten]
+            - if:
+                condition: { eq: [gruppe, "aspekt"] }
+                then:
+                  - decl: [as_, list<string>, ["fire_aspect", "cold_aspect", "shock_aspect", "shadow_aspect", "shard_aspect", "qbit_aspect"]]
+                  - set: [topf, as_]
+            - if:
+                condition: { eq: [gruppe, "schwaeche"] }
+                then:
+                  - decl: [schwaechen, list<string>, ["weak_to_blunt", "weak_to_piercing", "weak_to_fire", "weak_to_cold", "weak_to_runic", "no_known_weakness"]]
+                  - set: [topf, schwaechen]
+            - return: { call: [<.zie.eines, topf] }
+
+      # So entsteht eine Waffe im Spiel: Marken der Materialien plus die
+      # garantierte Waffenmarke des Rezepts (craft.aiml §6).
+      - def:
+          name: waffen_beutel
+          access: public
+          args: []
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            # Jede zwoelfte Zeile ist die blosse Faust.
+            - if:
+                condition: { eq: [{ call: [<.zie.muenze, 0.08] }, 1] }
+                then:
+                  - decl: [faust, list<string>, ["light", "soft", "blunt", "grippy", "plain"]]
+                  - return: faust
+            - decl: [eins, list<string>, { call: [<.zie.mehrere, <.waffen_topf, { call: [<.zie.spanne, 1, 2] }] }]
+            - decl: [zwei, list<string>, { call: [<.zie.mehrere, <.uni_topf, { call: [<.zie.spanne, 2, 3] }] }]
+            - decl: [drei, list<string>, { call: [<.zie.mehrere, <.mat_topf, { call: [<.zie.spanne, 1, 3] }] }]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, eins.len] }
+                body:
+                  - call: [raus.push, { at: [eins, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+            - decl: [jdx, i32, 0]
+            - while:
+                condition: { lt: [jdx, zwei.len] }
+                body:
+                  - call: [raus.push, { at: [zwei, jdx] }]
+                  - set: [jdx, { "+": [jdx, 1] }]
+            - decl: [kdx, i32, 0]
+            - while:
+                condition: { lt: [kdx, drei.len] }
+                body:
+                  - call: [raus.push, { at: [drei, kdx] }]
+                  - set: [kdx, { "+": [kdx, 1] }]
+            - if:
+                condition: { eq: [{ call: [<.zie.muenze, 0.75] }, 1] }
+                then: [{ call: [raus.push, { call: [<.zie.eines, <.elemente] }] }]
+            - return: { call: [nur_einmal, raus] }
+
+      - def:
+          name: bauen
+          access: public
+          args: [[anzahl, i32]]
+          return: i32
+          body:
+            - decl: [gesehen, map<string:i32>]
+            - decl: [versuche, i32, 0]
+            - decl: [grenze, i32, { "*": [anzahl, 20] }]
+            - while:
+                condition: { "&&": [{ lt: [<.zeilen.len, anzahl] }, { lt: [versuche, grenze] }] }
+                body:
+                  - set: [versuche, { "+": [versuche, 1] }]
+                  - decl: [waffe, list<string>, { call: [<.waffen_beutel] }]
+                  - decl: [gegner, list<string>, { call: [<.gegner_beutel] }]
+                  - decl: [chance, f32, { call: [<.chance_fuer, waffe, gegner] }]
+                  - decl: [wucht, f32, { call: [<.wucht_fuer, waffe, gegner] }]
+                  - decl: [links, string, { call: [zeile_aus, waffe] }]
+                  - decl: [rechts, string, { call: [zeile_aus, gegner] }]
+                  - decl: [zeile, string, "${links} | ${rechts} | ${{ call: [zwei_stellen, chance] }} | ${{ call: [zwei_stellen, wucht] }}"]
+                  - if:
+                      condition: { eq: [{ call: [gesehen.contains, zeile] }, 0] }
+                      then:
+                        - call: [gesehen.put, zeile, 1]
+                        - call: [<.zeilen.push, zeile]
+            - return: <.zeilen.len
+
+      # Nur den markierten Block ersetzen; der handgeschriebene Teil bleibt.
+      - def:
+          name: schreiben
+          access: public
+          args: [[pfad, string], [saat, i64]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ call: [log.error, "chance: '${pfad}' fehlt"] }, { return: 0 }] }
+            - decl: [alt, list<string>, { call: [text.split, "\n"] }]
+            - decl: [datei, file_handle, { call: [io.open, pfad, "w"] }]
+            - if: { condition: { eq: [datei, null] }, then: [{ call: [log.error, "chance: '${pfad}' nicht schreibbar"] }, { return: 0 }] }
+            - decl: [idx, i32, 0]
+            - decl: [fertig, i32, 0]
+            - while:
+                condition: { lt: [idx, alt.len] }
+                body:
+                  - decl: [roh, string, { at: [alt, idx] }]
+                  - set: [idx, { "+": [idx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [roh.starts_with, "# >>> GENERIERT"] }, 1] }
+                      then: [{ set: [fertig, 1] }]
+                  - if: { condition: { eq: [fertig, 0] }, then: [{ call: [io.write, datei, "${roh}\n"] }] }
+            - call: [io.write, datei, "# >>> GENERIERT: Waffe gegen Gegner\n"]
+            - call: [io.write, datei, "# Erzeugt von korpusgen (aiml, JIT) -- seed=${saat}, ${<.zeilen.len} Zeilen.\n"]
+            - call: [io.write, datei, "# NICHT von Hand aendern -- der naechste Lauf ueberschreibt den Block.\n"]
+            - call: [io.write, datei, "# Die Regel steht in korpusgen/sources/chance_korpus.aiml (chance_fuer):\n"]
+            - call: [io.write, datei, "# Panzerklasse setzt den Grundwert, Groesse/Tempo/Bedrohung/Verhalten\n"]
+            - call: [io.write, datei, "# skalieren ihn, die Waffenklasse rechnet gegen die Panzerklasse, eine\n"]
+            - call: [io.write, datei, "# passende Schwaeche gibt +0,18, Element gegen Aspekt -0,15 bzw. +0,10.\n"]
+            - call: [io.write, datei, "# Vierte Spalte = Wucht (wucht_fuer).\n"]
+            - call: [io.write, datei, "\n"]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.zeilen.len] }
+                body:
+                  - decl: [zeile, string, { at: [<.zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - call: [io.write, datei, "${zeile}\n"]
+            - call: [io.write, datei, "\n# <<< GENERIERT\n"]
+            - call: [io.close, datei]
+            - call: [log.info, "chance: ${<.zeilen.len} Zeilen → ${pfad}"]
+            - return: <.zeilen.len

@@ -1,0 +1,616 @@
+# Rezepte nennen STOFFE, nicht Arten.
+#
+# User-Entscheid 24.11.2026: "wir ziehen also nicht mehr Art aus dem Modell,
+# sondern materialien und zwar soviele wie das modell wirklich sagt."
+#
+# Bis heute stand in der fuenften Spalte einer Rezeptzeile eine Warengruppe:
+# `food x3, liquid x1`.  Damit sagte kein Rezept, woraus es besteht, und nahm
+# zugleich alles an, was irgendwie in die Gruppe fiel -- drei Erdbeeren und
+# eine Pfuetze wurden zu Fladenbrot.
+#
+# Dieser Erzeuger ersetzt die Spalte durch echte Namen und laesst alles andere
+# stehen.  Die Kennung bleibt unveraendert: entdeckte Rezepte stehen je
+# Kreatur in der lebenden Datenbank (rezept_korpus.aiml, Entscheidung 1 vom
+# 20.11.2026).  Ein Rezept behaelt also seine Identitaet und bekommt nur eine
+# Zutatenliste.
+#
+# `art xN` wird zu N VERSCHIEDENEN Stoffen dieser Art, je x1 -- eine
+# Zutatenliste ist eine Liste von Zutaten, keine Menge einer Warengruppe.
+# Damit wachsen die Eintraege je Rezept von ein bis drei auf bis zu sechs;
+# die Deckel dagegen (3 in materialien_ziehen, 4 Plaetze im Craft-Fenster)
+# fallen an ihrer eigenen Stelle.
+#
+# Welcher Stoff: in dieser Reihenfolge
+#   1. `core_materials` des Handwerks-Clusters  -- was dieses Handwerk nutzt
+#   2. Stoffe der Art aus den Welt-Clustern der `world_affinity`
+#      -- was in der Gegend ueberhaupt anfaellt
+#   3. jeder Stoff dieser Art
+# Jede Stufe fuer sich gemischt, dann von vorn genommen.  So nennt ein
+# Schmiederezept Eisen und kein Mondsilber, bleibt aber erfuellbar.
+- import: "korpusgen/sources/topf.aiml"
+- import: "korpusgen/sources/ziehen.aiml"
+
+# Die 14 Artenlisten unter prophecy/data/names/items/craft_materials/.
+- def:
+    name: stoffe_arten
+    args: []
+    return: list<string>
+    body:
+      - return: ["metal", "wood", "fiber", "gem", "liquid", "tech", "essence", "herb",
+                 "animal", "stone", "mineral", "quantum", "fungus", "food"]
+
+# Die Kuechenregeln aus prophecy/data/rules/kochzutaten.txt:
+# `<wort>: a, b, c` je Zeile.  Als Daten, nicht als Wortabfrage im Code --
+# eine feste Tabelle gehoert nicht in einen Vergleichsbaum (spec/49 Section 16).
+- def:
+    name: regeln_lesen
+    args: [[pfad, string], [ziel, map<string:string>], [folge, list<string>]]
+    return: i32
+    body:
+      - decl: [zeilen, list<string>, { call: [topf_lesen, pfad] }]
+      - if: { condition: { eq: [zeilen.len, 0] }, then: [{ return: 0 }] }
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, zeilen.len] }
+          body:
+            - decl: [zeile, string, { at: [zeilen, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [teile, list<string>, { call: [zeile.split, ":"] }]
+            - if:
+                condition: { ge: [teile.len, 2] }
+                then:
+                  - decl: [wort_roh, string, { at: [teile, 0] }]
+                  - decl: [rest_roh, string, { at: [teile, 1] }]
+                  - decl: [wort, string, { call: [wort_roh.trim] }]
+                  - decl: [rest, string, { call: [rest_roh.trim] }]
+                  - if:
+                      condition: { "&&": [{ gt: [wort.len, 0] }, { gt: [rest.len, 0] }] }
+                      then:
+                        - call: [ziel.put, wort, rest]
+                        - call: [folge.push, wort]
+      - return: folge.len
+
+- class:
+    name: RezeptStoffe
+    members:
+      - [zie,      ptr<Zieher>, null]
+      - [handwerk, list<Satz>, null]
+      - [welten,   list<Satz>, null]
+      - [je_art,   map<string:string>, null]   # Art  -> "a, b, c"
+      - [heimat,   map<string:string>, null]   # Name -> Art
+      - [alle_namen, list<string>, null]
+      - [koch,     map<string:string>, null]   # Sammelwort -> "a, b, c"
+      - [koch_folge, list<string>, null]
+      - [rez_stoffe, map<string:string>, null]   # Rezeptkennung -> "a, b, c"
+      - [eingaben, i32, 0, { access: public }]
+      - [zeilen,   i32, 0, { access: public }]
+      - [leer,     i32, 0, { access: public }]
+      - [eintraege, i32, 0, { access: public }]
+    methods:
+      - def:
+          name: start
+          access: public
+          args: [[saat, i64]]
+          return: i32
+          body:
+            - set: [<.zie, { new: Zieher }]
+            - call: [<.zie.start, saat]
+            - set: [<.handwerk, { call: [cluster_lesen, "prophecy/data/clusters/craft_clusters.txt"] }]
+            - set: [<.welten,   { call: [cluster_lesen, "prophecy/data/clusters/world_clusters.txt"] }]
+            - if:
+                condition: { "||": [{ eq: [<.handwerk.len, 0] }, { eq: [<.welten.len, 0] }] }
+                then:
+                  - call: [log.error, "stoffe: Cluster fehlen"]
+                  - return: 0
+            - decl: [arten_liste, list<string>, { call: [stoffe_arten] }]
+            - decl: [adx, i32, 0]
+            - while:
+                condition: { lt: [adx, arten_liste.len] }
+                body:
+                  - decl: [art, string, { at: [arten_liste, adx] }]
+                  - set: [adx, { "+": [adx, 1] }]
+                  - decl: [namen, list<string>, { call: [topf_lesen, "prophecy/data/names/items/craft_materials/${art}.txt"] }]
+                  - if:
+                      condition: { eq: [namen.len, 0] }
+                      then: [{ call: [log.error, "stoffe: '${art}.txt' leer"] }]
+                  - decl: [als_text, string, ""]
+                  - decl: [ndx, i32, 0]
+                  - while:
+                      condition: { lt: [ndx, namen.len] }
+                      body:
+                        - decl: [eins, string, { at: [namen, ndx] }]
+                        - set: [ndx, { "+": [ndx, 1] }]
+                        - call: [<.heimat.put, eins, art]
+                        - call: [<.alle_namen.push, eins]
+                        - if:
+                            condition: { eq: [als_text.len, 0] }
+                            then: [{ set: [als_text, eins] }]
+                            else: [{ set: [als_text, "${als_text}, ${eins}"] }]
+                  - call: [<.je_art.put, art, als_text]
+            - decl: [kochzahl, i32, { call: [regeln_lesen, "prophecy/data/rules/kochzutaten.txt", <.koch, <.koch_folge] }]
+            - if:
+                condition: { eq: [kochzahl, 0] }
+                then:
+                  - call: [log.error, "stoffe: kochzutaten.txt fehlt -- Gerichte bekaemen beliebige Zutaten"]
+                  - return: 0
+            - call: [log.info, "stoffe: ${<.handwerk.len} Handwerks-Cluster, ${<.welten.len} Welt-Cluster, ${<.heimat.len} Stoffnamen, ${kochzahl} Kuechenregeln"]
+            - return: 1
+
+      # Alle Namen einer Art.
+      - def:
+          name: namen_der_art
+          access: public
+          args: [[art, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - if: { condition: { eq: [{ call: [<.je_art.contains, art] }, 0] }, then: [{ return: raus }] }
+            - return: { call: [topf_teile, { call: [<.je_art.get, art] }] }
+
+      # Das Handwerk, das diesen Ausgabetyp mit diesem Werkzeug macht.
+      # Ausgabetyp zaehlt doppelt, das Werkzeug bricht den Gleichstand.
+      - def:
+          name: cluster_fuer
+          access: public
+          args: [[ausgabe, string], [werkzeug, list<string>]]
+          return: i32
+          body:
+            - decl: [best, i32, -1]
+            - decl: [bestwert, i32, 0]
+            - decl: [cdx, i32, 0]
+            - while:
+                condition: { lt: [cdx, <.handwerk.len] }
+                body:
+                  - decl: [satz, ref<Satz>, { at: [<.handwerk, cdx] }]
+                  - decl: [hier, i32, cdx]
+                  - set: [cdx, { "+": [cdx, 1] }]
+                  - decl: [typen, list<string>, { call: [satz_liste, satz, "output_types"] }]
+                  - decl: [wert, i32, 0]
+                  - if:
+                      condition: { neq: [{ call: [typen.contains, ausgabe] }, 0] }
+                      then: [{ set: [wert, 2] }]
+                  - decl: [wkz, list<string>, { call: [satz_liste, satz, "tools"] }]
+                  - decl: [wdx, i32, 0]
+                  - while:
+                      condition: { lt: [wdx, werkzeug.len] }
+                      body:
+                        - decl: [eins, string, { at: [werkzeug, wdx] }]
+                        - set: [wdx, { "+": [wdx, 1] }]
+                        - if:
+                            condition: { neq: [{ call: [wkz.contains, eins] }, 0] }
+                            then: [{ set: [wert, { "+": [wert, 1] }] }]
+                  - if:
+                      condition: { gt: [wert, bestwert] }
+                      then:
+                        - set: [bestwert, wert]
+                        - set: [best, hier]
+            - return: best
+
+      # Stoffe einer Art aus den Welt-Clustern dieses Handwerks.  `feld` ist
+      # `kern` (was dort HAEUFIG anfaellt) oder `materials` (was dort
+      # ueberhaupt anfallen kann).  Ein Rezept soll zuerst nach Haeufigem
+      # verlangen -- sonst ist es benannt und unerreichbar
+      # (doc/architecture/kern_gewichtung_2026-11-24.md).
+      - def:
+          name: aus_der_gegend
+          access: public
+          args: [[art, string], [satz, ref<Satz>], [feld, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [gegend, list<string>, { call: [satz_liste, satz, "world_affinity"] }]
+            - decl: [wdx, i32, 0]
+            - while:
+                condition: { lt: [wdx, <.welten.len] }
+                body:
+                  - decl: [welt, ref<Satz>, { at: [<.welten, wdx] }]
+                  - set: [wdx, { "+": [wdx, 1] }]
+                  - if:
+                      condition: { neq: [{ call: [gegend.contains, welt.kennung] }, 0] }
+                      then:
+                        - decl: [mats, list<string>, { call: [satz_liste, welt, feld] }]
+                        - decl: [mdx, i32, 0]
+                        - while:
+                            condition: { lt: [mdx, mats.len] }
+                            body:
+                              - decl: [eins, string, { at: [mats, mdx] }]
+                              - set: [mdx, { "+": [mdx, 1] }]
+                              - decl: [seine, string, ""]
+                              - if:
+                                  condition: { neq: [{ call: [<.heimat.contains, eins] }, 0] }
+                                  then: [{ set: [seine, { call: [<.heimat.get, eins] }] }]
+                              - if:
+                                  condition: { eq: [seine, art] }
+                                  then: [{ call: [raus.push, eins] }]
+            - return: { call: [nur_einmal, raus] }
+
+      # Die Stoffe dieser Art in Vorrangfolge: Handwerk, Gegend, Rest.
+      - def:
+          name: kandidaten
+          access: public
+          args: [[art, string], [cnr, i32]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - if:
+                condition: { ge: [cnr, 0] }
+                then:
+                  - decl: [satz, ref<Satz>, { at: [<.handwerk, cnr] }]
+                  - decl: [kern, list<string>, { call: [satz_liste, satz, "core_materials"] }]
+                  - decl: [erste, list<string>]
+                  - decl: [kdx, i32, 0]
+                  - while:
+                      condition: { lt: [kdx, kern.len] }
+                      body:
+                        - decl: [eins, string, { at: [kern, kdx] }]
+                        - set: [kdx, { "+": [kdx, 1] }]
+                        - decl: [seine, string, ""]
+                        - if:
+                            condition: { neq: [{ call: [<.heimat.contains, eins] }, 0] }
+                            then: [{ set: [seine, { call: [<.heimat.get, eins] }] }]
+                        - if: { condition: { eq: [seine, art] }, then: [{ call: [erste.push, eins] }] }
+                  - decl: [erste_gem, list<string>, { call: [<.zie.mischen, erste] }]
+                  - decl: [edx, i32, 0]
+                  - while:
+                      condition: { lt: [edx, erste_gem.len] }
+                      body:
+                        - call: [raus.push, { at: [erste_gem, edx] }]
+                        - set: [edx, { "+": [edx, 1] }]
+                  - decl: [nah_kern, list<string>, { call: [<.aus_der_gegend, art, satz, "kern"] }]
+                  - decl: [kern_gem, list<string>, { call: [<.zie.mischen, nah_kern] }]
+                  - decl: [kdy, i32, 0]
+                  - while:
+                      condition: { lt: [kdy, kern_gem.len] }
+                      body:
+                        - call: [raus.push, { at: [kern_gem, kdy] }]
+                        - set: [kdy, { "+": [kdy, 1] }]
+                  - decl: [nahe, list<string>, { call: [<.aus_der_gegend, art, satz, "materials"] }]
+                  - decl: [nahe_gem, list<string>, { call: [<.zie.mischen, nahe] }]
+                  - decl: [ndx, i32, 0]
+                  - while:
+                      condition: { lt: [ndx, nahe_gem.len] }
+                      body:
+                        - call: [raus.push, { at: [nahe_gem, ndx] }]
+                        - set: [ndx, { "+": [ndx, 1] }]
+            - decl: [alle, list<string>, { call: [<.namen_der_art, art] }]
+            - decl: [alle_gem, list<string>, { call: [<.zie.mischen, alle] }]
+            - decl: [adx, i32, 0]
+            - while:
+                condition: { lt: [adx, alle_gem.len] }
+                body:
+                  - call: [raus.push, { at: [alle_gem, adx] }]
+                  - set: [adx, { "+": [adx, 1] }]
+            - return: { call: [nur_einmal, raus] }
+
+      # Die Leitzutat eines Gerichts steht in seinem Namen: `rye_loaf` ist aus
+      # Roggen, `honey_bun` aus Honig, `fish_chowder` aus Fisch.  Ohne diese
+      # Regel zog die Kueche vier beliebige Zutaten der richtigen Art -- und
+      # ein Roggenbrot bestand aus Haselnuss, Flussfisch und Kohl.
+      - def:
+          name: leitzutaten
+          access: public
+          args: [[gericht, string]]
+          return: list<string>
+          body:
+            - decl: [raus, list<string>]
+            - decl: [teile, list<string>, { call: [gericht.split, " x"] }]
+            - if: { condition: { eq: [teile.len, 0] }, then: [{ return: raus }] }
+            - decl: [roh, string, { at: [teile, 0] }]
+            - decl: [name, string, { call: [roh.trim] }]
+            - if: { condition: { eq: [name.len, 0] }, then: [{ return: raus }] }
+            # Der laengste ESSBARE Stoffname, der als ganzes WORT im
+            # Gerichtsnamen steht.  Beides ist noetig:
+            #   * ganzes Wort -- sonst wird `charred_corn` zu `char` (ein
+            #     Mineral), `spiced_milk` zu `ice` und `bramble_cordial` zu
+            #     `cord`.  Der Gerichtsname ist mit `_` getrennt, also wird
+            #     beidseitig mit `_` gepolstert und dann gesucht.
+            #   * essbar -- `food`, `fungus` oder `herb`.  Ein Gericht heisst
+            #     nie nach seinem Werkzeug, aber `birch` und `salt` stehen in
+            #     Namen und sind Holz bzw. Mineral.
+            # Laengster Treffer gewinnt, damit `pine_nut` nicht als `nut` endet.
+            - decl: [gepolstert, string, "_${name}_"]
+            - decl: [essbare_arten, list<string>, { call: [topf_teile, { call: [<.koch.get, "essbar"] }] }]
+            - decl: [best, string, ""]
+            - decl: [ndx, i32, 0]
+            - while:
+                condition: { lt: [ndx, <.alle_namen.len] }
+                body:
+                  - decl: [eins, string, { at: [<.alle_namen, ndx] }]
+                  - set: [ndx, { "+": [ndx, 1] }]
+                  - decl: [seine, string, { call: [<.heimat.get, eins] }]
+                  - decl: [essbar, i32, { call: [essbare_arten.contains, seine] }]
+                  - if:
+                      condition: { "&&": [{ neq: [essbar, 0] },
+                                   { "&&": [{ neq: [{ call: [gepolstert.contains, "_${eins}_"] }, 0] },
+                                            { gt: [eins.len, best.len] }] }] }
+                      then: [{ set: [best, eins] }]
+            - if: { condition: { gt: [best.len, 0] }, then: [{ call: [raus.push, best] }] }
+            # Dazu ein Sammelwort, falls eines im Namen steht.
+            - decl: [woerter, list<string>, <.koch_folge]
+            - decl: [fertig, i32, 0]
+            - decl: [wdx, i32, 0]
+            - while:
+                condition: { "&&": [{ lt: [wdx, woerter.len] }, { eq: [fertig, 0] }] }
+                body:
+                  - decl: [wort, string, { at: [woerter, wdx] }]
+                  - set: [wdx, { "+": [wdx, 1] }]
+                  - if:
+                      condition: { neq: [{ call: [gepolstert.contains, "_${wort}_"] }, 0] }
+                      then:
+                        - decl: [kand, list<string>, { call: [topf_teile, { call: [<.koch.get, wort] }] }]
+                        - decl: [gem, list<string>, { call: [<.zie.mischen, kand] }]
+                        - decl: [gdx, i32, 0]
+                        - while:
+                            condition: { "&&": [{ lt: [gdx, gem.len] }, { eq: [fertig, 0] }] }
+                            body:
+                              - decl: [eine, string, { at: [gem, gdx] }]
+                              - set: [gdx, { "+": [gdx, 1] }]
+                              - if:
+                                  condition: { eq: [{ call: [raus.contains, eine] }, 0] }
+                                  then:
+                                    - call: [raus.push, eine]
+                                    - set: [fertig, 1]
+            - return: raus
+
+      # "fiber x3" -> 3.  Ohne Zahl: 1.  (sys.parse_int gibt es nicht, siehe
+      # doc/architecture/lauf_experiment_2026-11-22.md.)
+      - def:
+          name: menge_von
+          access: public
+          args: [[eintrag, string]]
+          return: i32
+          body:
+            - decl: [teile, list<string>, { call: [eintrag.split, " x"] }]
+            - if: { condition: { lt: [teile.len, 2] }, then: [{ return: 1 }] }
+            - decl: [roh, string, { at: [teile, 1] }]
+            - decl: [zahl_text, string, { call: [roh.trim] }]
+            - decl: [wdx, i32, 1]
+            - while:
+                condition: { le: [wdx, 12] }
+                body:
+                  - if: { condition: { eq: [zahl_text, "${wdx}"] }, then: [{ return: wdx }] }
+                  - set: [wdx, { "+": [wdx, 1] }]
+            - return: 1
+
+      - def:
+          name: art_von
+          access: public
+          args: [[eintrag, string]]
+          return: string
+          body:
+            - decl: [teile, list<string>, { call: [eintrag.split, " x"] }]
+            - if: { condition: { eq: [teile.len, 0] }, then: [{ return: "" }] }
+            - decl: [roh, string, { at: [teile, 0] }]
+            - return: { call: [roh.trim] }
+
+      # Die neue fuenfte Spalte.  Leer, wenn schon Namen drin stehen.
+      - def:
+          name: spalte_bauen
+          access: public
+          args: [[spalte, string], [ausgabe, string], [werkzeug, list<string>], [gericht, string]]
+          return: string
+          body:
+            - decl: [posten, list<string>, { call: [topf_teile, spalte] }]
+            - if: { condition: { eq: [posten.len, 0] }, then: [{ return: "" }] }
+            - decl: [cnr, i32, { call: [<.cluster_fuer, ausgabe, werkzeug] }]
+            - decl: [gewaehlt, list<string>]
+            - decl: [ist_kueche, i32, 0]
+            - if: { condition: { eq: [ausgabe, "consumable"] }, then: [{ set: [ist_kueche, 1] }] }
+            - if:
+                condition: { eq: [ist_kueche, 1] }
+                then:
+                  - decl: [leit, list<string>, { call: [<.leitzutaten, gericht] }]
+                  - decl: [ldx, i32, 0]
+                  - while:
+                      condition: { lt: [ldx, leit.len] }
+                      body:
+                        - call: [gewaehlt.push, { at: [leit, ldx] }]
+                        - set: [ldx, { "+": [ldx, 1] }]
+            - decl: [edx, i32, 0]
+            - while:
+                condition: { lt: [edx, posten.len] }
+                body:
+                  - decl: [eintrag, string, { at: [posten, edx] }]
+                  - set: [edx, { "+": [edx, 1] }]
+                  - decl: [art, string, { call: [<.art_von, eintrag] }]
+                  - decl: [wunsch, i32, { call: [<.menge_von, eintrag] }]
+                  - if:
+                      condition: { eq: [{ call: [<.je_art.contains, art] }, 0] }
+                      then: [{ call: [log.warn, "stoffe: '${art}' ist keine Art -- Eintrag bleibt"] }]
+                  # Eine Leitzutat deckt den Posten ihrer Art mit ab.
+                  - decl: [schon, i32, 0]
+                  - decl: [sdy, i32, 0]
+                  - while:
+                      condition: { lt: [sdy, gewaehlt.len] }
+                      body:
+                        - decl: [hat, string, { at: [gewaehlt, sdy] }]
+                        - set: [sdy, { "+": [sdy, 1] }]
+                        - decl: [seine, string, ""]
+                        - if:
+                            condition: { neq: [{ call: [<.heimat.contains, hat] }, 0] }
+                            then: [{ set: [seine, { call: [<.heimat.get, hat] }] }]
+                        - if: { condition: { eq: [seine, art] }, then: [{ set: [schon, { "+": [schon, 1] }] }] }
+                  - set: [wunsch, { "-": [wunsch, schon] }]
+                  - decl: [topf, list<string>, { call: [<.kandidaten, art, cnr] }]
+                  # Nennt die Kuechenregel einen Topf fuer diese Art, gilt er.
+                  # `liquid` traegt sonst Teer, `animal` Hufe und Kaeferfluegel.
+                  - if:
+                      condition: { "&&": [{ eq: [ist_kueche, 1] },
+                                          { neq: [{ call: [<.koch.contains, art] }, 0] }] }
+                      then:
+                        - decl: [er_roh, string, { call: [<.koch.get, art] }]
+                        - set: [topf, { call: [<.zie.mischen, { call: [topf_teile, er_roh] }] }]
+                  - decl: [genommen, i32, 0]
+                  - decl: [tdx, i32, 0]
+                  - while:
+                      condition: { "&&": [{ lt: [tdx, topf.len] }, { lt: [genommen, wunsch] }] }
+                      body:
+                        - decl: [eins, string, { at: [topf, tdx] }]
+                        - set: [tdx, { "+": [tdx, 1] }]
+                        - if:
+                            condition: { eq: [{ call: [gewaehlt.contains, eins] }, 0] }
+                            then:
+                              - call: [gewaehlt.push, eins]
+                              - set: [genommen, { "+": [genommen, 1] }]
+            - if: { condition: { eq: [gewaehlt.len, 0] }, then: [{ return: "" }] }
+            - decl: [raus, string, ""]
+            - decl: [gdx, i32, 0]
+            - while:
+                condition: { lt: [gdx, gewaehlt.len] }
+                body:
+                  - decl: [eins, string, { at: [gewaehlt, gdx] }]
+                  - set: [gdx, { "+": [gdx, 1] }]
+                  - if:
+                      condition: { eq: [raus.len, 0] }
+                      then: [{ set: [raus, "${eins} x1"] }]
+                      else: [{ set: [raus, "${raus}, ${eins} x1"] }]
+            - set: [<.eintraege, { "+": [<.eintraege, gewaehlt.len] }]
+            - return: raus
+
+      # Ein Artwort in einer Eingabezeile durch einen Stoff dieses Rezepts
+      # ersetzen.  Reihum, damit eine Zeile mit `food liquid` zwei
+      # VERSCHIEDENE Zutaten nennt und nicht zweimal dieselbe.
+      - def:
+          name: eingabe_ersetzen
+          access: public
+          args: [[eingabe, string], [kennung_rez, string]]
+          return: string
+          body:
+            - decl: [stoff_text, string, { call: [<.rez_stoffe.get, kennung_rez] }]
+            - decl: [posten, list<string>, { call: [topf_teile, stoff_text] }]
+            - if: { condition: { eq: [posten.len, 0] }, then: [{ return: "" }] }
+            - decl: [stoffe, list<string>]
+            - decl: [qdx, i32, 0]
+            - while:
+                condition: { lt: [qdx, posten.len] }
+                body:
+                  - decl: [ein_p, string, { at: [posten, qdx] }]
+                  - set: [qdx, { "+": [qdx, 1] }]
+                  - call: [stoffe.push, { call: [<.art_von, ein_p] }]
+            - decl: [roh, string, { call: [eingabe.trim] }]
+            - decl: [worte, list<string>, { call: [roh.split, " "] }]
+            - decl: [raus, string, ""]
+            - decl: [naechster, i32, 0]
+            - decl: [wdx, i32, 0]
+            - while:
+                condition: { lt: [wdx, worte.len] }
+                body:
+                  - decl: [wort, string, { at: [worte, wdx] }]
+                  - set: [wdx, { "+": [wdx, 1] }]
+                  - decl: [nehm, string, wort]
+                  - if:
+                      condition: { "&&": [{ gt: [wort.len, 0] },
+                                          { neq: [{ call: [<.je_art.contains, wort] }, 0] }] }
+                      then:
+                        - decl: [wahl, string, { at: [stoffe, { "%": [naechster, stoffe.len] }] }]
+                        - set: [naechster, { "+": [naechster, 1] }]
+                        - set: [nehm, wahl]
+                  - if:
+                      condition: { gt: [nehm.len, 0] }
+                      then:
+                        - if:
+                            condition: { eq: [raus.len, 0] }
+                            then: [{ set: [raus, nehm] }]
+                            else: [{ set: [raus, "${raus} ${nehm}"] }]
+            - return: raus
+
+      # Die ganze Korpusdatei: jede `recipe`-Zeile bekommt eine neue fuenfte
+      # Spalte, jede andere Zeile bleibt Zeichen fuer Zeichen stehen.
+      - def:
+          name: datei
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "stoffe: '${pfad}' fehlt oder ist leer"]
+                  - return: 0
+            - decl: [alle, list<string>, { call: [text.split, "\n"] }]
+            - decl: [raus, list<string>]
+            - decl: [ldx, i32, 0]
+            - while:
+                condition: { lt: [ldx, alle.len] }
+                body:
+                  - decl: [zeile, string, { at: [alle, ldx] }]
+                  - set: [ldx, { "+": [ldx, 1] }]
+                  - decl: [neue, string, zeile]
+                  - if:
+                      condition: { eq: [{ call: [zeile.starts_with, "recipe |"] }, 1] }
+                      then:
+                        - decl: [teile, list<string>, { call: [zeile.split, "|"] }]
+                        - if:
+                            condition: { ge: [teile.len, 7] }
+                            then:
+                              - decl: [kennung_roh, string, { at: [teile, 1] }]
+                              - decl: [ausgabe_roh, string, { at: [teile, 2] }]
+                              - decl: [marke_roh, string, { at: [teile, 3] }]
+                              - decl: [stoff_roh, string, { at: [teile, 4] }]
+                              - decl: [wkz_roh, string, { at: [teile, 5] }]
+                              - decl: [typ_roh, string, { at: [teile, 6] }]
+                              - decl: [typ, string, { call: [typ_roh.trim] }]
+                              - decl: [wkz, list<string>, { call: [topf_teile, wkz_roh] }]
+                              - decl: [neu_stoff, string, { call: [<.spalte_bauen, stoff_roh, typ, wkz, ausgabe_roh] }]
+                              - if:
+                                  condition: { gt: [neu_stoff.len, 0] }
+                                  then:
+                                    - decl: [ken, string, { call: [kennung_roh.trim] }]
+                                    - decl: [aus, string, { call: [ausgabe_roh.trim] }]
+                                    - decl: [mrk, string, { call: [marke_roh.trim] }]
+                                    - decl: [wtx, string, { call: [wkz_roh.trim] }]
+                                    - set: [neue, "recipe | ${ken} | ${aus} | ${mrk} | ${neu_stoff} | ${wtx} | ${typ}"]
+                                    - call: [<.rez_stoffe.put, ken, neu_stoff]
+                                    - set: [<.zeilen, { "+": [<.zeilen, 1] }]
+                                  else: [{ set: [<.leer, { "+": [<.leer, 1] }] }]
+                  - call: [raus.push, neue]
+            # Zweiter Durchgang: die Eingabezeilen.  `rezepte` erzeugt nur die
+            # des ersten Blocks neu; die der Bloecke KOCHEN und TRAGBARES
+            # bleiben Zeile fuer Zeile stehen und sprachen darum weiter in
+            # Warengruppen ("cooking_pot food liquid baked").  Ein Artwort wird
+            # hier durch einen Stoff GENAU DIESES Rezepts ersetzt -- die
+            # Kennung steht in der Zeile.
+            - decl: [fertig, list<string>]
+            - decl: [pdx, i32, 0]
+            - while:
+                condition: { lt: [pdx, raus.len] }
+                body:
+                  - decl: [zeile_s, string, { at: [raus, pdx] }]
+                  - set: [pdx, { "+": [pdx, 1] }]
+                  - decl: [neu_s, string, zeile_s]
+                  - if:
+                      condition: { eq: [{ call: [zeile_s.starts_with, "sample |"] }, 1] }
+                      then:
+                        - decl: [spalten, list<string>, { call: [zeile_s.split, "|"] }]
+                        - if:
+                            condition: { ge: [spalten.len, 3] }
+                            then:
+                              - decl: [ein_roh, string, { at: [spalten, 1] }]
+                              - decl: [ken_roh, string, { at: [spalten, 2] }]
+                              - decl: [rest_roh, string, { at: [spalten, 3] }]
+                              - decl: [ken_s, string, { call: [ken_roh.trim] }]
+                              - if:
+                                  condition: { neq: [{ call: [<.rez_stoffe.contains, ken_s] }, 0] }
+                                  then:
+                                    - decl: [neue_ein, string, { call: [<.eingabe_ersetzen, ein_roh, ken_s] }]
+                                    - if:
+                                        condition: { gt: [neue_ein.len, 0] }
+                                        then:
+                                          - decl: [rest_s, string, { call: [rest_roh.trim] }]
+                                          - set: [neu_s, "sample | ${neue_ein} | ${ken_s} | ${rest_s}"]
+                                          - set: [<.eingaben, { "+": [<.eingaben, 1] }]
+                  - call: [fertig.push, neu_s]
+            - decl: [datei, file_handle, { call: [io.open, pfad, "w"] }]
+            - decl: [sdx, i32, 0]
+            - while:
+                condition: { lt: [sdx, fertig.len] }
+                body:
+                  - decl: [eine, string, { at: [fertig, sdx] }]
+                  - set: [sdx, { "+": [sdx, 1] }]
+                  - if:
+                      condition: { "||": [{ lt: [sdx, fertig.len] }, { gt: [eine.len, 0] }] }
+                      then: [{ call: [io.write, datei, "${eine}\n"] }]
+            - call: [io.close, datei]
+            - call: [log.info, "stoffe: ${<.zeilen} Rezepte benannt, ${<.eintraege} Zutaten, ${<.eingaben} Eingabezeilen nachgezogen, ${<.leer} uebersprungen"]
+            - return: <.zeilen

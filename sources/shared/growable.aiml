@@ -1,0 +1,38 @@
+# Shared growable world-object model.
+
+- import: "sources/shared/disease.aiml"
+- import: "sources/shared/counted_item.aiml"
+- import: "sources/shared/harvestable.aiml"
+
+- model:
+    name: Growable
+    fields:
+      - [growable_id,        string]
+      - [name,               string]
+      - [realm_id,           string]
+      - [zone_id,            string]
+      - [growth_stage,       i32, 0]
+      - [growth_stage_max,   i32, 0]
+      - [diseases,           list<Disease>]
+      - [harvestable,        Harvestable]
+      - [yield_items,        list<CountedItem>]
+      - [required_tool_ids,  list<string>]
+      - [preferred_weather,  list<string>]
+      - [preferred_terrain,  list<string>]
+      - [state_tags,         list<string>]
+      # Angehaengt am 15.11.2026.  Vorher wurde `growth_stage` bei der
+      # Entdeckung EINMAL gesetzt und nie erhoeht: eine Pflanze wurde nie
+      # reif, und es gab kein Feld, das sagt wie lange es dauert.
+      #
+      # Die Stufe wird NICHT getickt, sondern GERECHNET:
+      #   stufe = min(stage_max, (jetzt - gepflanzt_um) / reif_je_stufe_min)
+      # Darum steht in `gepflanzt_um` ein Zeitpunkt, der weit genug zurueck
+      # liegt, um die Anfangsstufe zu ergeben -- ein frisch entdecktes
+      # Gewaechs auf Stufe 2 ist eben schon eine Weile da.  Kein Tick heisst:
+      # kein Schreiben im Leerlauf, und die Stufe stimmt auch nach einem
+      # Serverneustart.
+      - [gepflanzt_um,       i64, 0]
+      - [reif_je_stufe_min,  i32, 0]
+      # Nur fuer die Anzeige, beim Ausliefern gerechnet -- im Speicher bleibt
+      # es 0 (es waere sonst in der Sekunde danach falsch).
+      - [rest_min,           i32, 0]

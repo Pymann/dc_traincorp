@@ -1,0 +1,249 @@
+# Koch-Rezepte in den Korpus schreiben -- und Eingaben, die wie eine
+# Spielaktion aussehen.  Spec: doc/architecture/korpus_kochen_2026-11-19.md
+#
+# WARUM ein Werkzeug und keine Handarbeit: 48 Gerichte x (1 Rezept + 8
+# Eingaben) sind 432 Zeilen, und jede Aenderung an der Form muesste 432 mal
+# nachgezogen werden.  WARUM in aiml und nicht in Python: Projektregel --
+# Werkzeuge fuer aiml-Projekte gehoeren in aiml.
+#
+# Zwei Dinge entstehen hier:
+#   1. `recipe`-Zeilen: Gericht aus Materialarten am Kochtopf, Typ
+#      `consumable`.  Erst mit der 14. Materialart `food` ist das moeglich --
+#      vorher hatte kein Lebensmittel eine Art und konnte in keinem Rezept
+#      stehen.
+#   2. `sample`-Zeilen: die EINGABEN, auf denen das Modell lernt.  Acht je
+#      Rezept, mit wechselnder Grundaktion (sing, study, meditate, breathe,
+#      workout) -- damit die Taetigkeit ein SCHWACHES Signal ist und der
+#      Kochtopf das starke.  Zwei der acht enthalten gar keine Materialart,
+#      damit eine Aktion ohne eingelegten Stoff kein Kauderwelsch mehr ist.
+#
+# ACHTUNG (24.11.2026): dieser Erzeuger schreibt WARENGRUPPEN in die fuenfte
+# Spalte (`food x3, liquid x1`).  Rezepte nennen seit dem 24.11. Stoffe.  Wer
+# ihn laufen laesst, muss danach `korpusgen ... -- stoffe` und dann `rezepte`
+# laufen lassen; `alles` macht es in der richtigen Reihenfolge
+# (doc/architecture/rezept_stoffe_2026-11-24.md).
+- import: "prophecy/sources/zufall.aiml"
+
+- decl: [korpus_pfad, string, "itemgen/data/items_augmented.txt"]
+- decl: [marke_auf,   string, "# ── KOCHEN: erzeugt von korpus_kochen_app ──"]
+- decl: [marke_zu,    string, "# ── KOCHEN: Ende ──"]
+
+# Die Zutatenpaare eines Gerichts: immer `food`, dazu nach Gruppe ein
+# zweiter und manchmal dritter Eimer.  Keine Zufallswahl -- die Gruppe steht
+# im Namen, und gleiche Namen ergeben gleiche Rezepte.
+- def:
+    name: zutaten_fuer
+    args: [[name, string]]
+    return: string
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { neq: [{ call: [name.contains, "tea"] }, 0] },      then: [{ return: "herb x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "infusion"] }, 0] }, then: [{ return: "herb x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cordial"] }, 0] },  then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "drink"] }, 0] },    then: [{ return: "liquid x2, food x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "brew"] }, 0] },     then: [{ return: "food x1, liquid x2, herb x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "milk"] }, 0] },     then: [{ return: "liquid x2, food x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "broth"] }, 0] },    then: [{ return: "animal x1, liquid x2, food x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "chowder"] }, 0] },  then: [{ return: "food x2, liquid x2, animal x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "soup"] }, 0] },     then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "stew"] }, 0] },     then: [{ return: "food x3, liquid x1, animal x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "pottage"] }, 0] },  then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "mushroom"] }, 0] }, then: [{ return: "fungus x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "loaf"] }, 0] },     then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bread"] }, 0] },    then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cake"] }, 0] },     then: [{ return: "food x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bun"] }, 0] },      then: [{ return: "food x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cracker"] }, 0] },  then: [{ return: "food x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "fish"] }, 0] },     then: [{ return: "food x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "meat"] }, 0] },     then: [{ return: "animal x1, food x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "poultry"] }, 0] },  then: [{ return: "animal x1, food x1, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "fillet"] }, 0] },   then: [{ return: "food x2, herb x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "curd"] }, 0] },     then: [{ return: "liquid x2, food x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "preserve"] }, 0] }, then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "compote"] }, 0] },  then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "candied"] }, 0] },  then: [{ return: "food x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "syrup"] }, 0] },    then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "gel"] }, 0] },      then: [{ return: "food x1, essence x1, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "protein"] }, 0] },  then: [{ return: "food x2, tech x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "algae"] }, 0] },    then: [{ return: "food x2, liquid x1, tech x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cultured"] }, 0] }, then: [{ return: "food x2, quantum x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "wafer"] }, 0] },    then: [{ return: "food x2, quantum x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "ration"] }, 0] },   then: [{ return: "food x3, animal x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "tack"] }, 0] },     then: [{ return: "food x3" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bar"] }, 0] },      then: [{ return: "food x2, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "strip"] }, 0] },    then: [{ return: "animal x2, food x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "porridge"] }, 0] }, then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "mash"] }, 0] },     then: [{ return: "food x3, liquid x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bowl"] }, 0] },     then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "gruel"] }, 0] },    then: [{ return: "food x2, liquid x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "pudding"] }, 0] },  then: [{ return: "food x2, liquid x2, animal x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "pilaf"] }, 0] },    then: [{ return: "food x3, herb x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "root"] }, 0] },     then: [{ return: "food x2, herb x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "squash"] }, 0] },   then: [{ return: "food x2, herb x1" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "corn"] }, 0] },     then: [{ return: "food x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "apple"] }, 0] },    then: [{ return: "food x2" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "nut"] }, 0] },      then: [{ return: "food x2, liquid x1" }] }
+      - return: "food x2, liquid x1"
+
+# Die Marke des Rezepts (Spalte 3): wie es zubereitet wurde.
+- def:
+    name: marke_fuer
+    args: [[name, string]]
+    return: string
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { neq: [{ call: [name.contains, "tea"] }, 0] },      then: [{ return: "brewed" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "infusion"] }, 0] }, then: [{ return: "brewed" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "brew"] }, 0] },     then: [{ return: "brewed" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cordial"] }, 0] },  then: [{ return: "brewed" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "drink"] }, 0] },    then: [{ return: "brewed" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "soup"] }, 0] },     then: [{ return: "simmered" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "stew"] }, 0] },     then: [{ return: "simmered" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "broth"] }, 0] },    then: [{ return: "simmered" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "chowder"] }, 0] },  then: [{ return: "simmered" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "pottage"] }, 0] },  then: [{ return: "simmered" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "roast"] }, 0] },    then: [{ return: "roasted" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "seared"] }, 0] },   then: [{ return: "roasted" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "grilled"] }, 0] },  then: [{ return: "roasted" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "charred"] }, 0] },  then: [{ return: "roasted" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "baked"] }, 0] },    then: [{ return: "baked" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "loaf"] }, 0] },     then: [{ return: "baked" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bread"] }, 0] },    then: [{ return: "baked" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "cake"] }, 0] },     then: [{ return: "baked" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "bun"] }, 0] },      then: [{ return: "baked" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "dried"] }, 0] },    then: [{ return: "dried" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "salted"] }, 0] },   then: [{ return: "dried" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "smoked"] }, 0] },   then: [{ return: "dried" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "hard"] }, 0] },     then: [{ return: "dried" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "preserve"] }, 0] }, then: [{ return: "preserved" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "candied"] }, 0] },  then: [{ return: "preserved" }] }
+      - if: { condition: { neq: [{ call: [name.contains, "syrup"] }, 0] },    then: [{ return: "preserved" }] }
+      - return: "nourishing"
+
+# Das Werkzeug: der Kochtopf immer, die Alchemiestation nur beim Brauen --
+# so steht es auch bei den drei vorhandenen Heilmittel-Rezepten.
+- def:
+    name: werkzeug_fuer
+    args: [[marke, string]]
+    return: string
+    static_off: ["str_cmp"]
+    body:
+      - if: { condition: { eq: [marke, "brewed"] }, then: [{ return: "cooking_pot, alchemy-station" }] }
+      - return: "cooking_pot"
+
+# Die acht Eingaben je Rezept.  Der Kochtopf steht in JEDER -- er ist das
+# starke Signal.  Die Grundaktion wechselt (sing, study, meditate, breathe,
+# workout), damit sie ein schwaches bleibt: man kommt auf ein Kochrezept, ob
+# man singt oder ueber dem Topf studiert (User-Entscheid 19.11.2026).
+# Nummer 7 und 8 tragen GAR KEINE Materialart -- genau die Form, die eine
+# Spielaktion hat, wenn man nichts einlegt.
+- def:
+    name: eingabe_bauen
+    args: [[nummer, i32], [arten, string], [marke, string]]
+    return: string
+    body:
+      - decl: [taten, list<string>, ["sing", "study", "meditate", "breathe", "workout", "sleep"]]
+      - decl: [fert,  list<string>, ["resource_lore", "focus_breath", "animal_sense", "navigation", "terrain_sense", "rune_sense"]]
+      - decl: [tat,  string, { at: [taten, { "%": [nummer, taten.len] }] }]
+      - decl: [fkt,  string, { at: [fert,  { "%": [{ "+": [nummer, 2] }, fert.len] }] }]
+      # Die Materialarten ohne Mengen -- eine Eingabe nennt Eimer, keine Zahlen.
+      - decl: [eimer, string, ""]
+      - decl: [teile, list<string>, { call: [arten.split, ","] }]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, teile.len] }
+          body:
+            - decl: [roh, string, { at: [teile, idx] }]
+            - set: [idx, { "+": [idx, 1] }]
+            - decl: [stueck, string, { call: [roh.trim] }]
+            - decl: [worte, list<string>, { call: [stueck.split, " "] }]
+            - if:
+                condition: { gt: [worte.len, 0] }
+                then:
+                  - decl: [eimer_nm, string, { at: [worte, 0] }]
+                  - if:
+                      condition: { eq: [eimer.len, 0] }
+                      then: [{ set: [eimer, eimer_nm] }]
+                      else: [{ set: [eimer, "${eimer} ${eimer_nm}"] }]
+      - if:
+          condition: { ge: [nummer, 6] }
+          then: [{ return: "cooking_pot ${tat} ${fkt} ${marke}" }]
+      - if:
+          condition: { eq: [{ "%": [nummer, 2] }, 0] }
+          then: [{ return: "cooking_pot ${eimer} ${tat} ${marke}" }]
+      - return: "${eimer} cooking_pot ${fkt} ${marke} ${tat}"
+
+# Den alten Block entfernen, damit ein zweiter Lauf nicht doppelt schreibt.
+- def:
+    name: ohne_alten_block
+    args: [[text, string]]
+    return: string
+    body:
+      - decl: [pos, i32, { call: [text.index_of, marke_auf] }]
+      - if: { condition: { lt: [pos, 0] }, then: [{ return: text }] }
+      - return: { call: [text.substr, 0, pos] }
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [namen_text, string, { call: [io.read_file, "prophecy/data/names/items/consumable.txt"] }]
+      - if:
+          condition: { eq: [namen_text.len, 0] }
+          then:
+            - call: [log.error, "kochen: consumable.txt fehlt"]
+            - return: 1
+      - decl: [korpus, string, { call: [io.read_file, korpus_pfad] }]
+      - if:
+          condition: { eq: [korpus.len, 0] }
+          then:
+            - call: [log.error, "kochen: Korpus fehlt"]
+            - return: 1
+      - decl: [rumpf, string, { call: [ohne_alten_block, korpus] }]
+      - decl: [datei, file_handle, { call: [io.open, korpus_pfad, "w"] }]
+      - if:
+          condition: { eq: [datei, null] }
+          then:
+            - call: [log.error, "kochen: Korpus nicht schreibbar"]
+            - return: 1
+      - call: [io.write, datei, rumpf]
+      - call: [io.write, datei, "${marke_auf}\n"]
+      - call: [io.write, datei, "# 48 Gerichte am Kochtopf, Ausgabetyp `consumable` (= ItemArt.Verpflegung).\n"]
+      - call: [io.write, datei, "# Je Rezept acht Eingaben mit wechselnder Grundaktion; zwei davon ohne\n"]
+      - call: [io.write, datei, "# jede Materialart, damit eine Aktion ohne eingelegten Stoff bekannt ist.\n"]
+      - decl: [zeilen, list<string>, { call: [namen_text.split, "\n"] }]
+      - decl: [zahl_rez, i32, 0]
+      - decl: [zahl_bei, i32, 0]
+      - decl: [zdx, i32, 0]
+      - while:
+          condition: { lt: [zdx, zeilen.len] }
+          body:
+            - decl: [roh_nm, string, { at: [zeilen, zdx] }]
+            - set: [zdx, { "+": [zdx, 1] }]
+            - decl: [name, string, { call: [roh_nm.trim] }]
+            - decl: [kopf, i32, { call: [name.starts_with, "#"] }]
+            - if:
+                condition: { "&&": [{ gt: [name.len, 2] }, { eq: [kopf, 0] }] }
+                then:
+                  - decl: [arten, string, { call: [zutaten_fuer, name] }]
+                  - decl: [marke, string, { call: [marke_fuer, name] }]
+                  - decl: [wkz,   string, { call: [werkzeug_fuer, marke] }]
+                  - decl: [rid,   string, "recipe-kitchen-consumable-${name}"]
+                  - call: [io.write, datei, "recipe | ${rid} | ${name} x1 | ${marke} | ${arten} | ${wkz} | consumable\n"]
+                  - set: [zahl_rez, { "+": [zahl_rez, 1] }]
+                  - decl: [bdx, i32, 0]
+                  - while:
+                      condition: { lt: [bdx, 8] }
+                      body:
+                        - decl: [beutel, string, { call: [eingabe_bauen, bdx, arten, marke] }]
+                        - decl: [fert_sp, list<string>, ["resource_lore", "focus_breath", "animal_sense", "navigation"]]
+                        - decl: [fsp, string, { at: [fert_sp, { "%": [bdx, fert_sp.len] }] }]
+                        - call: [io.write, datei, "sample | ${beutel} | ${rid} | ${fsp}\n"]
+                        - set: [zahl_bei, { "+": [zahl_bei, 1] }]
+                        - set: [bdx, { "+": [bdx, 1] }]
+      - call: [io.write, datei, "${marke_zu}\n"]
+      - call: [io.close, datei]
+      - call: [log.info, "kochen: ${zahl_rez} Rezepte und ${zahl_bei} Eingaben geschrieben"]
+      - if: { condition: { eq: [zahl_rez, 0] }, then: [{ return: 1 }] }
+      - return: 0

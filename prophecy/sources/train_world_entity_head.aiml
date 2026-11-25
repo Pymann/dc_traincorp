@@ -1,0 +1,16 @@
+# Einstiegspunkt.  Die Klasse WorldEntityHeadTrainer liegt in train_world_entity_head_app.aiml, damit `main`
+# ein Modul von ausserhalb komponiert (spec/49 §15) statt alles selbst zu tragen.
+
+- import: "prophecy/sources/train_world_entity_head_app.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [trainer, ptr<WorldEntityHeadTrainer>, { new: WorldEntityHeadTrainer }]
+      # 25k samples (vorher 10k) — der re-balanced corpus (per world × et bucket)
+      # mit den semantically-korrigierten growable/harvestable-pools braucht die
+      # vollen 25k damit nm_head ALLE (cluster × name)-Kombinationen genug sieht.
+      - call: [trainer.run, 25000]
+      - return: 0

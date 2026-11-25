@@ -1,0 +1,95 @@
+# Wie oft trifft der Rezept-Kopf?
+#
+# Bis zum 14.11.2026 gab es dafuer nur den Rauchtest mit VIER Proben.  Vier
+# Proben sagen nichts: nach einem Nachtrainieren kann eine davon kippen und
+# drei stehenbleiben, und man weiss nicht, ob das Modell besser oder
+# schlechter geworden ist.
+#
+# Dieser Lauf geht ALLE Trainingsbeispiele durch und zaehlt, wie oft der
+# oberste Vorschlag der Beschriftung entspricht.  Er prueft zugleich das,
+# was heute frueh monatelang unbemerkt war: ob jeder vorhergesagte Name
+# ueberhaupt eine Zeile im Korpus hat.  Ein Name ohne Zeile ist eine leere
+# Karte im Rucksack des Spielers.
+- import: "prophecy/sources/inference.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      # Eigene Instanz statt des Modul-Singletons: der Einstiegspunkt muss
+      # eine Klasse aus einer anderen Datei anlegen (Komposition von aussen,
+      # spec/49 §15) -- und eine eigene Instanz ist hier ohnehin sauberer.
+      - decl: [vorhersage, ptr<ProphecyPredictor>, { new: ProphecyPredictor }]
+      - decl: [bereit, i32, { call: [vorhersage.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "treffer_quote: Vorhersage nicht bereit"]
+            - return: 1
+      - decl: [text, string, { call: [io.read_file, "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { eq: [text.len, 0] }
+          then:
+            - call: [log.error, "treffer_quote: Korpus nicht lesbar"]
+            - return: 1
+      - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+      - decl: [gesamt, i32, 0]
+      - decl: [treffer, i32, 0]
+      - decl: [ohne_zeile, i32, 0]
+      - decl: [ohne_vorhersage, i32, 0]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, zeilen.len] }
+          body:
+            - decl: [roh, string, { at: [zeilen, pos] }]
+            - set: [pos, { "+": [pos, 1] }]
+            # aiml kennt kein `continue` -- der Rumpf haengt an einem `if`.
+            - if:
+                condition: { eq: [{ call: [roh.starts_with, "sample "] }, 1] }
+                then:
+                  - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
+                  - if:
+                      condition: { ge: [spalten.len, 3] }
+                      then:
+                        - decl: [beutel_roh, string, { at: [spalten, 1] }]
+                        - decl: [beutel, string, { call: [beutel_roh.trim] }]
+                        - decl: [soll_roh, string, { at: [spalten, 2] }]
+                        - decl: [soll, string, { call: [soll_roh.trim] }]
+                        - decl: [ist, string, { call: [vorhersage.predict_recipe, beutel] }]
+                        - set: [gesamt, { "+": [gesamt, 1] }]
+                        - if: { condition: { eq: [ist, soll] }, then: [{ set: [treffer, { "+": [treffer, 1] }] }] }
+                        # Zwei verschiedene Faelle, die man nicht verwechseln darf:
+                        # ein LEERER Name heisst "kein einziges Tag des Beutels
+                        # steht im Wortschatz" -- das ist eine Luecke im Korpus,
+                        # keine Drift.  Ein nicht-leerer Name OHNE Rezeptzeile
+                        # ist die Drift, die heute frueh die leeren Karten
+                        # erzeugt hat.
+                        - if:
+                            condition: { eq: [ist.len, 0] }
+                            then:
+                              - set: [ohne_vorhersage, { "+": [ohne_vorhersage, 1] }]
+                              - call: [log.warn, "treffer_quote: kein Tag bekannt in '${beutel}' (${soll})"]
+                            else:
+                              - if:
+                                  condition: { eq: [{ call: [vorhersage.has_recipe, ist] }, 0] }
+                                  then:
+                                    - set: [ohne_zeile, { "+": [ohne_zeile, 1] }]
+                                    - call: [log.error, "treffer_quote: '${ist}' hat keine Rezeptzeile"]
+      - if:
+          condition: { eq: [gesamt, 0] }
+          then:
+            - call: [log.error, "treffer_quote: keine Beispiele gefunden"]
+            - return: 1
+      - decl: [quote, i32, { "/": [{ "*": [treffer, 100] }, gesamt] }]
+      - call: [log.info, "treffer_quote: ${treffer} von ${gesamt} oben richtig (${quote} %)"]
+      - if:
+          condition: { gt: [ohne_vorhersage, 0] }
+          then: [{ call: [log.warn, "treffer_quote: ${ohne_vorhersage} Beispiele liefern GAR KEINE Vorhersage — ihre Tags stehen nicht im Wortschatz"] }]
+      - if:
+          condition: { gt: [ohne_zeile, 0] }
+          then:
+            - call: [log.error, "treffer_quote: ${ohne_zeile} Vorhersagen ohne Rezeptzeile im Korpus — Kopf und Korpus sind auseinander"]
+            - return: 1
+      - call: [log.info, "treffer_quote: jede Vorhersage hat eine Rezeptzeile"]
+      - return: 0

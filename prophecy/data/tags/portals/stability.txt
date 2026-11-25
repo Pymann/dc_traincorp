@@ -1,0 +1,49 @@
+# Portal-OUT-Tags — Stabilität, Bedingungen, Eigenheiten.
+
+# ── Stabilität ─────────────────────────────────────────────────────────────
+stable
+mostly_stable
+flickering
+unstable
+collapsing
+
+# ── Richtung ───────────────────────────────────────────────────────────────
+one_way
+two_way
+ring_bound
+chained
+
+# ── Aktivierung ────────────────────────────────────────────────────────────
+free_passage
+key_required
+rune_required
+qbit_keyed
+toll_required
+time_locked
+
+# ── Geheimhaltung ──────────────────────────────────────────────────────────
+hidden
+known
+secret
+public
+forgotten
+
+# ── Bewachung ──────────────────────────────────────────────────────────────
+unguarded
+sentinel_warded
+spirit_guarded
+mechanical_guard
+
+# ── Alter ──────────────────────────────────────────────────────────────────
+brand_new
+recent
+established
+ancient
+prehistoric
+
+# ── Affinität ──────────────────────────────────────────────────────────────
+crystal_anchored
+qbit_anchored
+arcane_bound
+data_routed
+star_aligned

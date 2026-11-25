@@ -1,0 +1,12 @@
+key
+master_key
+skeleton_key
+sigil_key
+ward_key
+chest_key
+
+# tech / data-realm
+keycard
+biometric_key
+data_key
+encrypted_key

@@ -1,0 +1,26 @@
+# Genetic / Degenerative Diseases (kind=7) — progressiv, hohe Severity
+# Quelle: hereditary spawn-roll, long-term radiation, rare events
+# Cure: heilbar, aber sehr disziplin-/craft-intensiv — meditative-Skill-
+# Stacks + seltene Gene-Stabilizer-Items + Ritual-Skills nötig.  Vererbbar
+# (siehe Disease-Doc: 1-2% Chance pro genetische Disease bei Creature-Spawn).
+
+cellular_decay
+repair_failure_syndrome
+mutation_drift
+accelerated_aging
+telomere_collapse
+mitochondrial_fade
+neural_misfiring
+collagen_breakdown
+immune_misalignment
+sensory_dimming
+chronic_glitch
+slow_phase_shift
+quiet_unraveling
+memory_static
+ossifying_thread
+chronic_pain
+migraine
+neurodermatitis
+sleeplessness
+allergic_drift

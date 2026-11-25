@@ -1,0 +1,25 @@
+# Common tags — atmosphäre/qualität, anwendbar auf viele Entitäten.
+demonic
+holy
+arcane
+natural
+corrupted
+pure
+jagged
+smooth
+soft
+hard
+sharp
+blunt
+hardened
+brittle
+sealed
+open
+light
+heavy
+elastic
+rigid
+luminous
+dark
+fleeting
+enduring

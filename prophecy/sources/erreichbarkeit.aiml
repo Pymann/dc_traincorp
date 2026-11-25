@@ -1,0 +1,286 @@
+# Ist das Spiel spielbar?
+#
+# Am 14.11.2026 war die Antwort monatelang NEIN, ohne dass es jemand merkte:
+# Kein einziges der 150 Rezepte war herstellbar, weil sieben Werkbaenke als
+# Bedingung auftauchten, die kein Rezept herstellt und kein Gebaeude anbietet.
+# 1276 von 3571 Harvestables waren aus demselben Grund gesperrt.
+#
+# Das war keine Panne, sondern eine fehlende Schranke.  Der Korpus wird
+# gewuerfelt (scripts/.../generate_clustered_corpus.py zieht Paare zufaellig),
+# und nichts prueft, ob das Ergebnis noch spielbar ist.  Diese Pruefung
+# rechnet den Abschluss aus: Was kann eine frische Kreatur vom Startgepaeck
+# aus erreichen, wenn sie die Werkstatt der Siedlung benutzen darf?
+#
+# Sie gehoert VOR jeden Korpus-Neubau und nach jedem.
+- import: "sources/shared/kennung.aiml"
+- import: "sources/shared/realm_file.aiml"
+
+- class:
+    name: ErreichbarkeitsPruefung
+    members:
+      # Werkzeugname -> 1, sobald die Kreatur ihn erreichen kann.
+      - [habe,       map<string:i32>]
+      # Rezept-Id -> 1, sobald es herstellbar ist.
+      - [machbar,    map<string:i32>]
+      - [rezept_ids, list<string>]
+      - [ausgaben,   list<string>]   # je Rezept der Ausgabename
+      - [arten,      list<string>]   # je Rezept der out_type
+      - [werkzeuge,  list<string>]   # je Rezept die Werkzeuge, komma-getrennt
+      # Die Starter-Fertigkeiten, die es WIRKLICH gibt (aus den Daten, nicht
+      # aus dem Atlas -- der traegt alte Staende weiter).
+      - [starter,    map<string:i32>]
+    methods:
+      # Seit dem 23.11.2026 schreiben Korpus, Realm-Datei und Startgepaeck
+      # ALLE `cooking_pot` (Unterstrich).  Diese Funktion bleibt, weil
+      # Fremdquellen und Altdaten noch anders schreiben koennen -- sie ruft
+      # jetzt aber dieselbe Regel wie das Spiel.
+      - def:
+          name: vereinheitlichen
+          args: [[roh, string]]
+          return: string
+          body:
+            # DIESELBE Funktion, die das Spiel benutzt
+            # (sources/shared/kennung.aiml).  Vorher normalisierte diese
+            # Pruefung `_` -> `-` und das Spiel gar nicht: deshalb meldete sie
+            # monatelang "259 von 259 erreichbar", waehrend `handle_craft` den
+            # Topf im Rucksack ablehnte.  Ein gruener Test ueber die falsche
+            # Frage ist schlimmer als kein Test.
+            - return: { call: [kennung, roh] }
+
+      - def:
+          name: korpus_lesen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [roh.starts_with, "recipe "] }, 1] }
+                      then:
+                        - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
+                        - if:
+                            condition: { ge: [spalten.len, 7] }
+                            then:
+                              - decl: [kennung_roh, string, { at: [spalten, 1] }]
+                              - decl: [ausgabe_roh, string, { at: [spalten, 2] }]
+                              - decl: [wkz_roh, string, { at: [spalten, 5] }]
+                              - decl: [art_roh, string, { at: [spalten, 6] }]
+                              # "pestle x1" -> "pestle"
+                              - decl: [teile, list<string>, { call: [ausgabe_roh.split, " x"] }]
+                              - decl: [ausgabe, string, ausgabe_roh]
+                              - if: { condition: { gt: [teile.len, 0] }, then: [{ set: [ausgabe, { at: [teile, 0] }] }] }
+                              - call: [<.rezept_ids.push, { call: [<.vereinheitlichen, kennung_roh] }]
+                              - call: [<.ausgaben.push, { call: [<.vereinheitlichen, ausgabe] }]
+                              - call: [<.arten.push, { call: [<.vereinheitlichen, art_roh] }]
+                              - call: [<.werkzeuge.push, wkz_roh]
+            - return: <.rezept_ids.len
+
+      # Die ortsfesten Werkzeuge aus dem Realm: was in einem Gebaeude steht,
+      # muss kein Rezept haben.
+      - def:
+          name: stationen_lesen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [roh, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [roh.len, 0] }, then: [{ return: 0 }] }
+            - decl: [welt, ptr<RealmFile>, { call: [sys.deserialize, roh, "RealmFile"] }]
+            - if: { condition: { eq: [welt, null] }, then: [{ return: 0 }] }
+            - decl: [zahl, i32, 0]
+            - decl: [haeuser, list<Building>, welt.buildings]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, haeuser.len] }
+                body:
+                  - decl: [haus, ref<Building>, { at: [haeuser, pos] }]
+                  - decl: [liste, list<string>, haus.provides_tools]
+                  - decl: [wpos, i32, 0]
+                  - while:
+                      condition: { lt: [wpos, liste.len] }
+                      body:
+                        - decl: [name, string, { call: [<.vereinheitlichen, { at: [liste, wpos] }] }]
+                        - call: [<.habe.put, name, 1]
+                        - set: [zahl, { "+": [zahl, 1] }]
+                        - set: [wpos, { "+": [wpos, 1] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: zahl
+
+      - def:
+          name: startgepaeck
+          access: public
+          args: []
+          body:
+            # sources/client/starter_pool.aiml vergibt diese drei.
+            - call: [<.habe.put, "hammer", 1]
+            - call: [<.habe.put, "cooking_pot", 1]
+            - call: [<.habe.put, "rune_stylus", 1]
+
+      # Verlangt dieses Rezept nur Werkzeuge, die die Kreatur hat?
+      - def:
+          name: alles_zur_hand
+          args: [[wkz_roh, string]]
+          return: i32
+          body:
+            - decl: [sauber, string, { call: [wkz_roh.trim] }]
+            - if: { condition: { eq: [sauber.len, 0] }, then: [{ return: 1 }] }
+            - decl: [teile, list<string>, { call: [sauber.split, ","] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, teile.len] }
+                body:
+                  - decl: [name, string, { call: [<.vereinheitlichen, { at: [teile, pos] }] }]
+                  - if: { condition: { eq: [{ call: [<.habe.contains, name] }, 0] }, then: [{ return: 0 }] }
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: 1
+
+      # Fixpunkt: wer ein Werkzeug herstellen kann, hat es danach.
+      - def:
+          name: abschluss_rechnen
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [runde, i32, 0]
+            - while:
+                condition: { lt: [runde, 64] }
+                body:
+                  - set: [runde, { "+": [runde, 1] }]
+                  - decl: [neues, i32, 0]
+                  - decl: [pos, i32, 0]
+                  - while:
+                      condition: { lt: [pos, <.rezept_ids.len] }
+                      body:
+                        - decl: [kennung, string, { at: [<.rezept_ids, pos] }]
+                        - if:
+                            condition: { eq: [{ call: [<.machbar.contains, kennung] }, 0] }
+                            then:
+                              - if:
+                                  condition: { eq: [{ call: [<.alles_zur_hand, { at: [<.werkzeuge, pos] }] }, 1] }
+                                  then:
+                                    - call: [<.machbar.put, kennung, 1]
+                                    - set: [neues, { "+": [neues, 1] }]
+                                    - if:
+                                        condition: { eq: [{ at: [<.arten, pos] }, "tool"] }
+                                        then: [{ call: [<.habe.put, { at: [<.ausgaben, pos] }, 1] }]
+                        - set: [pos, { "+": [pos, 1] }]
+                  - if: { condition: { eq: [neues, 0] }, then: [{ return: <.machbar.len }] }
+            - return: <.machbar.len
+
+      # Kann die Kreatur dieses Werkzeug bekommen?  Fuer die
+      # Gueltigkeitspruefung erzeugter Vorschlaege (spec §7).
+      - def:
+          name: hat_werkzeug
+          access: public
+          args: [[name, string]]
+          return: i32
+          body:
+            - decl: [ein, string, { call: [<.vereinheitlichen, name] }]
+            - return: { call: [<.habe.contains, ein] }
+
+      # Was bleibt unerreichbar, und woran liegt es?
+      # ── Fundamente des Rezept-Korpus (Plan Punkt 3) ────────────────────
+      # Die vierte Spalte einer `sample`-Zeile nennt die Starter-Fertigkeit,
+      # an der das Rezept thematisch haengt.  Gemessen am 20.11.2026 stand
+      # dort in 424 von 2331 Zeilen eine Fertigkeit, die es im Spiel NICHT
+      # (mehr) gibt (`weaver_touch`, `crystal_affinity`, `fire_channel`,
+      # `smith_touch`, `woodworker_touch` -- in `prophecy/data` kommt keine
+      # davon noch vor), und in rund 230 Zeilen ueberhaupt keine Fertigkeit,
+      # sondern eine Marke (`flexible`, `sturdy`, `nourishing`).
+      #
+      # Das Tor greift fuer Rezepte heute nicht (nur fuer Fertigkeiten,
+      # `lade_skill_tore`), also ist das Spiel davon nicht gesperrt -- aber
+      # das Modell lernt eine Zuordnung, die kein Spieler erfuellen kann, und
+      # mit dem naechsten Atlas-Neubau fallen die Begriffe auch aus dem
+      # Wortschatz.  Darum eine Schranke statt eines Kommentars.
+      - def:
+          name: starter_lesen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - decl: [wort, string, { call: [roh.trim] }]
+                  - if:
+                      condition: { "&&": [{ gt: [wort.len, 0] }, { neq: [{ call: [wort.starts_with, "#"] }, 1] }] }
+                      then: [{ call: [<.starter.put, { call: [<.vereinheitlichen, wort] }, 1] }]
+            - return: <.starter.len
+
+      - def:
+          name: fundamente_pruefen
+          access: public
+          args: [[pfad, string]]
+          return: i32
+          body:
+            - if: { condition: { eq: [<.starter.len, 0] }, then: [{ return: 0 }] }
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [pos, i32, 0]
+            - decl: [fremd, i32, 0]
+            - decl: [gezeigt, i32, 0]
+            - while:
+                condition: { lt: [pos, zeilen.len] }
+                body:
+                  - decl: [roh, string, { at: [zeilen, pos] }]
+                  - set: [pos, { "+": [pos, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [roh.starts_with, "sample "] }, 1] }
+                      then:
+                        - decl: [spalten, list<string>, { call: [roh.split, "|"] }]
+                        - if:
+                            condition: { ge: [spalten.len, 4] }
+                            then:
+                              - decl: [fund_roh, string, { at: [spalten, 3] }]
+                              - decl: [fund, string, { call: [<.vereinheitlichen, fund_roh] }]
+                              - if:
+                                  condition: { "&&": [{ gt: [fund.len, 0] }, { eq: [{ call: [<.starter.contains, fund] }, 0] }] }
+                                  then:
+                                    - set: [fremd, { "+": [fremd, 1] }]
+                                    - if:
+                                        condition: { lt: [gezeigt, 8] }
+                                        then:
+                                          - set: [gezeigt, { "+": [gezeigt, 1] }]
+                                          - decl: [kennung, string, { at: [spalten, 2] }]
+                                          - call: [log.error, "fundament: '${fund}' ist keine Starter-Fertigkeit (Rezept '${{ call: [kennung.trim] }}')"]
+            - return: fremd
+
+      - def:
+          name: melden
+          access: public
+          args: []
+          return: i32
+          body:
+            - decl: [offen, i32, 0]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, <.rezept_ids.len] }
+                body:
+                  - decl: [kennung, string, { at: [<.rezept_ids, pos] }]
+                  - if:
+                      condition: { eq: [{ call: [<.machbar.contains, kennung] }, 0] }
+                      then:
+                        - set: [offen, { "+": [offen, 1] }]
+                        - if:
+                            condition: { le: [offen, 10] }
+                            then:
+                              - decl: [wkz, string, { at: [<.werkzeuge, pos] }]
+                              - call: [log.error, "erreichbarkeit: '${kennung}' braucht '${wkz}' — nicht zu bekommen"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - return: offen

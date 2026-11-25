@@ -1,0 +1,89 @@
+# Was man roh isst -- Regelliste, kein Namens-Pool (darum nicht unter names/).
+# Spec: doc/architecture/essen_2026-11-19.md
+#
+# Jeder Eintrag steht AUCH in names/items/craft_materials/food.txt: roh essbar
+# ist immer eine Teilmenge der Zutaten.  Was hier fehlt, braucht Zubereiten
+# (Getreide, Fisch, Wild, Milch, Ei, Mehl, Hülsenfrüchte, Knollen).
+#
+# Beeren
+strawberry
+raspberry
+blackberry
+blueberry
+elderberry
+gooseberry
+redcurrant
+blackcurrant
+cranberry
+lingonberry
+cloudberry
+seaberry
+juniper_berry
+glow_berry
+frost_berry
+shadow_berry
+sloe
+rowan_fruit
+# Obst
+apple
+pear
+plum
+cherry
+peach
+apricot
+fig
+quince
+grape
+melon
+date_fruit
+crabapple
+sun_apple
+moon_pear
+dried_fruit
+# Pilze und Wasserpflanzen
+mushroom
+black_mushroom
+red_mushroom
+glow_mushroom
+truffle
+morel
+kelp
+seaweed
+seaweed_leaf
+# Kraeuter und Blaetter
+mint
+sage
+thyme
+rosemary
+lavender
+ginseng
+cactus_flesh
+sweet_grass
+honeyflower
+fresh_leaf
+nettle_shoot
+# Nuesse und Kerne
+hazelnut
+walnut
+chestnut
+pine_nut
+almond
+nut
+seed
+sunflower_seed
+pumpkin_seed
+sesame
+# Rohes Gemuese
+carrot
+radish
+cucumber
+pea
+# Suesses und Fluessiges
+honey
+royal_jelly
+nectar
+# Datenwelt-Kost, schon fertig
+nutrient_paste
+protein_cube
+ration_gel
+algae_cake

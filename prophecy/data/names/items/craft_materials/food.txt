@@ -1,0 +1,137 @@
+# Essbare Rohstoffe (item_type bleibt CraftMaterial -- Zutat, nicht Mahlzeit).
+# Spec: doc/architecture/essen_2026-11-19.md
+# Aus ihnen wird durch Zubereiten Verpflegung; roh sind sie Handwerksstoff und
+# bleiben damit fuer Rezepte verfuegbar.
+
+# ── Getreide ──────────────────────────────────────────────────────────────
+oat
+spelt
+rye
+wheat
+millet
+quinoa
+rice
+barley
+buckwheat
+amaranth
+emmer
+einkorn
+sorghum
+teff
+wild_rice
+corn
+# ── Beeren ────────────────────────────────────────────────────────────────
+strawberry
+raspberry
+blackberry
+blueberry
+elderberry
+gooseberry
+redcurrant
+blackcurrant
+cranberry
+lingonberry
+cloudberry
+seaberry
+juniper_berry
+glow_berry
+frost_berry
+shadow_berry
+# ── Obst ──────────────────────────────────────────────────────────────────
+apple
+pear
+plum
+cherry
+peach
+apricot
+fig
+quince
+grape
+melon
+date_fruit
+sloe
+rowan_fruit
+crabapple
+sun_apple
+moon_pear
+# ── Wurzeln und Knollen ───────────────────────────────────────────────────
+potato
+carrot
+beetroot
+turnip
+parsnip
+radish
+yam
+sunroot
+onion
+garlic
+leek
+ginger_root
+chicory_root
+# ── Gemuese und Huelsenfruechte ───────────────────────────────────────────
+cabbage
+kale
+pumpkin
+squash
+cucumber
+bean
+broad_bean
+pea
+lentil
+chickpea
+asparagus
+nettle_shoot
+seaweed_leaf
+# ── Nuesse und Samen ──────────────────────────────────────────────────────
+hazelnut
+walnut
+chestnut
+acorn
+pine_nut
+almond
+sunflower_seed
+pumpkin_seed
+flax_seed
+poppy_seed
+sesame
+# ── Tierisches ────────────────────────────────────────────────────────────
+egg
+goose_egg
+river_fish
+sea_fish
+smoked_fish
+roe
+game_meat
+poultry
+mutton
+bacon
+lard
+cheese
+curd
+cream
+butter
+goat_milk
+# ── Vorrat und Wuerze ─────────────────────────────────────────────────────
+flour
+dough
+bread_grain
+dried_fruit
+preserved_plum
+maple_syrup
+molasses
+vinegar
+broth
+stock_bone
+yeast
+# ── Datenwelt ─────────────────────────────────────────────────────────────
+nutrient_paste
+protein_cube
+ration_gel
+algae_cake
+cultured_protein
+# ---- Bienenerzeugnisse ---------------------------------------------------
+# User-Entscheid 24.11.2026: kein liquid.  Sie stehen nur hier, wie jeder
+# andere Name auch genau in EINER Artenliste (doc/architecture/namensregel_2026-11-23.md).
+honey
+royal_jelly
+nectar

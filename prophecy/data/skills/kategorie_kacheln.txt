@@ -1,0 +1,26 @@
+# Welche Kachel eine Kampffertigkeit bekommt -- je KATEGORIE eine
+# (Entscheid vom 13.11.2026).  Links die Kategorie aus
+# prophecy/data/skills/combat_skill_metadata.yml, rechts der Stamm des
+# Bildes (ohne .png); der Client loest ihn ueber gl.tex auf.
+#
+# Die sperrigen Namen stehen HIER und nicht im Quelltext: eine neue Kachel
+# ist dann eine Zeile, kein Uebersetzungslauf.  Fehlt eine Zeile, bekommt die
+# Kategorie skill_default.
+#
+# Ausgesucht am 13.11. aus den sieben Bogen in resources/skills/*_tiles,
+# eine Kachel je Kategorie, abgelegt in assets/skills/kategorien/.  Die
+# Auswahl ist ein VORSCHLAG -- wer eine andere will, aendert hier eine Zeile
+# und legt die Datei daneben.
+melee_strike  = kat_melee_strike
+melee_heavy   = kat_melee_heavy
+melee_finesse = kat_melee_finesse
+ranged        = kat_ranged
+beast         = kat_beast
+defense       = kat_defense
+mobility      = kat_mobility
+arcane        = kat_arcane
+elemental     = kat_elemental
+nature        = kat_nature
+tech          = kat_tech
+cataclysm     = kat_cataclysm
+realmbreaker  = kat_realmbreaker

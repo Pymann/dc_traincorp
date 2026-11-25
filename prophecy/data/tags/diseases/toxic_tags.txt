@@ -1,0 +1,38 @@
+# Toxic disease tags (kind=1)
+
+# Quelle
+plant_origin
+animal_origin
+synthetic_origin
+microbial_origin
+mineral_origin
+quantum_origin
+
+# Wirk-Mechanik
+neurotoxic
+hemotoxic
+hepatotoxic
+nephrotoxic
+cytotoxic
+mutagenic
+
+# Symptom
+nausea
+dizziness
+muscle_spasm
+hallucination
+internal_bleeding
+paralysis
+seizure
+
+# Verlauf
+fast_acting_poison
+slow_release_poison
+delayed_onset
+cumulative
+
+# Tier
+trace_level
+mild_dose
+heavy_dose
+lethal_dose

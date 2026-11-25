@@ -1,0 +1,163 @@
+# Welche der vier Aufgaben terminiert, und woran scheitern die anderen?
+#
+# Die Gueltigkeitsprobe misst nur Rezepte.  Nach dem Volltraining liefern
+# Rezepte 28 %, der Streifzug aber 0 Entdeckungen -- also wird hier JEDE
+# Aufgabe einzeln gemessen, mit ROHAUSGABE der ersten Vorschlaege: ohne den
+# Wortlaut ist der Ablehnungsgrund nicht zu deuten.
+- import: "prophecy/sources/streifzug.aiml"
+
+# Schliesst das Modell aus dem Beutel, oder wuerfelt es im erlaubten
+# Vokabular?  Der Entdeckungskorpus haelt alle sieben Fundarten gleich stark
+# (je ~3550 von 25000).  Wuerfe waeren also in JEDER Zone gleich verteilt --
+# unterscheiden sich die Zonen, hat die Eingabe das Ergebnis bewegt.
+- def:
+    name: zonen_vergleich
+    args: [[erz, ref<Erzeuger>], [stf, ref<Streifzug>]]
+    body:
+      - call: [log.info, "── Fundarten je Zone (je 30 Saaten) ──"]
+      - decl: [zdx, i32, 0]
+      - while:
+          condition: { lt: [zdx, { call: [stf.n_zonen] }] }
+          body:
+            - decl: [btl, string, { call: [stf.zonen_beutel, zdx, "workout", "resource_lore"] }]
+            - decl: [zahl, map<string:i32>]
+            - decl: [reihe, list<string>]
+            - decl: [saat, i32, 1]
+            - while:
+                condition: { le: [saat, 30] }
+                body:
+                  - decl: [fls, list<i32>, { call: [erz.erzeuge, "<a:entdeckung>", btl, { cast: [saat, i64] }] }]
+                  - set: [saat, { "+": [saat, 1] }]
+                  - decl: [bad, i32, { call: [erz.pruefe_vorschlag, fls, "<a:entdeckung>"] }]
+                  - if:
+                      condition: { eq: [bad, 0] }
+                      then:
+                        - decl: [art, string, { call: [erz.abschnitt_text, fls, "<art>"] }]
+                        - if:
+                            condition: { eq: [{ call: [zahl.contains, art] }, 0] }
+                            then:
+                              - call: [zahl.put, art, 1]
+                              - call: [reihe.push, art]
+                            else: [{ call: [zahl.put, art, { "+": [{ call: [zahl.get, art] }, 1] }] }]
+            - decl: [aus, string, ""]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, reihe.len] }
+                body:
+                  - decl: [nam, string, { at: [reihe, pos] }]
+                  - set: [aus, "${aus} ${nam} ${{ call: [zahl.get, nam] }}"]
+                  - set: [pos, { "+": [pos, 1] }]
+            - call: [log.info, "  Zone ${zdx}:${aus}"]
+            - set: [zdx, { "+": [zdx, 1] }]
+
+- def:
+    name: messe
+    args: [[erz, ref<Erzeuger>], [beutel, string], [marke, string], [aufgabe, string]]
+    return: i32
+    body:
+      - decl: [n_seeds, i32, 60]
+      - decl: [gueltig, i32, 0]
+      - decl: [gesehen, map<string:i32>]
+      - decl: [verschieden, i32, 0]
+      - decl: [gruende, map<string:i32>]
+      - decl: [g_reihe, list<string>]
+      # Wie oft laesst das Modell <tags> LEER?  Der Korpus tut es in 37,9 %
+      # der 25000 Zeilen, das Modell lernt es also mit -- und die Nahtstelle
+      # fragt darum nach (transformer_quelle.aiml, vier Versuche).  Bleibt die
+      # Quote deutlich ueber der des Korpus, reichen vier nicht.
+      - decl: [ohne_m, i32, 0]
+      - decl: [ist_ent, i32, 0]
+      - if: { condition: { eq: [aufgabe, "<a:entdeckung>"] }, then: [{ set: [ist_ent, 1] }] }
+      - decl: [gezeigt, i32, 0]
+      - decl: [saat, i32, 1]
+      - call: [log.info, "── ${marke} (${aufgabe}) ──"]
+      - while:
+          condition: { le: [saat, n_seeds] }
+          body:
+            - decl: [fls, list<i32>, { call: [erz.erzeuge, aufgabe, beutel, { cast: [saat, i64] }] }]
+            - decl: [bad, i32, { call: [erz.pruefe_vorschlag, fls, aufgabe] }]
+            - decl: [txt, string, { call: [erz.lesbar, fls] }]
+            - if:
+                condition: { lt: [gezeigt, 3] }
+                then:
+                  - call: [log.info, "  roh ${saat}: ${txt}"]
+                  - set: [gezeigt, { "+": [gezeigt, 1] }]
+            - if:
+                condition: { eq: [bad, 0] }
+                then:
+                  - set: [gueltig, { "+": [gueltig, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [gesehen.contains, txt] }, 0] }
+                      then:
+                        - call: [gesehen.put, txt, 1]
+                        - set: [verschieden, { "+": [verschieden, 1] }]
+                else:
+                  - decl: [grd, string, erz.grund]
+                  - if:
+                      condition: { eq: [{ call: [gruende.contains, grd] }, 0] }
+                      then:
+                        - call: [gruende.put, grd, 1]
+                        - call: [g_reihe.push, grd]
+                      else: [{ call: [gruende.put, grd, { "+": [{ call: [gruende.get, grd] }, 1] }] }]
+            - if:
+                condition: { eq: [ist_ent, 1] }
+                then:
+                  - decl: [mk_t, string, { call: [erz.abschnitt_text, fls, "<tags>"] }]
+                  - if: { condition: { eq: [mk_t.len, 0] }, then: [{ set: [ohne_m, { "+": [ohne_m, 1] }] }] }
+            - set: [saat, { "+": [saat, 1] }]
+      - decl: [a_pro, i32, { "/": [{ "*": [gueltig, 100] }, n_seeds] }]
+      - call: [log.info, "${marke}: ${gueltig}/${n_seeds} gueltig (${a_pro} %), ${verschieden} verschiedene"]
+      - if:
+          condition: { eq: [ist_ent, 1] }
+          then:
+            - decl: [m_pro, i32, { "/": [{ "*": [ohne_m, 100] }, n_seeds] }]
+            - call: [log.info, "  ohne <tags>: ${ohne_m} von ${n_seeds} (${m_pro} %) — der Korpus laesst sie in 38 % leer"]
+      - decl: [gdx, i32, 0]
+      - while:
+          condition: { "&&": [{ lt: [gdx, g_reihe.len] }, { lt: [gdx, 12] }] }
+          body:
+            - decl: [gnm, string, { at: [g_reihe, gdx] }]
+            - decl: [gzl, i32, { call: [gruende.get, gnm] }]
+            - call: [log.info, "  ${marke} abgelehnt ${gzl}x: ${gnm}"]
+            - set: [gdx, { "+": [gdx, 1] }]
+      - return: verschieden
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [stf, ptr<Streifzug>, { new: Streifzug }]
+      - decl: [ok_s, i32, { call: [stf.init, "assets/realms/realm_example.json", "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { neq: [ok_s, 1] }
+          then:
+            - call: [log.error, "aufgaben: Streifzug nicht bereit"]
+            - return: 1
+      - decl: [z_beutel, string, { call: [stf.zonen_beutel, 0, "workout", "resource_lore"] }]
+      - call: [log.info, "Zonenbeutel 0: ${z_beutel}"]
+
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "aufgaben: nicht bereit"]
+            - return: 1
+      - decl: [prio, list<string>, { call: [erz.fge.prio_lesen, "itemgen/data/items_augmented.txt"] }]
+      - call: [erz.prio_setzen, prio]
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+
+      - decl: [v_r, i32, { call: [messe, erz, "gem rune-stylus magic_aptitude elemental stone essence", "rezept", "<a:rezept>"] }]
+      - decl: [v_e, i32, { call: [messe, erz, z_beutel, "entdeckung", "<a:entdeckung>"] }]
+      - decl: [v_f, i32, { call: [messe, erz, "resource_lore forest gather", "fertigkeit", "<a:fertigkeit>"] }]
+      - decl: [v_k, i32, { call: [messe, erz, "workout beast_attunement aggressive damage_multiplier", "kampf", "<a:kampf>"] }]
+      - call: [log.info, "Vielfalt: rezept ${v_r}, entdeckung ${v_e}, fertigkeit ${v_f}, kampf ${v_k}"]
+      - call: [zonen_vergleich, erz, stf]
+      - decl: [unb, string, { call: [erz.unbekannt_text] }]
+      - if:
+          condition: { gt: [unb.len, 0] }
+          then: [{ call: [log.error, "Beutelwoerter ohne Atlas-Eintrag:${unb}"] }]
+          else: [{ call: [log.info, "Beutel: jedes Wort aufgeloest"] }]
+      - return: 0

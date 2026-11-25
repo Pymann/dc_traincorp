@@ -1,0 +1,62 @@
+# Consumable item names (item_type=19, ItemArt.Verpflegung).
+# Gekochtes und Gebrautes -- das ERGEBNIS eines Koch-Rezepts, nicht die Zutat.
+# Die Zutaten stehen in craft_materials/food.txt und tragen die Materialart
+# `food` (seit 19.11.2026 die 14. Art).
+# Spec: doc/architecture/korpus_kochen_2026-11-19.md
+#
+# Brot und Teig
+flatbread
+hearth_loaf
+rye_loaf
+grain_cake
+seed_cracker
+honey_bun
+# Suppen und Eintoepfe
+root_stew
+grain_pottage
+field_soup
+bone_broth
+fish_chowder
+bean_pottage
+mushroom_soup
+# Gebratenes und Gegartes
+roast_root
+seared_fish
+grilled_meat
+glazed_poultry
+smoked_fillet
+baked_squash
+charred_corn
+# Breie und Auflaeufe
+oat_porridge
+millet_mash
+rice_bowl
+barley_gruel
+spelt_pudding
+quinoa_pilaf
+# Suesses und Eingemachtes
+berry_preserve
+fruit_compote
+dried_apple_ring
+candied_nut
+honey_curd
+syrup_cake
+# Getraenke und Aufguesse
+herb_infusion
+mint_tea
+bramble_cordial
+birch_sap_drink
+spiced_milk
+root_brew
+# Haltbares fuer die Reise
+trail_ration
+pressed_cake
+salted_strip
+hard_tack
+nut_bar
+travel_curd
+# Datenwelt-Kost
+protein_wafer
+nutrient_gel
+cultured_patty
+algae_biscuit

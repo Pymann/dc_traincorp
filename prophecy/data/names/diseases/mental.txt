@@ -1,0 +1,19 @@
+# Mental Diseases (kind=5) — psychisch
+# Quelle: hohe Action-Frequenz, defeat, oppressive weather
+# Cure: mittel (rest, social skills, certain spiritual skills)
+
+despair
+exhaustion
+combat_fear
+existential_dread
+grief_spiral
+intrusive_visions
+sleep_starvation
+quiet_madness
+hollow_focus
+performance_anxiety
+zone_loneliness
+ritual_compulsion
+overload_burnout
+abandonment_chill
+mirror_madness

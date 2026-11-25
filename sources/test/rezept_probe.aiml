@@ -1,0 +1,320 @@
+# Datenregeln der Rezept- und Cluster-Umstellung vom 24.11.2026.
+#
+# Was hier geprueft wird, ist nicht Verhalten, sondern eine Zusage ueber die
+# DATEN -- und zwar genau die Zusagen, deren Bruch am 23./24.11. Tage gekostet
+# hat:
+#
+#   1. Jede Zutat eines Rezepts ist ein echter Stoffname.  Vorher stand dort
+#      eine Warengruppe; ein Rueckfall waere still.
+#   2. Jede Zutat liegt in mindestens einem Welt-Cluster, ist also ueberhaupt
+#      zu bekommen.  Ein Rezept, das `quantum` verlangte, war neun Mal
+#      unerfuellbar, ohne dass es jemand sah.
+#   3. `kern` ist eine Teilmenge von `materials`.  Ein Kernstoff, der nicht im
+#      Vorrat steht, wird gezogen und existiert doch nicht.
+#   4. Jede der 14 Arten hat Namen im Kern.  Sonst ist sie praktisch
+#      unerreichbar, auch wenn sie formal vorkommt.
+#   5. `core_materials` der Handwerke sind echte Stoffnamen.  Neun davon waren
+#      es nicht -- `essence` ist eine ART, `fire_petal` eine Fundstelle.
+#   6. Jeder Eintrag der Regellisten unter prophecy/data/rules/ ist ein echter
+#      Stoffname.  `raw_edible.txt` trug noch Bindestriche und war damit seit
+#      dem 23.11. stumm -- 25 von 74 Einträgen trafen nie.
+#   7. `raw_edible` ist eine Teilmenge von `essbar`: was man roh isst, ist
+#      immer auch eine Zutat.
+#
+# Spec: doc/architecture/rezept_stoffe_2026-11-24.md,
+#       doc/architecture/kern_gewichtung_2026-11-24.md
+- import: "korpusgen/sources/topf.aiml"
+
+- class:
+    name: RezeptProbe
+    members:
+      - [heimat,  map<string:string>, null]      # Stoffname -> Art
+      - [in_welt, map<string:i32>, null]         # Stoffname -> in einem Cluster?
+      - [im_kern, map<string:i32>, null]
+      - [arten,   list<string>, null]
+      - [fehler,  i32, 0, { access: public }]
+      - [geprueft, i32, 0, { access: public }]
+    methods:
+      - def:
+          name: start
+          access: public
+          args: []
+          return: i32
+          body:
+            - set: [<.arten, ["metal", "wood", "fiber", "gem", "liquid", "tech",
+                              "essence", "herb", "animal", "stone", "mineral",
+                              "quantum", "fungus", "food"]]
+            - decl: [adx, i32, 0]
+            - while:
+                condition: { lt: [adx, <.arten.len] }
+                body:
+                  - decl: [art, string, { at: [<.arten, adx] }]
+                  - set: [adx, { "+": [adx, 1] }]
+                  - decl: [namen, list<string>, { call: [topf_lesen, "prophecy/data/names/items/craft_materials/${art}.txt"] }]
+                  - if:
+                      condition: { eq: [namen.len, 0] }
+                      then:
+                        - call: [log.error, "[probe] Artenliste '${art}.txt' ist leer"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - decl: [ndx, i32, 0]
+                  - while:
+                      condition: { lt: [ndx, namen.len] }
+                      body:
+                        - call: [<.heimat.put, { at: [namen, ndx] }, art]
+                        - set: [ndx, { "+": [ndx, 1] }]
+            - call: [log.info, "[probe] ${<.heimat.len} Stoffnamen in ${<.arten.len} Arten"]
+            - return: 1
+
+      # Regel 3 und 4, und dabei faellt ab, welcher Stoff ueberhaupt in der
+      # Welt liegt (fuer Regel 2).
+      - def:
+          name: cluster_pruefen
+          access: public
+          args: []
+          body:
+            - decl: [welten, list<Satz>, { call: [cluster_lesen, "prophecy/data/clusters/world_clusters.txt"] }]
+            - if:
+                condition: { eq: [welten.len, 0] }
+                then:
+                  - call: [log.error, "[probe] keine Welt-Cluster"]
+                  - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - return: 0
+            - decl: [wdx, i32, 0]
+            - while:
+                condition: { lt: [wdx, welten.len] }
+                body:
+                  - decl: [welt, ref<Satz>, { at: [welten, wdx] }]
+                  - set: [wdx, { "+": [wdx, 1] }]
+                  - decl: [mats, list<string>, { call: [satz_liste, welt, "materials"] }]
+                  - decl: [kern, list<string>, { call: [satz_liste, welt, "kern"] }]
+                  - if:
+                      condition: { eq: [mats.len, 0] }
+                      then:
+                        - call: [log.error, "[probe] Cluster '${welt.kennung}' hat keine materials"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - decl: [mdx, i32, 0]
+                  - while:
+                      condition: { lt: [mdx, mats.len] }
+                      body:
+                        - decl: [eins, string, { at: [mats, mdx] }]
+                        - set: [mdx, { "+": [mdx, 1] }]
+                        - call: [<.in_welt.put, eins, 1]
+                        - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                        - if:
+                            condition: { eq: [{ call: [<.heimat.contains, eins] }, 0] }
+                            then:
+                              - call: [log.error, "[probe] Cluster '${welt.kennung}': '${eins}' ist kein Stoffname"]
+                              - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  # Regel 3: Kern ist Teilmenge
+                  - decl: [kdx, i32, 0]
+                  - while:
+                      condition: { lt: [kdx, kern.len] }
+                      body:
+                        - decl: [kstoff, string, { at: [kern, kdx] }]
+                        - set: [kdx, { "+": [kdx, 1] }]
+                        - call: [<.im_kern.put, kstoff, 1]
+                        - if:
+                            condition: { eq: [{ call: [mats.contains, kstoff] }, 0] }
+                            then:
+                              - call: [log.error, "[probe] Cluster '${welt.kennung}': Kernstoff '${kstoff}' steht nicht in materials"]
+                              - set: [<.fehler, { "+": [<.fehler, 1] }]
+            # Regel 4: jede Art hat Kernstoffe
+            - decl: [adx, i32, 0]
+            - while:
+                condition: { lt: [adx, <.arten.len] }
+                body:
+                  - decl: [art, string, { at: [<.arten, adx] }]
+                  - set: [adx, { "+": [adx, 1] }]
+                  - decl: [zahl, i32, { call: [<.kern_zahl_der_art, art] }]
+                  - if:
+                      condition: { eq: [zahl, 0] }
+                      then:
+                        - call: [log.error, "[probe] Art '${art}' hat keinen einzigen Kernstoff -- praktisch unerreichbar"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+                      else: [{ call: [log.info, "[probe]   Art '${art}': ${zahl} Kernstoffe"] }]
+
+      - def:
+          name: kern_zahl_der_art
+          access: public
+          args: [[art, string]]
+          return: i32
+          body:
+            - decl: [namen, list<string>, { call: [topf_lesen, "prophecy/data/names/items/craft_materials/${art}.txt"] }]
+            - decl: [zahl, i32, 0]
+            - decl: [ndx, i32, 0]
+            - while:
+                condition: { lt: [ndx, namen.len] }
+                body:
+                  - decl: [eins, string, { at: [namen, ndx] }]
+                  - set: [ndx, { "+": [ndx, 1] }]
+                  - if:
+                      condition: { neq: [{ call: [<.im_kern.contains, eins] }, 0] }
+                      then: [{ set: [zahl, { "+": [zahl, 1] }] }]
+            - return: zahl
+
+      # Regel 5
+      - def:
+          name: handwerk_pruefen
+          access: public
+          args: []
+          body:
+            - decl: [werke, list<Satz>, { call: [cluster_lesen, "prophecy/data/clusters/craft_clusters.txt"] }]
+            - decl: [hdx, i32, 0]
+            - while:
+                condition: { lt: [hdx, werke.len] }
+                body:
+                  - decl: [satz, ref<Satz>, { at: [werke, hdx] }]
+                  - set: [hdx, { "+": [hdx, 1] }]
+                  - decl: [kern, list<string>, { call: [satz_liste, satz, "core_materials"] }]
+                  - decl: [kdx, i32, 0]
+                  - while:
+                      condition: { lt: [kdx, kern.len] }
+                      body:
+                        - decl: [eins, string, { at: [kern, kdx] }]
+                        - set: [kdx, { "+": [kdx, 1] }]
+                        - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                        - if:
+                            condition: { eq: [{ call: [<.heimat.contains, eins] }, 0] }
+                            then:
+                              - call: [log.error, "[probe] Handwerk '${satz.kennung}': core_material '${eins}' ist kein Stoffname"]
+                              - set: [<.fehler, { "+": [<.fehler, 1] }]
+
+      # Regel 6 und 7
+      - def:
+          name: regellisten_pruefen
+          access: public
+          args: []
+          body:
+            - decl: [essbar, list<string>, { call: [topf_lesen, "prophecy/data/rules/essbar.txt"] }]
+            - decl: [roh, list<string>, { call: [topf_lesen, "prophecy/data/rules/raw_edible.txt"] }]
+            - decl: [koch, list<string>, { call: [topf_lesen, "prophecy/data/rules/kochzutaten.txt"] }]
+            - if:
+                condition: { "||": [{ eq: [essbar.len, 0] }, { eq: [roh.len, 0] }] }
+                then:
+                  - call: [log.error, "[probe] Regelliste fehlt oder ist leer"]
+                  - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - return: 0
+            # Regel 6 fuer essbar
+            - decl: [edx, i32, 0]
+            - while:
+                condition: { lt: [edx, essbar.len] }
+                body:
+                  - decl: [eins, string, { at: [essbar, edx] }]
+                  - set: [edx, { "+": [edx, 1] }]
+                  - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [<.heimat.contains, eins] }, 0] }
+                      then:
+                        - call: [log.error, "[probe] essbar.txt: '${eins}' ist kein Stoffname"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+            # Regel 6 und 7 fuer raw_edible
+            - decl: [rdx, i32, 0]
+            - while:
+                condition: { lt: [rdx, roh.len] }
+                body:
+                  - decl: [eine, string, { at: [roh, rdx] }]
+                  - set: [rdx, { "+": [rdx, 1] }]
+                  - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [<.heimat.contains, eine] }, 0] }
+                      then:
+                        - call: [log.error, "[probe] raw_edible.txt: '${eine}' ist kein Stoffname (Bindestrich?)"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [essbar.contains, eine] }, 0] }
+                      then:
+                        - call: [log.error, "[probe] raw_edible.txt: '${eine}' steht nicht in essbar.txt -- roh essbar, aber keine Zutat"]
+                        - set: [<.fehler, { "+": [<.fehler, 1] }]
+            # Regel 6 fuer die Kuechenregeln: jeder Wert ein Stoffname
+            - decl: [cdx, i32, 0]
+            - while:
+                condition: { lt: [cdx, koch.len] }
+                body:
+                  - decl: [zeile, string, { at: [koch, cdx] }]
+                  - set: [cdx, { "+": [cdx, 1] }]
+                  - decl: [teile, list<string>, { call: [zeile.split, ":"] }]
+                  - if:
+                      condition: { ge: [teile.len, 2] }
+                      then:
+                        - decl: [wort_roh, string, { at: [teile, 0] }]
+                        - decl: [wort, string, { call: [wort_roh.trim] }]
+                        - decl: [werte, list<string>, { call: [topf_teile, { at: [teile, 1] }] }]
+                        - decl: [wdx, i32, 0]
+                        - while:
+                            condition: { lt: [wdx, werte.len] }
+                            body:
+                              - decl: [wert, string, { at: [werte, wdx] }]
+                              - set: [wdx, { "+": [wdx, 1] }]
+                              - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                              # `essbar` listet Arten, keine Stoffe -- die Zeile auslassen
+                              - if:
+                                  condition: { "&&": [{ neq: [wort, "essbar"] },
+                                                      { eq: [{ call: [<.heimat.contains, wert] }, 0] }] }
+                                  then:
+                                    - call: [log.error, "[probe] kochzutaten.txt '${wort}': '${wert}' ist kein Stoffname"]
+                                    - set: [<.fehler, { "+": [<.fehler, 1] }]
+            - call: [log.info, "[probe] Regellisten: ${essbar.len} essbar, ${roh.len} roh, ${koch.len} Kuechenzeilen"]
+
+      # Regel 1 und 2
+      - def:
+          name: rezepte_pruefen
+          access: public
+          args: [[pfad, string]]
+          body:
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if:
+                condition: { eq: [text.len, 0] }
+                then:
+                  - call: [log.error, "[probe] '${pfad}' fehlt"]
+                  - set: [<.fehler, { "+": [<.fehler, 1] }]
+                  - return: 0
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            - decl: [rezepte, i32, 0]
+            - decl: [zutaten, i32, 0]
+            - decl: [ldx, i32, 0]
+            - while:
+                condition: { lt: [ldx, zeilen.len] }
+                body:
+                  - decl: [zeile, string, { at: [zeilen, ldx] }]
+                  - set: [ldx, { "+": [ldx, 1] }]
+                  - if:
+                      condition: { eq: [{ call: [zeile.starts_with, "recipe |"] }, 1] }
+                      then:
+                        - decl: [teile, list<string>, { call: [zeile.split, "|"] }]
+                        - if:
+                            condition: { ge: [teile.len, 7] }
+                            then:
+                              - set: [rezepte, { "+": [rezepte, 1] }]
+                              - decl: [ken_roh, string, { at: [teile, 1] }]
+                              - decl: [ken, string, { call: [ken_roh.trim] }]
+                              - decl: [posten, list<string>, { call: [topf_teile, { at: [teile, 4] }] }]
+                              - if:
+                                  condition: { eq: [posten.len, 0] }
+                                  then:
+                                    - call: [log.error, "[probe] Rezept '${ken}' hat keine Zutat"]
+                                    - set: [<.fehler, { "+": [<.fehler, 1] }]
+                              - decl: [pdx, i32, 0]
+                              - while:
+                                  condition: { lt: [pdx, posten.len] }
+                                  body:
+                                    - decl: [eintrag, string, { at: [posten, pdx] }]
+                                    - set: [pdx, { "+": [pdx, 1] }]
+                                    - decl: [stuecke, list<string>, { call: [eintrag.split, " x"] }]
+                                    - decl: [roh, string, { at: [stuecke, 0] }]
+                                    - decl: [stoff, string, { call: [roh.trim] }]
+                                    - set: [zutaten, { "+": [zutaten, 1] }]
+                                    - set: [<.geprueft, { "+": [<.geprueft, 1] }]
+                                    # Regel 1
+                                    - if:
+                                        condition: { eq: [{ call: [<.heimat.contains, stoff] }, 0] }
+                                        then:
+                                          - call: [log.error, "[probe] Rezept '${ken}': '${stoff}' ist kein Stoffname (Warengruppe?)"]
+                                          - set: [<.fehler, { "+": [<.fehler, 1] }]
+                                        else:
+                                          # Regel 2
+                                          - if:
+                                              condition: { eq: [{ call: [<.in_welt.contains, stoff] }, 0] }
+                                              then:
+                                                - call: [log.error, "[probe] Rezept '${ken}': '${stoff}' liegt in keinem Welt-Cluster -- unerfuellbar"]
+                                                - set: [<.fehler, { "+": [<.fehler, 1] }]
+            - call: [log.info, "[probe] ${rezepte} Rezepte, ${zutaten} Zutaten geprueft"]

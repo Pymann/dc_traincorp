@@ -1,0 +1,51 @@
+# Passive-Skill-Tags (skill_kind=2) — wirken ueber den Kanal `attr.*` auf die
+# wirksamen Attribute (attr_wirksam in sources/server/discovery.aiml).
+# KEIN Slot-Limit: man darf beliebig viele stapeln, es begrenzt der Deckel je
+# Kanal (Entscheid 13.11.2026, doc/architecture/passive_skills_wirkungen_2026-11-12.md).
+
+# Stat-Modifier
+strength_bonus
+endurance_bonus
+agility_bonus
+charisma_bonus
+intelligence_bonus
+focus_bonus
+will_bonus
+all_stats_bonus
+
+# Resistenz
+toxic_resistance
+biological_resistance
+physical_resistance
+magical_resistance
+mental_resistance
+environmental_resistance
+
+# Regeneration
+hp_regen
+mp_regen
+fatigue_regen
+disease_decay_bonus
+
+# Wahrnehmung
+detect_hidden
+detect_disease
+detect_magic
+detect_lies
+extended_vision_range
+
+# Bewegung
+fast_travel
+silent_step
+encumbrance_reduction
+
+# Soziale Wirkung
+npc_reaction_bonus
+shop_price_bonus
+quest_reward_bonus
+faction_standing_bonus
+
+# Lern-Affinität
+xp_gain_bonus
+discovery_chance_bonus
+recipe_unlock_bonus

@@ -1,0 +1,41 @@
+# Wrapper model matching the JSON layout in data/realm_example.json.
+# Loaded once at client startup via sys.deserialize(io.read_file(...), "RealmFile").
+
+- import: "sources/shared/realm.aiml"
+- import: "sources/shared/terrain.aiml"
+- import: "sources/shared/weather.aiml"
+- import: "sources/shared/zone.aiml"
+- import: "sources/shared/building.aiml"
+- import: "sources/shared/location.aiml"
+- import: "sources/shared/zone_transfer.aiml"
+- import: "sources/shared/harvestable.aiml"
+- import: "sources/shared/growable.aiml"
+- import: "sources/shared/npc.aiml"
+- import: "sources/shared/enemy.aiml"
+- import: "sources/shared/portal.aiml"
+- import: "sources/shared/locked_thing.aiml"
+- import: "sources/shared/quest_def.aiml"
+
+- model:
+    name: RealmFile
+    fields:
+      - [realm,          Realm]
+      - [terrains,       list<Terrain>]
+      - [weathers,       list<Weather>]
+      - [zones,          list<Zone>]
+      - [buildings,      list<Building>]
+      - [locations,      list<Location>]
+      - [zone_transfers, list<ZoneTransfer>]
+      # "Always there"-Entities pro Realm (gefiltert via zone_id auf die jeweils
+      # aktive Zone).  Neue Felder am Ende → alte realm_example.json's ohne
+      # diese Listen deserialisieren defensiv als leer.
+      - [harvestables,   list<Harvestable>]
+      - [growables,      list<Growable>]
+      - [npcs,           list<NPC>]
+      - [enemies,        list<Enemy>]
+      - [portals,        list<Portal>]
+      - [locked_things,  list<LockedThing>]
+      # Quests (doc/architecture/quests_2026-11-15.md).  Am Ende, wie die
+      # uebrigen Nachzuegler: eine alte Realm-Datei ohne den Abschnitt
+      # deserialisiert als leere Liste.
+      - [quests,         list<QuestDef>]

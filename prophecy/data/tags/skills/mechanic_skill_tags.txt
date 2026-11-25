@@ -1,0 +1,46 @@
+# Mechanic-Skill-Tags (skill_kind=4) — EventBus-Subscriber, side-channel
+# Effekte (NO direct damage/stats — das wäre PassiveSkill misused).
+
+# Event-Subscription (analog event_subscribers map im Skill-Doc)
+subscribes_hour_elapsed
+subscribes_weather_change
+subscribes_enemy_defeated
+subscribes_discovery_made
+subscribes_harvest_streak
+subscribes_action_complete
+subscribes_zone_enter
+subscribes_zone_leave
+subscribes_disease_apply
+subscribes_currency_change
+
+# Effekt-Klasse (side-channel)
+notification_only
+resource_drip
+visibility_toggle
+ui_helper
+log_assist
+prediction_helper
+auto_collect
+
+# Wirk-Frequenz
+high_frequency
+low_frequency
+opportunistic
+guaranteed
+
+# Wertschätzung der Belohnung
+trivial_reward
+small_reward
+moderate_reward
+generous_reward
+
+# Beispiel-Themen
+weather_prediction
+luck_currency
+auto_inventory
+notification_filter
+exp_curve_modifier
+
+# Stack-Behaviour
+single_instance_only
+stackable

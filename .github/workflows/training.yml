@@ -1,0 +1,222 @@
+name: Training
+
+# Von Hand ausgeloest, nie automatisch.  Ein Lauf kostet Rechenzeit, und die
+# Reihenfolge der Schritte ist nicht beliebig -- siehe README.
+on:
+  workflow_dispatch:
+    inputs:
+      schritte:
+        description: "Welcher Teil der Kette"
+        type: choice
+        default: nur-pruefen
+        options:
+          - nur-pruefen
+          - 1-atlas
+          - 2-embedding
+          - 3-koepfe
+          - 4-transformer
+          - 5-chance
+          - alles
+      epochen:
+        description: "DC_EPOCHEN (Koepfe, Transformer)"
+        default: "15"
+      lernrate:
+        description: "DC_LR (leer = Vorgabe der App)"
+        default: ""
+      stapel:
+        description: "DC_STAPEL (leer = Vorgabe der App)"
+        default: ""
+      cs_epochen:
+        description: "CS_EPOCHEN (Chance-Kopf)"
+        default: "15"
+      vorlauf:
+        description: "Run-ID eines frueheren Laufes, dessen aiondb fortgesetzt wird (leer = leer anfangen)"
+        default: ""
+      korpus_neu:
+        description: "Korpora vorher neu erzeugen (korpusgen alles)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read      # fuer download-artifact aus einem frueheren Lauf
+
+concurrency:
+  # Zwei Laeufe auf derselben Datenbank wuerden sich die Gewichte
+  # ueberschreiben.  Ein Lauf zur Zeit, und ein neuer bricht keinen alten ab.
+  group: training
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350   # GitHub kappt bei 360
+    env:
+      AIML_REF: main
+      DC_EPOCHEN: ${{ inputs.epochen }}
+      CS_EPOCHEN: ${{ inputs.cs_epochen }}
+
+    steps:
+      - name: Korpus-Repo
+        uses: actions/checkout@v4
+
+      - name: aiml (privat -- braucht das Geheimnis AIML_TOKEN)
+        uses: actions/checkout@v4
+        with:
+          repository: Pymann/aiml
+          ref: ${{ env.AIML_REF }}
+          token: ${{ secrets.AIML_TOKEN }}
+          path: .werkzeug/aiml
+
+      - name: exodus
+        uses: actions/checkout@v4
+        with:
+          repository: Pymann/exodus
+          path: .werkzeug/exodus
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: exodus einrichten
+        run: python -m pip install --upgrade pip && python -m pip install ./.werkzeug/exodus
+
+      - name: Welcher aiml-Stand
+        id: stand
+        run: echo "sha=$(git -C .werkzeug/aiml rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Der aiml-Uebersetzer bindet LLVM-18 ein; ihn bei jedem Lauf neu zu
+      # bauen waere die teuerste Zeile dieses Workflows.  Darum je Commit
+      # genau einmal, danach aus dem Cache.
+      - name: aiml-Build aus dem Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          key: aiml-${{ runner.os }}-${{ steps.stand.outputs.sha }}
+          path: |
+            .werkzeug/aiml/out
+            .werkzeug/aiml/__exodus_cache
+
+      - name: aiml bauen
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: .werkzeug/aiml
+        run: exodus build --all
+
+      # exodus loest `$AIML` und `$AIML_VENV` in den Configs auf (aiml spec/68
+      # F68-23).  Darum steht in keiner Config dieses Repos ein absoluter Pfad.
+      - name: aiml-Venv zusammenstellen
+        run: |
+          set -eu
+          mkdir -p .werkzeug/venv/bin .werkzeug/venv/lib
+          cp .werkzeug/aiml/out/aiml/aiml .werkzeug/venv/bin/aiml
+          cp .werkzeug/aiml/out/libaiml/libaiml.so .werkzeug/venv/lib/
+          echo "# aiml venv" > .werkzeug/venv/env
+          echo "AIML=$PWD/.werkzeug/venv/bin/aiml" >> "$GITHUB_ENV"
+          echo "AIML_VENV=$PWD/.werkzeug/venv" >> "$GITHUB_ENV"
+          echo "AIONDB_PATH=$PWD/aiondb" >> "$GITHUB_ENV"
+
+      - name: Stand des Vorlaufs holen
+        if: inputs.vorlauf != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: aiondb
+          run-id: ${{ inputs.vorlauf }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: aiondb
+
+      - name: Datenbankordner
+        run: mkdir -p aiondb berichte
+
+      # ── Korpora ──────────────────────────────────────────────────────────
+      - name: Korpora neu erzeugen
+        if: inputs.korpus_neu
+        run: |
+          set -eu
+          "$AIML" korpusgen/korpusgen.aiml -r -- alles 42 2>&1 | tee berichte/korpusgen.log
+
+      - name: Datenregeln (Stoffe, Cluster, Regellisten)
+        run: |
+          set -eu
+          exodus build -c exodus-rezept-probe.json 2>&1 | tee berichte/build_probe.log
+          ./rezept_probe 2>&1 | tee berichte/rezept_probe.log
+
+      # ── Die Kette ────────────────────────────────────────────────────────
+      - name: 1 Atlas und Wortschatz
+        if: contains(fromJSON('["1-atlas","alles"]'), inputs.schritte)
+        run: |
+          set -eu
+          exodus build -c exodus-prophecy.json 2>&1 | tee berichte/build_atlas.log
+          ./prophecy_build 2>&1 | tee berichte/1_atlas.log
+
+      - name: 2 Embedding
+        if: contains(fromJSON('["2-embedding","alles"]'), inputs.schritte)
+        run: |
+          set -eu
+          exodus build -c exodus-prophecy-pretrain.json 2>&1 | tee berichte/build_pretrain.log
+          ./prophecy_pretrain 2>&1 | tee berichte/2_embedding.log
+
+      - name: 3 Koepfe
+        if: contains(fromJSON('["3-koepfe","alles"]'), inputs.schritte)
+        env:
+          DC_LR: ${{ inputs.lernrate }}
+          DC_STAPEL: ${{ inputs.stapel }}
+        run: |
+          set -eu
+          for teil in item-head skill-head combat-skill-head world-entity-head combat-score-head; do
+            echo "== $teil =="
+            exodus build -c "exodus-prophecy-$teil.json" 2>&1 | tee "berichte/build_$teil.log"
+          done
+          for bin in prophecy_train_item_head prophecy_train_skill_head \
+                     prophecy_train_combat_skill_head prophecy_train_world_entity_head \
+                     prophecy_train_combat_score_head; do
+            echo "== $bin =="
+            "./$bin" 2>&1 | tee "berichte/3_$bin.log"
+          done
+
+      - name: 4 Transformer
+        if: contains(fromJSON('["4-transformer","alles"]'), inputs.schritte)
+        env:
+          DC_LR: ${{ inputs.lernrate }}
+          DC_STAPEL: ${{ inputs.stapel }}
+        run: |
+          set -eu
+          exodus build -c exodus-prophecy-train-transformer.json 2>&1 | tee berichte/build_transformer.log
+          ./prophecy_train_transformer 2>&1 | tee berichte/4_transformer.log
+
+      - name: 5 Chance-Kopf
+        if: contains(fromJSON('["5-chance","alles"]'), inputs.schritte)
+        run: |
+          set -eu
+          exodus build -c exodus-prophecy-chance-kopf.json 2>&1 | tee berichte/build_chance.log
+          ./prophecy_train_chance_kopf 2>&1 | tee berichte/5_chance.log
+
+      # ── Abnahme ──────────────────────────────────────────────────────────
+      # Das Korpus-Gate zaehlt, wieviele Korpuswoerter keinen Atlas-Schluessel
+      # haben.  Vor Schritt 1 sind es 9 (Prozessmarken wie `rune_craft`);
+      # danach soll es 0 sein.  Darum laeuft es NACH der Kette.
+      - name: Korpus-Gate
+        if: always()
+        continue-on-error: true
+        run: |
+          set -eu
+          exodus build -c exodus-prophecy-gate-korpus.json 2>&1 | tee berichte/build_gate.log
+          ./prophecy_gate_korpus 2>&1 | tee berichte/gate_korpus.log
+
+      - name: Ergebnis sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiondb
+          path: aiondb
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Berichte sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: berichte
+          path: berichte
+          retention-days: 30
+          if-no-files-found: warn

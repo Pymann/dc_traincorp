@@ -1,0 +1,18 @@
+amulet
+pendant
+locket
+talisman
+charm
+medallion
+necklace
+torc
+beadstring
+pectoral
+choker
+neck_band
+
+# tech / data-realm
+neural_pendant
+data_locket
+signal_charm
+key_amulet

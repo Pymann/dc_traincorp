@@ -1,0 +1,91 @@
+# Determinismus und Vielfalt der Erzeugung.
+#
+# Das ist die Abnahme des Zielbildes.  Gemessen wird NICHT Treffsicherheit,
+# sondern:
+#   1 Determinismus -- gleicher Beutel + gleicher Seed, 20 Laeufe, EINE Folge
+#   2 Vielfalt      -- viele Seeds, wie viele VERSCHIEDENE Folgen kommen heraus
+#   3 Grammatik     -- endet die Folge auf <end>, stehen die Marken richtig
+#
+# Das Modell hat an dieser Stelle nur 3 Epochen auf 1208 Folgen gesehen.  Die
+# INHALTLICHE Guete ist darum noch kein Thema; 1-3 sind strukturell und jetzt
+# schon aussagekraeftig.
+- import: "prophecy/sources/erzeuger.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "erzeuge: nicht bereit"]
+            - return: 1
+      - decl: [prio, list<string>, { call: [erz.fge.prio_lesen, "itemgen/data/items_augmented.txt"] }]
+      - call: [erz.prio_setzen, prio]
+      - decl: [fehler, i32, 0]
+      - decl: [beutel, string, "gem rune-stylus magic_aptitude elemental stone essence"]
+
+      # ── 1 Determinismus ─────────────────────────────────────────────────
+      - decl: [erste, list<i32>, { call: [erz.erzeuge, "<a:rezept>", beutel, 12345] }]
+      - decl: [erste_s, string, { call: [erz.lesbar, erste] }]
+      - call: [log.info, "erzeuge 1: Seed 12345 -> ${erste_s}"]
+      - decl: [gleich, i32, 0]
+      - decl: [lauf, i32, 0]
+      - while:
+          condition: { lt: [lauf, 20] }
+          body:
+            - decl: [wdh, list<i32>, { call: [erz.erzeuge, "<a:rezept>", beutel, 12345] }]
+            - decl: [wdh_s, string, { call: [erz.lesbar, wdh] }]
+            - if: { condition: { eq: [wdh_s, erste_s] }, then: [{ set: [gleich, { "+": [gleich, 1] }] }] }
+            - set: [lauf, { "+": [lauf, 1] }]
+      - if:
+          condition: { eq: [gleich, 20] }
+          then: [{ call: [log.info, "erzeuge 1 Determinismus: 20 von 20 Laeufen gleich"] }]
+          else:
+            - call: [log.error, "erzeuge 1 Determinismus VERLETZT: nur ${gleich} von 20 gleich"]
+            - set: [fehler, { "+": [fehler, 1] }]
+
+      # ── 2 Vielfalt + 3 Grammatik ────────────────────────────────────────
+      - decl: [gesehen, map<string:i32>]
+      - decl: [verschieden, i32, 0]
+      - decl: [mit_ende, i32, 0]
+      - decl: [gesamt, i32, 0]
+      - decl: [ende_m, i32, { call: [erz.fge.marke, "<end>"] }]
+      - decl: [saat, i32, 1]
+      - while:
+          condition: { le: [saat, 150] }
+          body:
+            - decl: [fls, list<i32>, { call: [erz.erzeuge, "<a:rezept>", beutel, { cast: [saat, i64] }] }]
+            - set: [gesamt, { "+": [gesamt, 1] }]
+            - if:
+                condition: { gt: [fls.len, 0] }
+                then:
+                  - decl: [letzt, i32, { at: [fls, { "-": [fls.len, 1] }] }]
+                  - if: { condition: { eq: [letzt, ende_m] }, then: [{ set: [mit_ende, { "+": [mit_ende, 1] }] }] }
+            - decl: [fls_s, string, { call: [erz.lesbar, fls] }]
+            - if:
+                condition: { eq: [{ call: [gesehen.contains, fls_s] }, 0] }
+                then:
+                  - call: [gesehen.put, fls_s, 1]
+                  - set: [verschieden, { "+": [verschieden, 1] }]
+                  - if:
+                      condition: { le: [verschieden, 5] }
+                      then: [{ call: [log.info, "erzeuge 2 Beispiel ${verschieden}: ${fls_s}"] }]
+            - set: [saat, { "+": [saat, 1] }]
+      - decl: [v_pro, i32, { "/": [{ "*": [verschieden, 100] }, gesamt] }]
+      - decl: [e_pro, i32, { "/": [{ "*": [mit_ende, 100] }, gesamt] }]
+      - call: [log.info, "erzeuge 2 Vielfalt: ${verschieden} verschiedene aus ${gesamt} Seeds (${v_pro} %)"]
+      - call: [log.info, "erzeuge 3 Grammatik: ${mit_ende} von ${gesamt} enden auf <end> (${e_pro} %)"]
+      - if:
+          condition: { lt: [verschieden, 2] }
+          then:
+            - call: [log.error, "erzeuge 2 Vielfalt: das Modell gibt immer dasselbe — Sampling wirkt nicht"]
+            - set: [fehler, { "+": [fehler, 1] }]
+      - if:
+          condition: { gt: [fehler, 0] }
+          then: [{ return: 1 }]
+      - call: [log.info, "erzeuge: Determinismus und Vielfalt gruen"]
+      - return: 0

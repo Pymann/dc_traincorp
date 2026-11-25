@@ -1,0 +1,23 @@
+# Weather-specific tags — atmosphäre des aktuellen Wetters.
+oppressive
+biting
+clammy
+dry
+stormy
+windless
+flickering
+muffled
+glaring
+hazy
+pulling
+looming
+crackling
+charging
+unstable
+calm
+dense
+thin
+scorching
+freezing
+searing
+murky

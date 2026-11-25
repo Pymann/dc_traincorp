@@ -1,0 +1,43 @@
+# Environmental disease tags (kind=6) — umwelt-induziert
+
+# Quelle
+heat_exposure
+cold_exposure
+radiation_exposure
+toxic_atmosphere
+high_altitude
+deep_pressure
+electromagnetic
+sonic
+ionizing
+chemical_runoff
+
+# Wirkung
+skin_damage
+respiratory_damage
+nerve_damage
+sensory_damage
+cellular_damage
+
+# Zone-Korrelation
+volcanic
+arctic
+desert
+swamp
+urban_industrial
+abandoned_tech
+underwater
+high_pressure
+
+# Schutz-Bedarf
+needs_insulation
+needs_filter_mask
+needs_shielding
+needs_pressure_suit
+needs_anti_glare
+
+# Erholungs-Pfad
+shelter_responsive
+gear_responsive
+time_only
+medication_needed

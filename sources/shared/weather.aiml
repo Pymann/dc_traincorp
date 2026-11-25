@@ -1,0 +1,9 @@
+# Shared world model.
+
+- model:
+    name: Weather
+    fields:
+      - [weather_id,      string]
+      - [weather_kind,    string]
+      - [weather_subtype, string]
+      - [weather_tags,    list<string>]

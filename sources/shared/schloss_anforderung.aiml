@@ -1,0 +1,71 @@
+# Was ein Schloss verlangt.  Mehrere Anforderungen zugleich sind der Normalfall
+# ("Stärke 12 UND singen"), und sie muessen semantisch NICHT zusammenpassen --
+# ein Siegel kann einen Hammer wollen.
+#
+# `wire: true` bei beiden Aufzaehlungen, weil die Werte ueber RPC zum Client
+# gehen und in `locked.kvwal` stehen.  Ein festes Vokabular gehoert in eine
+# Aufzaehlung und nicht in eine Kette von Stringvergleichen (dieselbe Lehre
+# wie bei ItemArt).
+
+- enum:
+    name: AnfArt
+    wire: true
+    values:
+      - Attribut:   1
+      - Aktion:     2
+      - Gegenstand: 3
+      - Schluessel: 4
+
+# Nur Attribute, die eine frische Kreatur ueberhaupt hat (creature_handlers
+# setzt sie auf 10) -- eine Anforderung auf ein Feld, das immer 0 ist, waere
+# unerfuellbar.
+- enum:
+    name: AnfAttribut
+    wire: true
+    values:
+      - Staerke:       1
+      - Ausdauer:      2
+      - Beweglichkeit: 3
+      - Ausstrahlung:  4
+      - Verstand:      5
+      - Fokus:         6
+
+# Der Zustand eines Schlosses.  Ein festes Vokabular gehoert in eine
+# Aufzaehlung, nicht in einen String -- bis zum 15.11.2026 stand hier
+# `state: "locked" | "unlocked" | "looted"` als Text, und jeder Vergleich war
+# ein Stringvergleich (der statische Pruefer hat das zu Recht angemahnt).
+#
+# `wire: true`, weil der Wert ueber RPC zum Client geht und im Kv steht.  Die
+# Umstellung aendert die Satzgestalt von `LockedThing` und macht bestehende
+# Saetze ungueltig; dazu gehoert ein Wipe (scripts/wipe_fertigkeiten.sh).
+- enum:
+    name: SchlossZustand
+    wire: true
+    values:
+      - Verschlossen: 1
+      - Offen:        2
+      - Ausgeraeumt:  3
+
+- model:
+    name: SchlossAnforderung
+    fields:
+      - [art,      i32, 0]      # AnfArt
+      - [feld,     i32, 0]      # AnfAttribut, nur wenn art == Attribut
+      - [zahl,     i32, 0]      # Schwelle, nur wenn art == Attribut
+      # Lesbar, damit der Client nichts nachschlagen muss: "Staerke 12",
+      # "singen", "hammer", "sigil-key".
+      - [name,     string]
+      # Vom Server beim Pruefen gesetzt -- so sieht der Spieler, WELCHE
+      # Anforderung gefehlt hat, nicht nur dass eine fehlte.
+      - [erfuellt, i32, 0]
+
+# Der Anzeigename eines Zustands.  Vergleiche auf Aufzaehlungswerte, nicht auf
+# Strings -- und an EINER Stelle, damit Client und Server dasselbe sagen.
+- def:
+    name: schloss_zustand_text
+    args: [[zustand, i32]]
+    return: string
+    body:
+      - if: { condition: { eq: [zustand, SchlossZustand.Offen] },       then: [{ return: "offen" }] }
+      - if: { condition: { eq: [zustand, SchlossZustand.Ausgeraeumt] }, then: [{ return: "ausgeraeumt" }] }
+      - return: "verschlossen"

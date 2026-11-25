@@ -1,0 +1,72 @@
+# Domaenen-Reihenfolge des Korpus `items`.
+# Sie entscheidet, auf welchen Atlas-Schluessel ein blankes Wort zeigt
+# (corpus_loader parse_priority_header).  Uebernommen aus dem Kopf der
+# bisherigen Datei, damit kein Wort seine Domaene verliert -- gekuerzt hatte
+# ich sie am 21.11.2026, und das Korpus-Gate fand sofort 94 Woerter ohne Token.
+# Eine Zeile je Domaene, in dieser Reihenfolge.
+cross:element
+actions:base_actions
+skills:starter_skills
+items:starter_items
+items:craft_recipe_tags
+items:universal_tags
+items:item_only_tags
+items:weapon_tags
+items:armor_tags
+items:helmet_tags
+items:boots_tags
+items:gloves_tags
+items:trouser_tags
+items:bracer_tags
+items:cape_tags
+items:amulet_tags
+items:ring_tags
+items:rune_tags
+items:device_tags
+items:tool_tags
+items:utility_tags
+items:socketable_tags
+items:craft_material_tags
+common:common_tags
+items:craft_material
+items:weapon
+items:armor
+items:tool
+items:utility
+items:rune
+items:craft_recipe
+skills:active_skills
+skills:combat_skills
+skills:passive_skills
+skills:mechanic_skills
+skills
+items:craft_materials:metal
+items:craft_materials:wood
+items:craft_materials:fiber
+items:craft_materials:gem
+items:craft_materials:liquid
+items:craft_materials:tech
+items:craft_materials:essence
+items:craft_materials:herb
+items:craft_materials:animal
+items:craft_materials:stone
+items:craft_materials:mineral
+items:craft_materials:quantum
+items:craft_materials:fungus
+items:craft_materials:food
+items:amulet
+items:boots
+items:bracer
+items:cape
+items:consumable
+items:device
+items:gloves
+items:helmet
+items:key
+items:remedy
+items:ring
+items:skill_recipe
+items:socketable
+items:trouser
+items:combat_archetypes
+items:remedy_tags

@@ -1,0 +1,17 @@
+# Shared location model.
+# A Location is the smallest traversable or interactable place unit.
+# Buildings can group multiple locations such as rooms, halls or courtyards.
+
+- model:
+    name: Location
+    fields:
+      - [location_id,            string]
+      - [name,                   string]
+      - [realm_id,               string]
+      - [zone_id,                string]
+      - [building_id,            string]
+      - [location_kind,          string]
+      - [location_subtype,       string]
+      - [location_tags,          list<string>]
+      - [connected_location_ids, list<string>]
+      - [description,            string]

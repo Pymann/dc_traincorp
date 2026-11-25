@@ -1,0 +1,60 @@
+# Growable-OUT-Tags — beschreiben den WACHSTUMS-PROZESS.
+# Zustand, Pflegebedarf, Saison, Ertragsverhalten.
+
+# ── Wachstumsstufe ─────────────────────────────────────────────────────────
+seedling
+sapling
+sprouting
+budding
+flowering
+fruiting
+ripe
+over_ripe
+withered
+
+# ── Gesundheit ─────────────────────────────────────────────────────────────
+thriving
+healthy
+struggling
+sickly
+diseased
+parasite_infested
+
+# ── Pflegebedarf ───────────────────────────────────────────────────────────
+sun_loving
+shade_loving
+needs_water
+drought_tolerant
+needs_rich_soil
+qbit_resonant
+coherence_fed
+
+# ── Wachstumsgeschwindigkeit ──────────────────────────────────────────────
+fast_grower
+slow_grower
+sudden_bloom
+gradual
+
+# ── Saisonalität ──────────────────────────────────────────────────────────
+spring
+summer
+autumn
+winter
+year_round
+seasonal
+annual
+perennial
+
+# ── Ertrag-Verhalten ───────────────────────────────────────────────────────
+single_harvest
+multi_harvest
+cuttable
+re_flowering
+heirloom
+
+# ── Status ─────────────────────────────────────────────────────────────────
+domesticated
+wild
+hybrid
+mutated
+sterile

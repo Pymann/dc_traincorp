@@ -1,0 +1,48 @@
+# SkillRecipe item-type tags (item_type=19).  Beschreibt die SkillRecipe
+# selbst (nicht den darin enthaltenen Skill).  Recipe-Items werden via
+# Item-Generator gerollt und via Use-Action eingelöst (siehe Skill-Doc).
+
+# Rarität/Qualität der Anleitung
+common_recipe
+uncommon_recipe
+rare_recipe
+forbidden_recipe
+ancestral_recipe
+
+# Format/Träger
+scroll
+tome
+tablet
+glyph_stone
+data_crystal
+oral_tradition
+sketch
+diagram
+
+# Schwierigkeit der Lern-Action
+trivial_to_learn
+moderate_to_learn
+hard_to_learn
+master_only
+
+# Welche skill_kind im Target enthalten ist
+teaches_combat
+teaches_passive
+teaches_active
+teaches_mechanic
+teaches_base
+
+# Pre-Conditions
+requires_materials
+requires_tools
+requires_high_attrs
+requires_specialization
+single_use
+reusable
+
+# Provenance
+guild_authored
+self_discovered
+looted
+inherited
+purchased

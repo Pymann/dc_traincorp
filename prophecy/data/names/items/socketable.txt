@@ -1,0 +1,23 @@
+jewel
+gem
+gemstone
+brooch
+rune
+crystal
+shard
+focus
+soulstone
+runestone
+sigil_bead
+emblem
+inlay
+cabochon
+
+# tech / data-realm
+chip
+processor
+capacitor
+memory_cell
+data_crystal
+holo_emblem
+neural_bead

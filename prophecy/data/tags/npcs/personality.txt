@@ -1,0 +1,68 @@
+# NPC-OUT-Tags — Persönlichkeit, Rolle, Gesinnung.
+
+# ── Gesinnung ──────────────────────────────────────────────────────────────
+friendly
+neutral
+wary
+hostile_mood
+proud
+desperate
+generous
+suspicious
+fair
+greedy
+
+# ── Rolle ──────────────────────────────────────────────────────────────────
+merchant
+trainer
+quest_giver
+lorekeeper
+storyteller
+guard
+healer
+forager
+cultivator
+artisan
+scout
+diplomat
+pilgrim
+hermit
+
+# ── Erfahrungsstand ────────────────────────────────────────────────────────
+novice
+veteran
+master
+legendary
+forgotten
+
+# ── Stimmung / Auftritt ────────────────────────────────────────────────────
+talkative
+quiet
+mysterious
+boisterous
+melancholic
+energetic
+sleepy
+focused
+distracted
+controlled
+impulsive
+stealthy
+surefooted
+
+# ── Status ─────────────────────────────────────────────────────────────────
+settled
+itinerant
+outcast
+celebrated
+hidden
+in_mourning
+in_celebration
+
+# ── Affinität ──────────────────────────────────────────────────────────────
+shard_affine
+qbit_affine
+bloom_affine
+meadow_affine
+data_affine
+arcane_affine

@@ -1,0 +1,108 @@
+# Festwert-Proben der portierten Regeln.  Sie halten die Balance fest: wer
+# `chance_fuer` oder `wucht_fuer` anfasst, sieht hier, was sich aendert.
+#
+#   out/aiml/aiml korpusgen/probe_regel.aiml -r
+#
+# Die Sollwerte sind mit der Python-Fassung gerechnet (scripts/
+# generate_clustered_corpus.py, chance_waffe_gegen_gegner / wucht_...).
+- import: "korpusgen/sources/chance_korpus.aiml"
+
+- decl: [fehler, i32, 0]
+
+- def:
+    name: pruefe_nah
+    args: [[was, string], [ist, f32], [soll, f32]]
+    body:
+      - decl: [weg, f32, { call: [math.abs, { "-": [ist, soll] }] }]
+      - if:
+          condition: { gt: [weg, 0.015] }
+          then:
+            - set: [fehler, { "+": [fehler, 1] }]
+            - call: [log.error, "FEHL ${was}: ist ${ist}, soll ${soll}"]
+          else: [{ call: [log.info, "  ok  ${was} = ${ist}"] }]
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [bau, ptr<ChanceKorpus>, { new: ChanceKorpus }]
+      - call: [bau.start, 42]
+
+      # ── Die blosse Faust ──
+      - decl: [faust, list<string>, ["light", "soft", "blunt", "grippy", "plain"]]
+      - decl: [nackt, list<string>, ["unarmored", "medium_size", "moderate_speed"]]
+      # Grund 0,78 - 0,10 (kein Werkstoff) + 0,00 (blunt gegen unarmored) = 0,68
+      - call: [pruefe_nah, "Faust gegen Nackten", { call: [bau.chance_fuer, faust, nackt] }, 0.68]
+      - decl: [panzer, list<string>, ["crystal_armored", "medium_size", "moderate_speed"]]
+      # 0,30 + 0,08 (blunt gegen Kristall) - 0,10 - 0,10 (harte Panzerung) = 0,18
+      - call: [pruefe_nah, "Faust gegen Kristallpanzer", { call: [bau.chance_fuer, faust, panzer] }, 0.18]
+
+      # ── Klinge und Lanze ──
+      - decl: [klinge, list<string>, ["sharp", "edged", "steel"]]
+      # 0,78 + 0,12 (sharp gegen unarmored) + 0,05 (hart) = 0,95 (geklemmt)
+      - call: [pruefe_nah, "Klinge gegen Nackten", { call: [bau.chance_fuer, klinge, nackt] }, 0.95]
+      - decl: [leder, list<string>, ["hide_armor", "medium_size", "moderate_speed"]]
+      # 0,58 + 0,06 + 0,05 = 0,69
+      - call: [pruefe_nah, "Klinge gegen Leder", { call: [bau.chance_fuer, klinge, leder] }, 0.69]
+      - decl: [lanze, list<string>, ["piercing", "pointed", "steel"]]
+      # 0,58 + 0,16 + 0,05 = 0,79 -- die Lanze geht durch Leder, die Klinge weniger
+      - call: [pruefe_nah, "Lanze gegen Leder", { call: [bau.chance_fuer, lanze, leder] }, 0.79]
+
+      # ── Element gegen Aspekt: der Meteor-Fall ──
+      - decl: [feuerstab, list<string>, ["sharp", "steel", "fire"]]
+      - decl: [feuerwesen, list<string>, ["unarmored", "medium_size", "moderate_speed", "fire_aspect"]]
+      # 0,78 + 0,12 + 0,05 - 0,15 (gleiches Element) = 0,80
+      - call: [pruefe_nah, "Feuer gegen Feueraspekt prallt ab", { call: [bau.chance_fuer, feuerstab, feuerwesen] }, 0.80]
+      - decl: [wasserstab, list<string>, ["sharp", "steel", "water"]]
+      # 0,78 + 0,12 + 0,05 + 0,10 (Gegenelement) = 0,95 (geklemmt)
+      - call: [pruefe_nah, "Wasser gegen Feueraspekt greift", { call: [bau.chance_fuer, wasserstab, feuerwesen] }, 0.95]
+
+      # ── Koerperlos ──
+      - decl: [geist, list<string>, ["ethereal", "medium_size", "moderate_speed"]]
+      # 0,32 - 0,02 (sharp gegen ethereal) + 0,05 - 0,18 (Stahl geht hindurch) = 0,17
+      - call: [pruefe_nah, "Stahl gegen Koerperlosen", { call: [bau.chance_fuer, klinge, geist] }, 0.17]
+      - decl: [runenklinge, list<string>, ["sharp", "steel", "runic"]]
+      # 0,32 - 0,02 + 0,05 + 0,16 (arkan greift) = 0,51
+      - call: [pruefe_nah, "Arkanes gegen Koerperlosen", { call: [bau.chance_fuer, runenklinge, geist] }, 0.51]
+
+      # ── Schwaeche ──
+      - decl: [weich_gegner, list<string>, ["hide_armor", "medium_size", "moderate_speed", "weak_to_piercing"]]
+      # 0,58 + 0,16 + 0,05 + 0,18 (Schwaeche) = 0,95 (geklemmt)
+      - call: [pruefe_nah, "Lanze gegen Stichschwaeche", { call: [bau.chance_fuer, lanze, weich_gegner] }, 0.95]
+
+      # ── Treffbarkeit skaliert ──
+      - decl: [winzling, list<string>, ["unarmored", "tiny", "darting"]]
+      # (0,78 + 0,12 + 0,05) -> 0,95 geklemmt, Faktor 1 - 0,22 - 0,15 = 0,63
+      - call: [pruefe_nah, "Klinge gegen winzig und flink", { call: [bau.chance_fuer, klinge, winzling] }, 0.60]
+
+      # ── Die Wucht ──
+      # blunt 0,90 x 0,50 (kein Werkstoff) x 0,82 (`light`) x 1,00 (unarmored)
+      # = 0,369.  Mein erster Sollwert war 0,45 -- ich hatte das Gewicht
+      # vergessen; die Probe hat den Fehler in der ERWARTUNG gefunden, nicht
+      # im Port.
+      - call: [pruefe_nah, "Wucht der Faust", { call: [bau.wucht_fuer, faust, nackt] }, 0.369]
+      # sharp 0,40 x 1,12 (hart) x 1,00 = 0,448
+      - call: [pruefe_nah, "Wucht der Klinge", { call: [bau.wucht_fuer, klinge, nackt] }, 0.45]
+      # sharp 0,40 x 1,12 x 0,55 (Kristall) = 0,246
+      - call: [pruefe_nah, "Wucht gegen Kristallpanzer", { call: [bau.wucht_fuer, klinge, panzer] }, 0.25]
+
+      # ── Zwei Nachkommastellen ──
+      - decl: [text_eins, string, { call: [zwei_stellen, 0.5] }]
+      - decl: [text_zwei, string, { call: [zwei_stellen, 0.07] }]
+      - decl: [text_drei, string, { call: [zwei_stellen, 1.0] }]
+      - if:
+          condition: { "||": [{ neq: [text_eins, "0.50"] }, { "||": [{ neq: [text_zwei, "0.07"] }, { neq: [text_drei, "1.00"] }] }] }
+          then:
+            - set: [fehler, { "+": [fehler, 1] }]
+            - call: [log.error, "FEHL Nachkommastellen: '${text_eins}' '${text_zwei}' '${text_drei}'"]
+          else: [{ call: [log.info, "  ok  Nachkommastellen"] }]
+
+      - free: bau
+      - if:
+          condition: { gt: [fehler, 0] }
+          then:
+            - call: [log.error, "probe_regel: ${fehler} Fehler"]
+            - return: 1
+      - call: [log.info, "probe_regel: alles gut"]
+      - return: 0

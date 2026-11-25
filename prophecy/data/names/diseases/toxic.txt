@@ -1,0 +1,18 @@
+# Toxic Diseases (kind=1) — chemisch / Gifte / Drogen-Entzug
+# Quelle: Combat-Hit von tagged enemy, kontaminierte Nahrung, Misscraft
+# Cure: leicht (Antitoxin, rest)
+
+snake_venom
+spider_bite
+neurotoxin_exposure
+heavy_metal_poisoning
+fungal_spore_inhalation
+withdrawal_shakes
+nightshade_poisoning
+acid_burn
+mercury_madness
+rusted_blood
+copper_taint
+quantum_dust_intoxication
+fermented_meat_sickness
+cold_sweat_withdrawal

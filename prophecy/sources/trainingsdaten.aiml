@@ -1,0 +1,158 @@
+# Die Folgen aller vier Aufgaben, einmal kodiert und FLACH gehalten.
+#
+# Flach, weil list<list<i32>> in aiml nicht dokumentiert ist -- und weil eine
+# Neukodierung je Epoche die Zeitmessung verfaelschen wuerde: die Aufloesung
+# eines Tags kostet bis zu 70 Atlas-Abfragen.
+#
+# `Folge` kommt als ref<> herein, nicht als ptr<>: ein ptr<T> an eine Funktion
+# zu uebergeben ist ein Move (§6.2/§10), und die Borrow-Pruefung sieht das in
+# verschachtelten Bloecken nicht -- siehe doc/aiml_befunde/.
+- import: "prophecy/sources/folge.aiml"
+
+- class:
+    name: Trainingsdaten
+    members:
+      - [alle_ids, list<i32>]
+      - [starts,   list<i32>]
+      - [laengen,  list<i32>]
+      - [n_ctx,    i32, 128]
+      - [zu_lang,  i32, 0, { access: public }]
+    methods:
+      - def:
+          name: anfuegen
+          args: [[ids, list<i32>]]
+          body:
+            - if: { condition: { lt: [ids.len, 4] }, then: [{ return: null }] }
+            - if:
+                condition: { gt: [ids.len, <.n_ctx] }
+                then:
+                  - set: [<.zu_lang, { "+": [<.zu_lang, 1] }]
+                  - return: null
+            - call: [<.starts.push, <.alle_ids.len]
+            - call: [<.laengen.push, ids.len]
+            - decl: [kdx, i32, 0]
+            - while:
+                condition: { lt: [kdx, ids.len] }
+                body:
+                  - call: [<.alle_ids.push, { at: [ids, kdx] }]
+                  - set: [kdx, { "+": [kdx, 1] }]
+
+      # art: 0 Rezept, 1 Entdeckung, 2 Fertigkeit, 3 Kampf
+      - def:
+          name: lade
+          access: public
+          args: [[fge, ref<Folge>], [pfad, string], [art, i32]]
+          return: i32
+          body:
+            - decl: [vorher, i32, <.laengen.len]
+            - decl: [prio, list<string>, { call: [fge.prio_lesen, pfad] }]
+            - call: [fge.prio_setzen, prio]
+            - decl: [text, string, { call: [io.read_file, pfad] }]
+            - if: { condition: { eq: [text.len, 0] }, then: [{ return: 0 }] }
+            - decl: [zeilen, list<string>, { call: [text.split, "\n"] }]
+            # Rezepte brauchen die recipe-Zeile zum sample-Beutel
+            - decl: [rez_nach_id, map<string:string>]
+            - if:
+                condition: { eq: [art, 0] }
+                then:
+                  - decl: [rpos, i32, 0]
+                  - while:
+                      condition: { lt: [rpos, zeilen.len] }
+                      body:
+                        - decl: [rzl, string, { at: [zeilen, rpos] }]
+                        - if:
+                            condition: { eq: [{ call: [rzl.starts_with, "recipe "] }, 1] }
+                            then:
+                              - decl: [rsp, list<string>, { call: [rzl.split, "|"] }]
+                              - if:
+                                  condition: { ge: [rsp.len, 7] }
+                                  then:
+                                    - decl: [rid_roh, string, { at: [rsp, 1] }]
+                                    - call: [rez_nach_id.put, { call: [rid_roh.trim] }, rzl]
+                        - set: [rpos, { "+": [rpos, 1] }]
+            - decl: [pos, i32, 0]
+            - while:
+                condition: { lt: [pos, zeilen.len] }
+                body:
+                  - decl: [zle, string, { at: [zeilen, pos] }]
+                  - if:
+                      condition: { eq: [art, 0] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [zle.starts_with, "sample "] }, 1] }
+                            then:
+                              - decl: [spl, list<string>, { call: [zle.split, "|"] }]
+                              - if:
+                                  condition: { ge: [spl.len, 3] }
+                                  then:
+                                    - decl: [bag_roh, string, { at: [spl, 1] }]
+                                    - decl: [bag, string, { call: [bag_roh.trim] }]
+                                    - decl: [rid2_roh, string, { at: [spl, 2] }]
+                                    - decl: [rid2, string, { call: [rid2_roh.trim] }]
+                                    - if:
+                                        condition: { eq: [{ call: [rez_nach_id.contains, rid2] }, 1] }
+                                        then:
+                                          - decl: [rzl2, string, { call: [rez_nach_id.get, rid2] }]
+                                          - call: [<.anfuegen, { call: [fge.kodiere_rezept, bag, rzl2] }]
+                  - if:
+                      condition: { eq: [art, 1] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [zle.starts_with, "discover "] }, 1] }
+                            then: [{ call: [<.anfuegen, { call: [fge.kodiere_entdeckung, zle] }] }]
+                  - if:
+                      condition: { eq: [art, 2] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [zle.starts_with, "sample "] }, 1] }
+                            then: [{ call: [<.anfuegen, { call: [fge.kodiere_fertigkeit, zle] }] }]
+                  - if:
+                      condition: { eq: [art, 3] }
+                      then:
+                        - if:
+                            condition: { eq: [{ call: [zle.starts_with, "combat "] }, 1] }
+                            then: [{ call: [<.anfuegen, { call: [fge.kodiere_kampf, zle] }] }]
+                  - set: [pos, { "+": [pos, 1] }]
+            - decl: [dazu, i32, { "-": [<.laengen.len, vorher] }]
+            - call: [log.info, "  ${pfad}: ${dazu} Folgen"]
+            - return: dazu
+
+      - def:
+          name: zahl
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: <.laengen.len
+
+      - def:
+          name: tokens
+          access: public
+          args: []
+          return: i32
+          body:
+            - return: <.alle_ids.len
+
+      - def:
+          name: start_von
+          access: public
+          args: [[sdx, i32]]
+          return: i32
+          body:
+            - return: { at: [<.starts, sdx] }
+
+      - def:
+          name: laenge_von
+          access: public
+          args: [[sdx, i32]]
+          return: i32
+          body:
+            - return: { at: [<.laengen, sdx] }
+
+      - def:
+          name: token_bei
+          access: public
+          args: [[pos, i32]]
+          return: i32
+          body:
+            - return: { at: [<.alle_ids, pos] }

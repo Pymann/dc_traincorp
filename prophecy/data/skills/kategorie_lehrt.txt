@@ -1,0 +1,26 @@
+# Welche GEGNERART eine Kategorie von Kampffertigkeiten lehrt
+# (Entscheidung 5 vom 12.11.2026, "und die Gegnerart").
+#
+# Gelesen: man lernt an dem, was einen fordert.  Wer nur Bestien jagt, lernt
+# keine Maschinenkunde; wer nie einem Boss gegenuebersteht, lernt keinen
+# Kataklysmus.  Links die Kategorie aus combat_skill_metadata.yml, rechts
+# eine Art aus discover.aiml (beast, wraith, construct, hazard, boss).
+#
+# Eine Kategorie OHNE Zeile hat kein Gegnerart-Tor -- sie lernt sich ueberall.
+# Das ist der Rueckfall, wenn hier etwas fehlt oder falsch geschrieben ist.
+#
+# VORSCHLAG vom 13.11.2026, bewusst als Daten und nicht als Quelltext: wenn
+# die Zuordnung nicht passt, ist es eine Zeile hier und kein Uebersetzungslauf.
+melee_strike  = beast
+melee_heavy   = beast
+melee_finesse = beast
+beast         = beast
+nature        = beast
+defense       = hazard
+mobility      = hazard
+elemental     = hazard
+ranged        = construct
+tech          = construct
+arcane        = wraith
+cataclysm     = boss
+realmbreaker  = boss

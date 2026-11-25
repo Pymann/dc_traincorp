@@ -1,0 +1,35 @@
+{
+    "$schema": "exodus.project.config-1.0",
+    "name": "prophecy_train_transformer",
+    "version": "0.1.0",
+    "output_type": "executable",
+    "sources": [
+        "prophecy/sources/train_transformer_app.aiml"
+    ],
+    "compiler": {
+        "name": "$AIML",
+        "lang_standard": "17",
+        "flags": []
+    },
+    "linker": {
+        "name": "g++",
+        "flags": [
+            "-Wl,-rpath,$AIML_VENV/lib"
+        ],
+        "libraries": [
+            "aiml",
+            "pthread",
+            "dl"
+        ],
+        "library_paths": [
+            "$AIML_VENV/lib"
+        ]
+    },
+    "artifact_in_cwd": true,
+    "optimization": "0",
+    "debug": false,
+    "warnings": [],
+    "env": {
+        "AIML_STRICT_TOPLEVEL": "1"
+    }
+}

@@ -1,0 +1,19 @@
+# Physical Diseases (kind=3) — akute Verletzungen
+# Quelle: Combat-Hit, Harvest-Fail, Travel-Hazard
+# Cure: mittel (Bandage, Splint, Heal-Skill, Zeit)
+
+open_wound
+bleeding_gash
+hairline_fracture
+compound_fracture
+sprained_ankle
+torn_ligament
+dislocated_joint
+deep_bruise
+concussion
+crushed_finger
+broken_rib
+puncture_wound
+burn_injury
+frost_nip
+chipped_tooth

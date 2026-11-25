@@ -1,0 +1,30 @@
+# SkillRecipe item names (item_type=19)
+# Lootable/tradeable Anleitungen zum Erlernen eines konkreten Skills.
+# Use-Action prüft required_materials/attrs/tools → grants target_skill_id.
+# Siehe skill_generation_pipeline.md.
+
+faded_skill_scroll
+inscribed_skill_tome
+masters_treatise
+apprentice_manual
+hidden_skill_codex
+fragmented_skill_diagram
+illuminated_skill_parchment
+elder_skill_runebook
+forbidden_skill_grimoire
+field_journal_excerpt
+guild_master_notes
+sealed_skill_letter
+oral_tradition_recording
+sketched_skill_chart
+bone_etched_tablet
+crystal_imprinted_memory
+data_burst_recording
+dream_recorded_scroll
+combat_drill_manual
+crafting_blueprint_collection
+heal_protocol_pamphlet
+mechanic_skill_specification
+ritual_observance_guide
+ancestral_skill_codex
+mentor_imprint_stone

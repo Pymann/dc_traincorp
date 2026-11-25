@@ -1,0 +1,22 @@
+# Das Vokabular der Fundarten -- was eine Entdeckung ueberhaupt sein kann.
+#
+# Diese sieben Woerter stehen NICHT im Atlas: sie kommen aus den Modellklassen
+# des Spiels (Growable, Enemy, Npc, Harvestable, LockedThing, Portal), nicht
+# aus den Wortlisten.  Darum fiel `<art>` beim Kodieren leer aus, und darum
+# sind sie jetzt Marken der Grammatik (spec-Entwurf §6a) -- und ein Enum,
+# nicht eine Kette von Stringvergleichen.
+#
+# `wire: true`, weil eine Entdeckung ueber RPC zum Client geht: die Zahlen
+# stehen in gespeicherten Saetzen und duerfen sich nicht verschieben.
+- enum:
+    name: Fundart
+    wire: true
+    values:
+      - Keine:       0
+      - Growable:    1
+      - Enemy:       2
+      - Npc:         3
+      - Harvestable: 4
+      - Locked:      5
+      - Portal:      6
+      - Nothing:     7

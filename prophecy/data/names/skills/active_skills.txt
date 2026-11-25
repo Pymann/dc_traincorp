@@ -1,0 +1,98 @@
+# Active-Skill-Namen — können von einer Creature über Discover/Action/Hunt
+# entdeckt werden.  Sind die "verb-nahen" Fähigkeiten (nicht Base-Skills
+# wie Meditieren/Workout).  Kebab-Case Konvention (passend zum itemgen-Korpus).
+#
+# Eine Zeile = ein Skill-Name.  Leere Zeilen / # Kommentare ignoriert.
+
+# ── Crystal / Shard ────────────────────────────────────────────────────────
+shard_walker
+shard_reader
+shard_bridging
+crystal_sensing
+shard_mending
+glass_shaping
+prism_tuning
+splinter_tracking
+
+crystal_affinity
+# ── Quantum / Coherence ────────────────────────────────────────────────────
+qbit_attune
+qbit_weaving
+coherence_touch
+entanglement_reading
+phase_listening
+static_listening
+glitch_spotting
+resonance_tuning
+quantum_stillness
+bloomlight_calling
+
+# ── Smithing / Crafting ────────────────────────────────────────────────────
+rune_inscribing
+metal_folding
+leather_curing
+gem_cutting
+mold_shaping
+
+smith_touch
+woodworker_touch
+weaver_touch
+# ── Botany / Cultivation ───────────────────────────────────────────────────
+foraging
+botany
+seed_coaxing
+soil_reading
+bloom_sensing
+weather_watching
+pollen_tracking
+meadow_lore
+sproutkeeping
+
+# ── Hunting / Combat-Awareness ─────────────────────────────────────────────
+scouting
+recon
+stealth
+ambush_sense
+beast_lore
+threat_reading
+
+# ── Exploration / Discovery ────────────────────────────────────────────────
+mapping
+surveying
+pathfinding
+salvaging
+appraisal
+identification
+cataloging
+ruin_reading
+portal_sensing
+
+# ── Lock / Security ────────────────────────────────────────────────────────
+lockpicking
+trap_spotting
+key_shaping
+seal_breaking
+
+# ── Magic / Channeling ─────────────────────────────────────────────────────
+water_channel
+earth_channel
+air_channel
+aether_channel
+ward_weaving
+sigil_tracing
+glyph_reading
+
+fire_channel
+# ── Social / NPC ──────────────────────────────────────────────────────────
+haggling
+persuasion
+rumor_gathering
+trade_sense
+empathy
+
+# ── Movement / Travel ──────────────────────────────────────────────────────
+drift_riding
+shard_running
+quiet_stepping
+endurance_running
+balance_walking

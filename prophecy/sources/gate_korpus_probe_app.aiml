@@ -1,0 +1,172 @@
+# Nimmt die Regel (§7) die ECHTEN Trainingsfolgen an?
+#
+# Dieser Test fehlte, und sein Fehlen war teuer: zwei Gate-Fehler versteckten
+# sich hinter dem leeren `<art>`.  `<tags>` und `<name>` standen nicht in der
+# Abschnittsschaltung, also wurde nach `<name>` jedes Namenswort als WERKZEUG
+# geprueft ("Werkzeug 'ripe' ist nicht zu bekommen").
+#
+# Seit Spec §7b prueft die Regel den <out>- und <skill>-Abschnitt gegen das
+# Vokabular des Korpus.  Damit ist dieser Test ZUGLEICH der Test der Maske:
+# faellt eine echte Folge durch, kennt die Maske ihr eigenes Trainingswort
+# nicht.
+#
+# Geprueft wird genau das, was der Trainer frisst: `Trainingsdaten` kodiert
+# alle vier Korpora, und jede Folge muss durch die Regel kommen -- sie ist per
+# Konstruktion gueltig.  Was hier durchfaellt, ist ein Fehler der REGEL, nicht
+# des Modells.
+- import: "prophecy/sources/erzeuger.aiml"
+- import: "prophecy/sources/trainingsdaten.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "gate: nicht bereit"]
+            - return: 1
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+      # Ohne das hier haette die Regel keine Abschnittsmasken (Spec §7b) --
+      # und der Test ginge an genau dem vorbei, was er pruefen soll.
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+
+      - decl: [dat, ptr<Trainingsdaten>, { new: Trainingsdaten }]
+      - call: [dat.lade, erz.fge, "itemgen/data/items_augmented.txt", 0]
+      # Die Grenzen der Korpora -- ein Korpus liegt zusammenhaengend, also
+      # sagt der Zaehler nach jedem Laden, wo der naechste anfaengt.  Damit
+      # bekommt jeder Korpus seinen EIGENEN Schritt; ein globaler Schritt
+      # liess den kleinen Rezept-Korpus auf 65 Folgen zusammenschrumpfen.
+      - decl: [ende_rez, i32, { call: [dat.zahl] }]
+      - call: [dat.lade, erz.fge, "discovergen/data/discoveries_augmented.txt", 1]
+      - decl: [ende_ent, i32, { call: [dat.zahl] }]
+      - call: [dat.lade, erz.fge, "data/skill_corpus.txt", 2]
+      - decl: [ende_frt, i32, { call: [dat.zahl] }]
+      - call: [dat.lade, erz.fge, "data/combat_skill_corpus.txt", 3]
+      - decl: [n_folgen, i32, { call: [dat.zahl] }]
+      - call: [log.info, "gate: ${n_folgen} Trainingsfolgen"]
+
+      # Jedes Rezept nennt in Feld 4 seine Voraussetzung und in Feld 7 seine
+      # Gegenstandsart -- beides EIN Wort, beides muss ein Token haben.  Hat
+      # es keines, uebergeht die Maske es stillschweigend, das Modell kann es
+      # nicht ausgeben, und die Regel verwirft ein fehlerfreies Rezept
+      # ("0 Voraussetzungen statt einer").  Am 20.11.2026 traf das 41 von 48
+      # Kochrezepten; keine Pruefung sah es, weil die Folgen-Stichprobe
+      # unten nur den Anfang des Korpus erreichte.
+      - decl: [ohne_tok, i32, { call: [erz.felder_ohne_token, "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { gt: [ohne_tok, 0] }
+          then:
+            - call: [log.error, "gate: ${ohne_tok} Korpus-Wort/Woerter ohne Token — die Maske verliert sie still"]
+            - return: 1
+
+      - decl: [je_aufgabe, map<string:i32>]
+      - decl: [gut, map<string:i32>]
+      - decl: [a_reihe, list<string>]
+      - decl: [gruende, map<string:i32>]
+      - decl: [g_reihe, list<string>]
+      - decl: [schlecht, i32, 0]
+      # Die Stichprobe nahm bis zum 20.11.2026 die ERSTEN 300 Folgen je
+      # Aufgabe -- und damit nur den Anfang des Korpus.  Alles Angehaengte
+      # (die 48 Kochrezepte, die 60 Tragbaren) lag ausserhalb, das Gate war
+      # gruen und das Modell lernte es doch nicht.  Jetzt wird GLEICHMAESSIG
+      # abgetastet: dieselbe Zahl Pruefungen, aber ueber den ganzen Korpus.
+      # AUFGERUNDET: bei Abschneiden endet die Abtastung vor dem Korpus-Ende
+      # (2072 Rezept-Folgen / 300 = 6, und 300×6 = 1800 -- die zuletzt
+      # angehaengten Rezepte lagen wieder draussen, also genau die, um die es
+      # heute Nacht ging).
+      - decl: [s_rez, i32, { "/": [{ "+": [ende_rez, 299] }, 300] }]
+      - decl: [s_ent, i32, { "/": [{ "+": [{ "-": [ende_ent, ende_rez] }, 299] }, 300] }]
+      - decl: [s_frt, i32, { "/": [{ "+": [{ "-": [ende_frt, ende_ent] }, 299] }, 300] }]
+      - decl: [s_kpf, i32, { "/": [{ "+": [{ "-": [n_folgen, ende_frt] }, 299] }, 300] }]
+      - if: { condition: { lt: [s_rez, 1] }, then: [{ set: [s_rez, 1] }] }
+      - if: { condition: { lt: [s_ent, 1] }, then: [{ set: [s_ent, 1] }] }
+      - if: { condition: { lt: [s_frt, 1] }, then: [{ set: [s_frt, 1] }] }
+      - if: { condition: { lt: [s_kpf, 1] }, then: [{ set: [s_kpf, 1] }] }
+      - call: [log.info, "gate: Schritte ${s_rez}/${s_ent}/${s_frt}/${s_kpf}, hoechstens 300 je Aufgabe"]
+      - decl: [sdx, i32, 0]
+      - while:
+          condition: { lt: [sdx, n_folgen] }
+          body:
+            - decl: [beg, i32, { call: [dat.start_von, sdx] }]
+            - decl: [lng, i32, { call: [dat.laenge_von, sdx] }]
+            - decl: [erst, i32, { call: [dat.token_bei, beg] }]
+            - decl: [aufg, string, { call: [erz.fge.wort, erst] }]
+            - decl: [zahl_a, i32, 0]
+            - if:
+                condition: { eq: [{ call: [je_aufgabe.contains, aufg] }, 1] }
+                then: [{ set: [zahl_a, { call: [je_aufgabe.get, aufg] }] }]
+                # Ohne das `put` wandert dieselbe Aufgabe bei jeder nicht
+                # abgetasteten Folge erneut in die Liste -- 30 gleiche Zeilen
+                # im Bericht.
+                else:
+                  - call: [a_reihe.push, aufg]
+                  - call: [je_aufgabe.put, aufg, 0]
+            # Je Aufgabe 300 Folgen -- genug, um einen Regelfehler zu zeigen.
+            - decl: [schritt, i32, s_kpf]
+            - if: { condition: { lt: [sdx, ende_frt] }, then: [{ set: [schritt, s_frt] }] }
+            - if: { condition: { lt: [sdx, ende_ent] }, then: [{ set: [schritt, s_ent] }] }
+            - if: { condition: { lt: [sdx, ende_rez] }, then: [{ set: [schritt, s_rez] }] }
+            - if:
+                condition: { "&&": [{ lt: [zahl_a, 300] }, { eq: [{ "%": [sdx, schritt] }, 0] }] }
+                then:
+                  - call: [je_aufgabe.put, aufg, { "+": [zahl_a, 1] }]
+                  - decl: [ids, list<i32>]
+                  - decl: [pdx, i32, 0]
+                  - while:
+                      condition: { lt: [pdx, lng] }
+                      body:
+                        - call: [ids.push, { call: [dat.token_bei, { "+": [beg, pdx] }] }]
+                        - set: [pdx, { "+": [pdx, 1] }]
+                  - decl: [bad, i32, { call: [erz.pruefe_vorschlag, ids, aufg] }]
+                  - if:
+                      condition: { eq: [bad, 0] }
+                      then:
+                        - decl: [g_alt, i32, 0]
+                        - if:
+                            condition: { eq: [{ call: [gut.contains, aufg] }, 1] }
+                            then: [{ set: [g_alt, { call: [gut.get, aufg] }] }]
+                        - call: [gut.put, aufg, { "+": [g_alt, 1] }]
+                      else:
+                        - set: [schlecht, { "+": [schlecht, 1] }]
+                        - decl: [grd, string, "${aufg}: ${erz.grund}"]
+                        - if:
+                            condition: { eq: [{ call: [gruende.contains, grd] }, 0] }
+                            then:
+                              - call: [gruende.put, grd, 1]
+                              - call: [g_reihe.push, grd]
+                              - if:
+                                  condition: { le: [g_reihe.len, 3] }
+                                  then: [{ call: [log.info, "  abgelehnt: ${{ call: [erz.lesbar, ids] }}"] }]
+                            else: [{ call: [gruende.put, grd, { "+": [{ call: [gruende.get, grd] }, 1] }] }]
+            - set: [sdx, { "+": [sdx, 1] }]
+
+      - decl: [adx, i32, 0]
+      - while:
+          condition: { lt: [adx, a_reihe.len] }
+          body:
+            - decl: [anm, string, { at: [a_reihe, adx] }]
+            - decl: [a_ges, i32, { call: [je_aufgabe.get, anm] }]
+            - decl: [a_gut, i32, 0]
+            - if:
+                condition: { eq: [{ call: [gut.contains, anm] }, 1] }
+                then: [{ set: [a_gut, { call: [gut.get, anm] }] }]
+            - call: [log.info, "${anm}: ${a_gut} von ${a_ges} Trainingsfolgen angenommen"]
+            - set: [adx, { "+": [adx, 1] }]
+      - decl: [gdx, i32, 0]
+      - while:
+          condition: { "&&": [{ lt: [gdx, g_reihe.len] }, { lt: [gdx, 8] }] }
+          body:
+            - decl: [gnm, string, { at: [g_reihe, gdx] }]
+            - call: [log.info, "  ${{ call: [gruende.get, gnm] }}x ${gnm}"]
+            - set: [gdx, { "+": [gdx, 1] }]
+      - if:
+          condition: { gt: [schlecht, 0] }
+          then:
+            - call: [log.error, "gate: ${schlecht} echte Trainingsfolgen abgelehnt — die Regel ist zu streng"]
+            - return: 1
+      - call: [log.info, "gate: alle vier Aufgaben kommen durch die Regel"]
+      - return: 0

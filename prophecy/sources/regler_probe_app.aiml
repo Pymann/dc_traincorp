@@ -1,0 +1,156 @@
+# Welche Temperatur schliesst ab?
+#
+# Nach dem Volltraining mit 5406 Tokens brechen 36 von 60 Rezepten bei
+# max_laenge ab, ohne <end> zu setzen (vorher 7).  Gleiche Probe, gleiche
+# Beutel, gleiche Regel -- also liegt es an der Ziehung, nicht am Format.
+# Hier wird darum NUR an Temperatur und top_k gedreht, auf denselben
+# Gewichten: ein Lauf von zwei Minuten statt einer Stunde Neutraining.
+- import: "prophecy/sources/streifzug.aiml"
+
+# Wie viele der <mat>-Woerter stehen im Beutel?  Das ist die Probe darauf,
+# ob das Modell noch SCHLIESST oder nur noch wuerfelt: mit Abschnittsmaske
+# (§7b) treibt hohe Temperatur die Vielfalt auch dann nach oben, wenn die
+# Vorschlaege mit der Eingabe nichts mehr zu tun haben.  Fuer die Kreatur
+# zaehlt genau das Gegenteil -- ein Rezept aus Material, das sie HAT.
+- def:
+    name: beutel_treue
+    args: [[beutel, string], [mat, string]]
+    return: i32
+    body:
+      - decl: [hab, list<string>, { call: [beutel.split, " "] }]
+      - decl: [teile, list<string>, { call: [mat.split, " "] }]
+      - decl: [ganz, i32, 0]
+      - decl: [drin, i32, 0]
+      - decl: [pos, i32, 0]
+      - while:
+          condition: { lt: [pos, teile.len] }
+          body:
+            - decl: [stk, string, { at: [teile, pos] }]
+            - set: [pos, { "+": [pos, 1] }]
+            - if:
+                condition: { "&&": [{ gt: [stk.len, 0] }, { eq: [{ call: [stk.starts_with, "x"] }, 0] }] }
+                then:
+                  - set: [ganz, { "+": [ganz, 1] }]
+                  - decl: [hdx, i32, 0]
+                  - while:
+                      condition: { lt: [hdx, hab.len] }
+                      body:
+                        - if:
+                            condition: { eq: [{ at: [hab, hdx] }, stk] }
+                            then: [{ set: [drin, { "+": [drin, 1] }] }]
+                        - set: [hdx, { "+": [hdx, 1] }]
+      - if: { condition: { eq: [ganz, 0] }, then: [{ return: 0 }] }
+      - if: { condition: { eq: [drin, ganz] }, then: [{ return: 1 }] }
+      - return: 0
+
+- def:
+    name: messe
+    args: [[erz, ref<Erzeuger>], [beutel, string], [aufgabe, string], [marke, string], [mit_mat, i32]]
+    return: i32
+    body:
+      # 40 Saaten waren zu wenig: bei t=1.2/k=20 kamen drei Aufgaben auf
+      # 40 von 40 verschiedenen -- gemessen wurde die Decke der Probe, nicht
+      # das Modell (logs/regler2.log).
+      - decl: [n_seeds, i32, 120]
+      - decl: [gueltig, i32, 0]
+      - decl: [n_ab, i32, 0]
+      - decl: [gesehen, map<string:i32>]
+      - decl: [verschieden, i32, 0]
+      - decl: [treu, i32, 0]
+      - decl: [saat, i32, 1]
+      - while:
+          condition: { le: [saat, n_seeds] }
+          body:
+            - decl: [fls, list<i32>, { call: [erz.erzeuge, aufgabe, beutel, { cast: [saat, i64] }] }]
+            - decl: [bad, i32, { call: [erz.pruefe_vorschlag, fls, aufgabe] }]
+            - if:
+                condition: { eq: [bad, 0] }
+                then:
+                  - set: [gueltig, { "+": [gueltig, 1] }]
+                  - if:
+                      condition: { eq: [mit_mat, 1] }
+                      then:
+                        - decl: [mtx, string, { call: [erz.abschnitt_text, fls, "<mat>"] }]
+                        - set: [treu, { "+": [treu, { call: [beutel_treue, beutel, mtx] }] }]
+                  - decl: [txt, string, { call: [erz.lesbar, fls] }]
+                  - if:
+                      condition: { eq: [{ call: [gesehen.contains, txt] }, 0] }
+                      then:
+                        - call: [gesehen.put, txt, 1]
+                        - set: [verschieden, { "+": [verschieden, 1] }]
+                else:
+                  - if:
+                      condition: { eq: [erz.grund, "endet nicht auf <end>"] }
+                      then: [{ set: [n_ab, { "+": [n_ab, 1] }] }]
+            - set: [saat, { "+": [saat, 1] }]
+      - decl: [a_pro, i32, { "/": [{ "*": [gueltig, 100] }, n_seeds] }]
+      - decl: [t_pro, i32, { "/": [{ "*": [treu, 100] }, n_seeds] }]
+      - if:
+          condition: { eq: [mit_mat, 1] }
+          then: [{ call: [log.info, "    ${marke}: ${a_pro} % gueltig, ${verschieden} verschieden, ${n_ab} ohne <end>, ${t_pro} % aus dem Beutel baubar"] }]
+          else: [{ call: [log.info, "    ${marke}: ${a_pro} % gueltig, ${verschieden} verschieden, ${n_ab} ohne <end>"] }]
+      - return: verschieden
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [stf, ptr<Streifzug>, { new: Streifzug }]
+      - decl: [ok_s, i32, { call: [stf.init, "assets/realms/realm_example.json", "itemgen/data/items_augmented.txt"] }]
+      - if:
+          condition: { neq: [ok_s, 1] }
+          then:
+            - call: [log.error, "regler: Streifzug nicht bereit"]
+            - return: 1
+      - decl: [z_beutel, string, { call: [stf.zonen_beutel, 0, "workout", "resource_lore"] }]
+
+      - decl: [erz, ptr<Erzeuger>, { new: Erzeuger }]
+      - decl: [bereit, i32, { call: [erz.init] }]
+      - if:
+          condition: { neq: [bereit, 1] }
+          then:
+            - call: [log.error, "regler: nicht bereit"]
+            - return: 1
+      - call: [erz.korpora_lesen, "itemgen/data/items_augmented.txt", "discovergen/data/discoveries_augmented.txt", "data/skill_corpus.txt", "data/combat_skill_corpus.txt"]
+      - call: [erz.gueltig_init, "itemgen/data/items_augmented.txt", "assets/realms/realm_example.json"]
+
+      - decl: [temps, list<f32>]
+      # Mit der Abschnittssperre (§7b) ist hohe Temperatur gefahrlos
+      # geworden: was das Format verletzt, ist gar nicht mehr waehlbar.
+      # Darum misst dieser Lauf nach oben statt nach unten.
+      - call: [temps.push, 1.0]
+      - call: [temps.push, 1.2]
+      - call: [temps.push, 1.4]
+      - call: [temps.push, 1.6]
+      - decl: [kappen, list<i32>]
+      - call: [kappen.push, 10]
+      - call: [kappen.push, 20]
+      - call: [kappen.push, 40]
+      - decl: [kdx, i32, 0]
+      - while:
+          condition: { lt: [kdx, kappen.len] }
+          body:
+            - decl: [kapp, i32, { at: [kappen, kdx] }]
+            - decl: [tdx, i32, 0]
+            - while:
+                condition: { lt: [tdx, temps.len] }
+                body:
+                  - decl: [temp, f32, { at: [temps, tdx] }]
+                  - call: [erz.ziehung_je, "<a:rezept>", temp, kapp]
+                  - call: [erz.ziehung_je, "<a:entdeckung>", temp, kapp]
+                  - call: [erz.ziehung_je, "<a:fertigkeit>", temp, kapp]
+                  - call: [erz.ziehung_je, "<a:kampf>", temp, kapp]
+                  - call: [log.info, "── Temperatur ${temp}, top_k ${kapp} ──"]
+                  - decl: [v_r, i32, { call: [messe, erz, "gem rune-stylus magic_aptitude elemental stone essence", "<a:rezept>", "rezept", 1] }]
+                  - decl: [v_e, i32, { call: [messe, erz, z_beutel, "<a:entdeckung>", "entdeckung", 0] }]
+                  - decl: [v_f, i32, { call: [messe, erz, "resource_lore forest gather", "<a:fertigkeit>", "fertigkeit", 0] }]
+                  # Beutel in der Sprache des KAMPFkorpus: `enemies` steht
+                  # nicht in seiner Kopfzeile, ein Gegnername loest dort also
+                  # gar nicht auf (vgl. aufgaben_probe_app).
+                  - decl: [v_k, i32, { call: [messe, erz, "workout beast_attunement aggressive damage_multiplier", "<a:kampf>", "kampf", 0] }]
+                  - decl: [v_g, i32, { "+": [{ "+": [v_r, v_e] }, { "+": [v_f, v_k] }] }]
+                  - call: [log.info, "  SUMME t=${temp} k=${kapp}: ${v_g} verschiedene gueltige"]
+                  - set: [tdx, { "+": [tdx, 1] }]
+            - set: [kdx, { "+": [kdx, 1] }]
+      - return: 0

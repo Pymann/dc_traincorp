@@ -1,0 +1,29 @@
+# Einstieg der Rezept- und Clusterprobe.  Die Regeln stehen in RezeptProbe.
+- import: "sources/test/rezept_probe.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [probe, ptr<RezeptProbe>, { new: RezeptProbe }]
+      - if:
+          condition: { neq: [{ call: [probe.start] }, 1] }
+          then:
+            - call: [log.error, "[probe] nicht bereit"]
+            - free: probe
+            - return: 1
+      - call: [probe.cluster_pruefen]
+      - call: [probe.handwerk_pruefen]
+      - call: [probe.regellisten_pruefen]
+      - call: [probe.rezepte_pruefen, "itemgen/data/items_augmented.txt"]
+      - decl: [fehl, i32, probe.fehler]
+      - decl: [zahl, i32, probe.geprueft]
+      - free: probe
+      - if:
+          condition: { gt: [fehl, 0] }
+          then:
+            - call: [log.error, "[probe] ${fehl} Fehler bei ${zahl} Pruefungen"]
+            - return: 1
+      - call: [log.info, "[probe] ${zahl} Pruefungen, 0 Fehler"]
+      - return: 0

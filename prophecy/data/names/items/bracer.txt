@@ -1,0 +1,14 @@
+bracer
+vambrace
+armguard
+wrist_guard
+wristband
+forearm_plate
+archer_band
+gauntlet_extension
+
+# tech / data-realm
+wrist_comp
+hud_bracer
+neural_band
+data_cuff

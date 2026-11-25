@@ -1,0 +1,60 @@
+# Syntax-only smoke test for heads.aiml — instantiates each concrete
+# OutputHead via the polymorphic interface, calls a couple of methods,
+# confirms compile + link + interface dispatch work.
+
+- import: "prophecy/sources/heads.aiml"
+
+- def:
+    name: main
+    args: []
+    return: i32
+    body:
+      - decl: [embedder, ptr<TagEmbedding>, { new: TagEmbedding }]
+      - decl: [ok_load, i32, { call: [embedder.load_vocab] }]
+      - if:
+          condition: { neq: [ok_load, 1] }
+          then: [{ return: 1 }]
+      - call: [embedder.init_model]
+
+      # Backbone
+      - decl: [backbone, ptr<BagBackbone>, { new: BagBackbone }]
+      # foundation ist eine Leihe (ref) auf den Eigentuemer -- kein Wertkopieren
+      # eines Move-only-Models (spec/61 §7).
+      - set: [backbone.foundation, embedder]
+      - set: [backbone.hidden_dim, 64]
+      - call: [backbone.init_model]
+      - call: [log.info, "backbone hidden=${backbone.hidden_dim}"]
+
+      # Concrete output heads — assigned via OutputHead-interface ptr
+      - decl: [recipe_head, SoftmaxOutputHead]
+      - set: [recipe_head.head_id_str, "recipe"]
+      - set: [recipe_head.n_outputs_val, 50]
+      - call: [recipe_head.init_params, backbone.hidden_dim]
+
+      - decl: [tags_head, BCEOutputHead]
+      - set: [tags_head.head_id_str, "tags"]
+      - set: [tags_head.n_outputs_val, 200]
+      - call: [tags_head.init_params, backbone.hidden_dim]
+
+      - decl: [score_head, RegressionOutputHead]
+      - set: [score_head.head_id_str, "combat_score"]
+      - set: [score_head.n_outputs_val, 1]
+      - call: [score_head.init_params, backbone.hidden_dim]
+
+      # Polymorphic dispatch via list<ptr<OutputHead>>
+      - decl: [heads, list<ptr<OutputHead>>]
+      - call: [heads.push, recipe_head]
+      - call: [heads.push, tags_head]
+      - call: [heads.push, score_head]
+      - decl: [idx, i32, 0]
+      - while:
+          condition: { lt: [idx, heads.len] }
+          body:
+            - decl: [head_ptr, ref<OutputHead>, { at: [heads, idx] }]
+            - decl: [hid, string, { call: [head_ptr.head_id] }]
+            - decl: [nout, i32,    { call: [head_ptr.n_outputs] }]
+            - call: [log.info, "head[${idx}] id=${hid} n_outputs=${nout}"]
+            - set: [idx, { "+": [idx, 1] }]
+
+      - call: [log.info, "heads.aiml smoke test OK"]
+      - return: 0

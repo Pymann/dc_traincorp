@@ -1,0 +1,19 @@
+# OutputHead — polymorphic interface for one output slot in a head MLP.
+# Implementations: SoftmaxOutputHead, BCEOutputHead, RegressionOutputHead
+# (see heads.aiml).
+
+- interface:
+    name: OutputHead
+    methods:
+      - [head_id,        string, []]
+      - [n_outputs,      i32,    []]
+      # init_params: alloca/load weights (hidden_dim × n_outputs) + bias.
+      # Returns 1 on success.
+      - [init_params,    i32,    [[hidden_dim, i32]]]
+      - [save_params,    i32,    []]
+      - [requires_grad_on, i32,  []]
+      # Forward: hidden (1×hidden_dim) → logits (1×n_outputs)
+      - [forward_logits, tensor, [[hidden_vec, tensor]]]
+      # Per-head loss: caller materializes target_data as 1×n_outputs tensor
+      # (one-hot for CE, multi-hot for BCE, scalar for regression).
+      - [compute_loss,   tensor, [[logits, tensor], [target_data, tensor]]]

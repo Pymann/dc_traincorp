@@ -1,0 +1,12 @@
+gloves
+gauntlets
+mittens
+mitts
+handwraps
+finger_guards
+brassards
+
+# tech / data-realm
+haptic_gloves
+signal_gauntlets
+data_gloves

@@ -1,0 +1,54 @@
+# Das Vokabular der Gegenstandsarten.
+#
+# Bis zum 14.11.2026 stand diese Liste als Kommentarblock ueber `Item` und die
+# Werte als nackte Zahlen im Code (`set: [item.item_type, 18]`).  Ein Tippfehler
+# traf damit nie zu statt aufzufallen, und ein Vergleich gegen eine Zahl sagte
+# nicht, wogegen verglichen wird.  spec/49 §16.1 nennt das beim Namen: solche
+# Ketten wollen ein Enum sein.
+#
+# `wire: true`, weil die Werte ueber RPC zum Client gehen und im Kv stehen
+# (spec/14) -- ein Mitglied, das nur der andere Build benennt, ist kein totes
+# Mitglied, sondern der Vertrag.  Die Zahlen sind deshalb FEST vergeben und
+# duerfen sich nicht verschieben: sie stehen in jedem gespeicherten Satz.
+- enum:
+    name: ItemArt
+    wire: true
+    values:
+      - CraftMaterial: 1
+      - Weapon:        2
+      - Tool:          3
+      - Rune:          4
+      - Armor:         5
+      - Boots:         6
+      - Gloves:        7
+      - Utility:       8
+      - Device:        9
+      - Trouser:      10
+      - Cape:         11
+      - Helmet:       12
+      - Bracer:       13
+      - Amulett:      14
+      - Ring:         15
+      - Key:          16
+      - Socketable:   17
+      - CraftRecipe:  18
+      # 19 und 20 standen bis zum 14.11. nicht im Kommentarblock ueber `Item`:
+      # Verpflegung lief unter 16 -- derselben Zahl wie `Key`, womit
+      # `ist_verpflegung` jeden Schluessel fuer essbar hielt.  Heilmittel lief
+      # unter 20, also ausserhalb des dokumentierten Bereichs.  Das Enum nennt
+      # beide beim Namen und gibt der Verpflegung eine eigene Zahl.
+      - Verpflegung:  19
+      - Heilmittel:   20
+
+# Die Trage-Faecher.  `trage_regel.aiml` sagt es deutlich: "Die Plaetze sind
+# eine REGEL, keine Datenstruktur" -- es gibt KEINE Koerperstellen, sondern
+# drei Faecher, und `trage_fach(art)` leitet das Fach aus der Art ab.
+#
+# `wire: true`, weil der Wert in `Item.equipped_slot` steht und damit im Kv.
+- enum:
+    name: TrageFach
+    wire: true
+    values:
+      - Keins:       0   # nicht tragbar bzw. im Rucksack
+      - Ausruestung: 1
+      - Rune:        2

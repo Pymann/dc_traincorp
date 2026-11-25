@@ -1,0 +1,16 @@
+# Shared counted item entry model.
+#
+# item_type spiegelt das Item.item_type-Feld und ermöglicht direkten Zugriff
+# auf die typ-spezifische KV (recipes.kvwal, weapons.kvwal, ...) ohne erst
+# das Item aus items.kvwal lesen zu müssen.  Item-type-Codes siehe item.aiml.
+
+- model:
+    name: CountedItem
+    fields:
+      - [item_id,   string]
+      - [count,     i32, 0]
+      # item_type ans Ende: bestehende serialisierte CountedItems (nur
+      # item_id+count) werden vom Decoder mit item_type=0 gelesen — danach
+      # kann der Server entscheiden ob/wie er die per items.kvwal-Lookup
+      # nachfüllt.
+      - [item_type, i32, 0]
