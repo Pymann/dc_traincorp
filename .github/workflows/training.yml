@@ -84,8 +84,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      # `-e` ist noetig, nicht bequem: exodus/pyproject.toml listet
+      # `packages = ["exodus"]` und laesst damit alle Unterpakete weg -- ein
+      # normaler Install ergibt `ModuleNotFoundError: No module named
+      # 'exodus.core'` beim ersten Aufruf.  Gemessen 25.11.2026 in einem
+      # frischen Python 3.12.  Editierbar zeigt der Pfad auf den Quellbaum
+      # und alles ist da.
       - name: exodus einrichten
-        run: python -m pip install --upgrade pip && python -m pip install ./.werkzeug/exodus
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ./.werkzeug/exodus
+          exodus --version
 
       - name: Welcher aiml-Stand
         id: stand

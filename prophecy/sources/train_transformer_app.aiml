@@ -118,7 +118,21 @@
             - set: [rdx, { "+": [rdx, 1] }]
 
       - decl: [lr_ziel, f32, 0.0003]
+      # 60 Epochen sind die Vorgabe, aber nicht das Gesetz: `DC_EPOCHEN`
+      # setzt sie um -- dieselbe Umgebungsvariable, die die Koepfe schon
+      # lesen (train_world_entity_head_app, train_combat_score_head_app).
+      # Ohne das kostet eine Rauchprobe in der CI eine volle Stunde, bevor
+      # ein Fehler im letzten Schritt auffaellt (gemessen 25.11.2026:
+      # ~90 s je Epoche, also 90 min fuer 60).
       - decl: [n_epochen, i32, 60]
+      - decl: [umg, map<string:string>, { call: [sys.env] }]
+      - if:
+          condition: { eq: [{ call: [umg.contains, "DC_EPOCHEN"] }, 1] }
+          then:
+            - decl: [e_txt, string, { call: [umg.get, "DC_EPOCHEN"] }]
+            - decl: [e_zahl, i32, { call: [e_txt.parse_i32] }]
+            - if: { condition: { gt: [e_zahl, 0] }, then: [{ set: [n_epochen, e_zahl] }] }
+            - call: [log.info, "transformer: ${n_epochen} Epochen (DC_EPOCHEN)"]
       - decl: [epoche, i32, 0]
       - while:
           condition: { lt: [epoche, n_epochen] }

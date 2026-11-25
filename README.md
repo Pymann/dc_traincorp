@@ -72,6 +72,14 @@ seine Run-ID entgegen; so lässt sich die Kette über mehrere Läufe verteilen.
 `Pymann/aiml` und `Pymann/exodus` sind öffentlich, der Workflow braucht für
 sie kein Token.
 
+**exodus wird mit `pip install -e` eingerichtet, und das ist nötig, nicht
+bequem:** `exodus/pyproject.toml` listet `packages = ["exodus"]` und lässt
+damit alle Unterpakete weg. Ein normaler Install bringt beim ersten Aufruf
+`ModuleNotFoundError: No module named 'exodus.core'` — gemessen am 25.11.2026
+in einem frischen Python 3.12. Editierbar zeigt der Pfad auf den Quellbaum,
+dann ist alles da. Der saubere Fix gehört ins exodus-Repo
+(`[tool.setuptools.packages.find] include = ["exodus*"]`).
+
 ## Veröffentlichen nach kontor
 
 Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die
@@ -192,6 +200,29 @@ curl --cacert tls/ca.crt -H "Authorization: Bearer <token>" \
 `out/aiml/aiml` und `libaiml.so` sind je rund 90 MB und binden LLVM ein. Der
 Cache ist auf den aiml-Commit geschlüsselt: einmal bauen je Commit, danach
 laden. Ohne das wäre die Übersetzung die teuerste Zeile des Workflows.
+
+### Laufzeiten, gemessen
+
+Auf einem Arbeitsplatzrechner am 25.11.2026, im eigenständigen Paket, gegen
+eine frische Datenbank. Die Zahlen sind das, woran sich die CI-Planung
+entscheidet — der harte Deckel ist die Wanduhr, nicht die Rechenleistung.
+
+| Schritt | je Epoche | Vorgabe | daraus | Speicher |
+|---|---|---|---|---|
+| 1 Atlas + Wortschatz | — | einmal | **Sekunden** | klein |
+| 2 Embedding | 1:49 | `DC_EPOCHEN` | 15 Epochen ≈ **27 min** | 108 MB |
+| 3 Kopf (item_head) | — | — | **2,9 s** | 74 MB |
+| 4 Transformer | ~90 s | **60** | **≈ 90 min** | — |
+| 5 Chance-Kopf | — | `CS_EPOCHEN` | nicht gemessen | — |
+
+Die ganze Kette liegt damit grob bei zwei Stunden und passt in einen Job. Der
+Transformer ist der teure Teil; seine 60 Epochen sind die Vorgabe und lassen
+sich mit `DC_EPOCHEN` für eine Rauchprobe heruntersetzen (vorher waren sie
+fest verdrahtet — eine Probe hätte 90 Minuten gekostet, bevor ein Fehler im
+letzten Schritt auffällt).
+
+Ein Runner ist langsamer als ein Arbeitsplatzrechner; rechne mit dem Zwei- bis
+Dreifachen. Auch dann bleibt Luft bis zu den 350 Minuten.
 
 ### Grenzen, die man kennen muss
 
