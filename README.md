@@ -219,6 +219,9 @@ curl --cacert tls/ca.crt -H "Authorization: Bearer <token>" \
 `out/aiml/aiml` und `libaiml.so` sind je rund 90 MB und binden LLVM ein. Der
 Cache ist auf den aiml-Commit geschlüsselt: einmal bauen je Commit, danach
 laden. Ohne das wäre die Übersetzung die teuerste Zeile des Workflows.
+Gemessen in Lauf #2 (25.11.2026): der Bau dauert auf dem Runner **7 Minuten**,
+der Cache ist rund 670 MB groß. Nach einem neuen aiml-Commit baut der erste
+Lauf neu.
 
 ### Laufzeiten, gemessen
 
@@ -279,12 +282,19 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
 
 ## Bekannte Befunde
 
+* **Das Korpus-Gate ist rot: 1 von 300 Rezeptfolgen wird abgelehnt.** In
+  Lauf #2 (25.11.2026, frischer Atlas auf dem Runner) lautete der Grund:
+  `'hammer' ist im Korpus tool, nicht weapon`. Die abgelehnte Folge ist
+  `<out> hammer x1 … <skill> iron_craft <type> weapon`, also ein Rezept, das
+  einen Hammer als Waffe ausgibt, während `hammer` sonst als Werkzeug geführt
+  wird. Entfernen oder umbenennen, dann wird das Gate grün und `neueste` in
+  kontor wieder beschrieben.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
-  `fiber_craft`, `bone_craft` …) als Voraussetzung. Die Trainingsfolge steckt
-  sie in einen Abschnitt, den die Regel gegen den *Fertigkeits*-Wortschatz
-  prüft, und lehnt sie ab (`gate: 1 echte Trainingsfolgen abgelehnt` bei 300
-  Stichproben). Entweder akzeptiert die Regel dort Prozessmarken, oder diese
-  45 Rezepte brauchen eine echte Fertigkeit als Voraussetzung.
+  `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
+  der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
+  Art-Widerspruch oben. Ob die Regel Prozessmarken im Fertigkeitsfeld
+  annimmt, ist damit nicht abschließend geklärt.
 * Die Meldung **„9 Korpus-Wörter ohne Token"** (`rune_craft`, `iron_craft`, …)
   kam von einem veralteten Atlas und ist nach Schritt 1 verschwunden —
-  nachgemessen am 25.11.2026.
+  nachgemessen am 25.11.2026, auch in der CI (Lauf #2: 5.618 Atlas-Tokens,
+  0 Wörter ohne Token).
