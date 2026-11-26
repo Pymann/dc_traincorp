@@ -23,6 +23,9 @@
 
 # Die Domaenen-Reihenfolge des Korpus gehoert zu den Gewichten.
 - decl: [item_priority_name, string, "prophecy_item_head_priority"]
+# Eigene Einbettung des Item-Kopfs (nur mit DC_EMB_MIT=1 geschrieben;
+# inference.aiml nimmt sie, wenn es sie gibt).  Die gemeinsame bleibt unberuehrt.
+- decl: [item_emb_name, string, "prophecy_item_embedding"]
 
 - class:
     name: ItemHeadTrainer
@@ -319,6 +322,7 @@
                                         condition: { eq: [<.emb_mit, 1] }
                                         then:
                                           - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                          - call: [<.embedder.emb.zero_grad]
                                     - call: [<.backbone.weight_1.zero_grad]
                                     - call: [<.backbone.bias_1.zero_grad]
                                     - call: [<.recipe_head.weight.zero_grad]
@@ -326,7 +330,12 @@
                                     - set: [im_stapel, 0]
                               # Die Einbettung bekommt Gradient, wird aber nicht
                               # geschritten -> jedes Mal leeren, sonst waechst sie mit.
-                              - call: [<.embedder.emb.zero_grad]
+                              # Lernt sie mit, sammelt sie wie die anderen ueber
+                              # den Stapel (vorher wurde auch dann je Beispiel
+                              # geleert: der Schritt sah nur das letzte Beispiel).
+                              - if:
+                                  condition: { eq: [<.emb_mit, 0] }
+                                  then: [{ call: [<.embedder.emb.zero_grad] }]
                               # Accumulate
                               - decl: [lv_var, f32, { call: [loss.get, 0] }]
                               - set: [total_loss, { "+": [total_loss, lv_var] }]
@@ -345,6 +354,7 @@
                             condition: { eq: [<.emb_mit, 1] }
                             then:
                               - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - call: [<.embedder.emb.zero_grad]
                         - call: [<.backbone.weight_1.zero_grad]
                         - call: [<.backbone.bias_1.zero_grad]
                         - call: [<.recipe_head.weight.zero_grad]
@@ -367,6 +377,9 @@
                         - set: [<.hat_beste, 1]
                         - call: [<.backbone.save_weights]
                         - call: [<.recipe_head.save_params]
+                        - if:
+                            condition: { eq: [<.emb_mit, 1] }
+                            then: [{ call: [<.embedder.save_weights] }]
                   - set: [epoch, { "+": [epoch, 1] }]
 
       # ── Save recipe vocab to its own kvwal (needed at inference) ───────────
@@ -628,7 +641,7 @@
                 condition: { eq: [{ call: [umg.contains, "DC_EMB_MIT"] }, 1] }
                 then:
                   - set: [<.emb_mit, 1]
-                  - call: [log.info, "Einbettung wird MITtrainiert (DC_EMB_MIT)"]
+                  - call: [log.info, "Einbettung wird MITtrainiert (DC_EMB_MIT) -> '${item_emb_name}'"]
             # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
             # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
             - set: [<.embedder, { new: TagEmbedding }]
@@ -638,7 +651,21 @@
                 then:
                   - call: [log.error, "vocab load failed — run prophecy_build + pretrain first"]
                   - return: 0
+            # Mitlernen: weiter auf der eigenen Tabelle, wenn es sie schon
+            # gibt, sonst Start auf der gemeinsamen.  Gesichert wird nur
+            # unter item_emb_name.
+            - if:
+                condition: { eq: [<.emb_mit, 1] }
+                then:
+                  - decl: [eigen, tensor, { call: [tensor.load, item_emb_name, "emb"] }]
+                  - if: { condition: { neq: [eigen, null] }, then: [{ set: [<.embedder.weights_name, item_emb_name] }] }
             - call: [<.embedder.init_model]
+            - set: [<.embedder.trainer_name, "train_item_head"]
+            - if:
+                condition: { eq: [<.emb_mit, 1] }
+                then:
+                  - call: [log.info, "Einbettung geladen aus '${<.embedder.weights_name}'"]
+                  - set: [<.embedder.weights_name, item_emb_name]
             # Gegen eine zufaellige oder fremde Tabelle zu trainieren ist
             # verlorene Zeit (gemessen 19./20.11.: zwei Stunden).  Darum hier
             # Schluss, nicht erst in der Abnahme.

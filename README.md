@@ -95,15 +95,21 @@ Paket aus kontor:
 
 `vorstand` und `vorlauf` (Run-ID eines GitHub-Laufs) schließen sich aus.
 
-`kampf_emb_mit` (Versuch, 26.11.2026): der Kampfskill-Kopf lernt die
-Einbettung mit und legt sie in einem eigenen Store
-`prophecy_combat_skill_embedding` ab; die gemeinsame Einbettung bleibt
-unberührt. Läuft der Kampfskill-Kopf ohne diese Eingabe, löscht der Workflow
-eine solche eigene Einbettung, weil sie dann nicht mehr zu ihm passt.
-`prophecy/sources/inference.aiml` hier nimmt die eigene Einbettung, wenn der
-Store da ist. **Die Inferenz im Spiel-Repo muss das nachziehen**, bevor ein
-Paket damit `latest` wird; sonst rechnet der Kampfskill-Kopf dort auf der
-gemeinsamen Einbettung, zu der seine Gewichte nicht passen.
+`emb_mit` (Versuch, 26.11.2026; bis 0be971c hieß die Eingabe
+`kampf_emb_mit` und galt nur für den Kampfskill-Kopf): Item- und
+Kampfskill-Kopf lernen die Einbettung mit und legen sie je in einem eigenen
+Store ab, `prophecy_item_embedding` und `prophecy_combat_skill_embedding`;
+die gemeinsame Einbettung bleibt unberührt. Läuft einer der beiden Köpfe ohne
+diese Eingabe, löscht der Workflow seine eigene Einbettung, weil sie dann
+nicht mehr zu ihm passt. `prophecy/sources/inference.aiml` hier nimmt die
+eigene Einbettung, wenn der Store da ist. **Die Inferenz im Spiel-Repo muss
+das nachziehen**, bevor ein Paket damit `latest` wird; sonst rechnen die
+Köpfe dort auf der gemeinsamen Einbettung, zu der ihre Gewichte nicht passen.
+
+Beim Item-Kopf sah der Adam-Schritt der Einbettung mit `DC_EMB_MIT` bisher
+nur das letzte Beispiel jedes 32er-Stapels: ihr Gradient wurde nach jedem
+Beispiel geleert. Seit diesem Stand sammelt sie über den Stapel wie die
+übrigen Gewichte.
 
 ## Veröffentlichen nach kontor
 

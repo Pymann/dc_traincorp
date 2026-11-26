@@ -49,8 +49,8 @@ on:
       koepfe:
         description: "Nur diese Koepfe in Schritt 3, z.B. world-entity-head (leer = alle fuenf)"
         default: ""
-      kampf_emb_mit:
-        description: "Kampfskill-Kopf: Einbettung mitlernen (CSK_EMB_MIT), eigener Store prophecy_combat_skill_embedding"
+      emb_mit:
+        description: "Item- und Kampfskill-Kopf: Einbettung mitlernen, je ein eigener Store (prophecy_item_embedding, prophecy_combat_skill_embedding)"
         type: boolean
         default: false
       korpus_neu:
@@ -251,7 +251,7 @@ jobs:
           set -eu
           for teil in $IN_KOEPFE; do
             case "$teil" in
-              item-head)         weg="prophecy_head_body prophecy_head_outputs" ;;
+              item-head)         weg="prophecy_head_body prophecy_head_outputs prophecy_item_embedding" ;;
               skill-head)        weg="prophecy_skill_head_body prophecy_skill_head_outputs" ;;
               combat-skill-head) weg="prophecy_combat_skill_head_body prophecy_combat_skill_head_outputs prophecy_combat_skill_embedding" ;;
               world-entity-head) weg="prophecy_world_entity_body prophecy_world_entity_et_body prophecy_world_entity_outputs" ;;
@@ -301,7 +301,7 @@ jobs:
           # vier noch einmal laufen zu lassen.  Mit den Epochen-Vorgaben der
           # Apps passen alle fuenf vermutlich nicht in einen Job (README).
           IN_KOEPFE: ${{ inputs.koepfe }}
-          IN_KAMPF_EMB_MIT: ${{ inputs.kampf_emb_mit }}
+          IN_EMB_MIT: ${{ inputs.emb_mit }}
         run: |
           set -eu
           if [ -n "$IN_LR" ]; then export DC_LR="$IN_LR"; fi
@@ -309,13 +309,16 @@ jobs:
           # Ohne Mitlernen rechnet der Kampfskill-Kopf auf der gemeinsamen
           # Einbettung.  Eine eigene aus einem frueheren Lauf passt dann nicht
           # mehr zu ihm, und die Inferenz wuerde sie nehmen -- also weg.
-          if [ "$IN_KAMPF_EMB_MIT" = "true" ]; then export CSK_EMB_MIT=1; fi
+          if [ "$IN_EMB_MIT" = "true" ]; then export CSK_EMB_MIT=1 DC_EMB_MIT=1; fi
           koepfe="${IN_KOEPFE:-item-head skill-head combat-skill-head world-entity-head combat-score-head}"
           for teil in $koepfe; do
             [ -f "exodus-prophecy-$teil.json" ] || { echo "unbekannter Kopf: $teil"; exit 1; }
             echo "== $teil =="
-            if [ "$teil" = combat-skill-head ] && [ "$IN_KAMPF_EMB_MIT" != "true" ]; then
-              rm -fv aiondb/prophecy_combat_skill_embedding.kvwal
+            if [ "$IN_EMB_MIT" != "true" ]; then
+              case "$teil" in
+                combat-skill-head) rm -fv aiondb/prophecy_combat_skill_embedding.kvwal ;;
+                item-head)         rm -fv aiondb/prophecy_item_embedding.kvwal ;;
+              esac
             fi
             exodus build -c "exodus-prophecy-$teil.json" 2>&1 | tee "berichte/build_$teil.log"
             bin="prophecy_train_${teil%-head}_head"

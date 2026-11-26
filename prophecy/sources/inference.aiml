@@ -26,6 +26,8 @@
       # Eigene, mitgelernte Einbettung des Kampfskill-Kopfs
       # (prophecy_combat_skill_embedding, nur wenn mit CSK_EMB_MIT trainiert).
       - [kampf_embedder,  ptr<TagEmbedding>, null]
+      # dasselbe fuer den Item-Kopf (prophecy_item_embedding, DC_EMB_MIT)
+      - [item_embedder,   ptr<TagEmbedding>, null]
       - [atlas_kv,        Kv<string:TagAtlasEntry>]
       - [hidden_dim,      i32, 64]
       # Item-head module
@@ -1035,7 +1037,18 @@
             - set: [<.atlas_kv, { call: [db.open_kv, prophecy_atlas_name, {persist: true}] }]
 
             # ── Item module ───────────────────────────────────────────────
-            - set: [<.item_body.foundation, <.embedder]
+            - decl: [item_emb_t, tensor, { call: [tensor.load, "prophecy_item_embedding", "emb"] }]
+            - if:
+                condition: { neq: [item_emb_t, null] }
+                then:
+                  - set: [<.item_embedder, { new: TagEmbedding }]
+                  - set: [<.item_embedder.weights_name, "prophecy_item_embedding"]
+                  - decl: [ok_item, i32, { call: [<.item_embedder.load_vocab] }]
+                  - call: [<.item_embedder.init_model]
+                  - set: [<.item_body.foundation, <.item_embedder]
+                  - call: [log.info, "[prophecy] item_head: eigene Einbettung 'prophecy_item_embedding'"]
+                else:
+                  - set: [<.item_body.foundation, <.embedder]
             - set: [<.item_body.hidden_dim, <.hidden_dim]
             - set: [<.item_body.weights_name, "prophecy_head_body"]
             - call: [<.item_body.init_model]
