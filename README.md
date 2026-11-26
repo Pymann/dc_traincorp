@@ -705,6 +705,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Nächster Versuch: Gradienten über Stapel von 32 sammeln wie beim
   Item-Kopf (`stapel`, `DC_STAPEL`), statt je Beispiel zu schreiten.
 
+  **Lauf #32** (7a5a79d, Stapel 32; #31 stürzte ohne `keep` auf den
+  Adam-Momenten in `aiml_tensor_free` ab): bester Prüfteil in Epoche 35
+  (23,3 %), Abnahme dort **22,2 %, Top-5 55,1 %**, Schluss nach Epoche 60.
+  Gleich gut wie #30, aber **1,4 s statt 17 s je Epoche**, der ganze Kopf
+  in 90 s. Der Kampfskill-Kopf steht damit bei rund 22 % gegen 28,1 % der
+  Grundlinie; Lernrate, Auswahl nach Prüfteil und Stapel ändern daran nichts.
+
 * **Chance-Kopf mit mittrainiertem Transformer, Lauf #29** (b0e2619,
   `5-chance`, `cs_encoder`, `cs_epochen` 50, ohne kontor; nach Epoche 15
   abgebrochen, um die Zeiten zu lesen): **4 min 7 s je Epoche** (35.542
