@@ -691,6 +691,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Aufteilung, alle 5 Epochen gemessen), holt ihn vor der Abnahme zurück und
   meldet neben dem obersten Vorschlag auch „unter den ersten fünf".
 
+  **Lauf #28** (b0e2619) misslang in der Auswertung: der gesicherte Stand wurde
+  nach dem Training zurückgeladen, danach rechneten die Tensoren mit falschen
+  Formen (`tensor.matmul: shape mismatch [1,5618] @ [1,5618]`) und die
+  Abnahme lag auf Zufall. Seither misst der Trainer die Abnahme in dem
+  Moment, in dem der Prüfteil einen besseren Stand meldet, und lädt nichts
+  zurück. Ohne Verbesserung über 25 Epochen hört er auf.
+
   **Lauf #26** (0ab7049, Item-Kopf frisch, `emb_mit`, ohne kontor, 12 min):
   Lernzeilen 92,2 %, **Abnahme 666 / 829 (80,3 %)**, 247 von 259 Klassen
   vorhergesagt. Vorher 44,5 % (#23) bei einer Grundlinie von 77,8 %; der

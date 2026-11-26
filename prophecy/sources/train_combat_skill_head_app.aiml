@@ -45,6 +45,9 @@
       - [pruef_alle,      i32, 5]
       - [beste_pruef,     f32, -1.0]
       - [beste_epoche,    i32, -1]
+      - [abnahme_beste,   f32, 0.0]
+      # So viele Epochen ohne besseren Pruefteil, dann Schluss.
+      - [geduld,          i32, 25]
       - [hidden_dim,       i32, 64]
       # CSK_EMB_MIT=1: die Einbettung lernt mit.  Mit der eingefrorenen
       # gemeinsamen Einbettung blieb die Abnahme bei 10,8 % gegen 28 % der
@@ -328,6 +331,16 @@
                               - set: [<.beste_pruef, pruef_q]
                               - set: [<.beste_epoche, epoch]
                               - set: [besser, 1]
+                              # Abnahme GLEICH hier messen: den gesicherten Stand
+                              # nach dem Training zurueckzuladen zerschoss in
+                              # Lauf #28 die Tensoren (matmul [1,5618] @ [1,5618]).
+                              - decl: [ab_name, string, "  Abnahme, Epoche ${epoch}"]
+                              - set: [<.abnahme_beste, { call: [<.bewerten, 2, ab_name] }]
+                        - if:
+                            condition: { gte: [{ "-": [epoch, <.beste_epoche] }, <.geduld] }
+                            then:
+                              - call: [log.info, "seit Epoche ${<.beste_epoche} kein besserer Pruefteil -- Schluss nach Epoche ${epoch}"]
+                              - set: [epoch, <.n_epochs]
                   - if:
                       condition: { eq: [besser, 1] }
                       then:
@@ -526,14 +539,7 @@
             - call: [<.combat_head.requires_grad_on]
             - call: [<.train]
             # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
-            # Fuer die Abnahme genau diesen Stand zurueckholen.
-            - call: [log.info, "bester Pruefteil ${<.beste_pruef} in Epoche ${<.beste_epoche} -- dieser Stand wird bewertet"]
-            - call: [<.backbone.init_model]
-            - call: [<.combat_head.init_params, <.hidden_dim]
-            - if:
-                condition: { eq: [<.emb_mit, 1] }
-                then:
-                  - set: [<.embedder.emb, { call: [tensor.load, kampf_emb_name, "emb"] }]
+            - call: [log.info, "gesichert: Stand aus Epoche ${<.beste_epoche}, Pruefteil ${<.beste_pruef}, Abnahme ${<.abnahme_beste}"]
             # Wozu diese Gewichte gehoeren (Spec modell_manifest_2026-11-20.md):
             # `grundlage` ist der Abdruck der Einbettung, mit der hier gerechnet
             # wurde -- ohne ihn sieht man einem Kopf nicht an, ob er zu ihr passt.
@@ -547,8 +553,10 @@
             - set: [satz.trainer,    "train_combat_skill_head"]
             - call: [manifest_ablegen, "prophecy_combat_skill_head_outputs", satz]
             - call: [<.save_combat_skill_vocab]
-            - decl: [q_lern, f32, { call: [<.bewerten, 0, "Training"] }]
-            - decl: [q_pruef, f32, { call: [<.bewerten, 1, "Pruefteil (nicht trainiert, waehlt den Stand)"] }]
-            - decl: [q_ab, f32, { call: [<.bewerten, 2, "Abnahme (nicht trainiert)"] }]
+            # Die folgenden drei messen den LETZTEN Stand im Speicher (bis zu
+            # `geduld` Epochen nach dem gesicherten).
+            - decl: [q_lern, f32, { call: [<.bewerten, 0, "Training (letzter Stand)"] }]
+            - decl: [q_pruef, f32, { call: [<.bewerten, 1, "Pruefteil (letzter Stand)"] }]
+            - decl: [q_ab, f32, { call: [<.bewerten, 2, "Abnahme (letzter Stand, nicht trainiert)"] }]
             - call: [log.info, "CombatSkillHead training done."]
 
