@@ -607,4 +607,8 @@
             - decl: [q_pruef, f32, { call: [<.bewerten, 1, "Pruefteil (letzter Stand)"] }]
             - decl: [q_ab, f32, { call: [<.bewerten, 2, "Abnahme (letzter Stand, nicht trainiert)"] }]
             - call: [log.info, "CombatSkillHead training done."]
+            # Jedes Sichern haengt an das WAL an; ohne Verdichten waechst ein
+            # Store mit jeder besten Epoche (Lauf #33: Paket zu gross, 413).
+            - call: [db.checkpoint]
+            - call: [log.info, "Stores verdichtet (db.checkpoint)"]
 

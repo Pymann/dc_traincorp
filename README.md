@@ -87,13 +87,30 @@ Paket aus kontor:
 
 | Eingabe | Wert |
 |---|---|
-| `schritte` | `3-koepfe` (oder `4-transformer`, `5-chance`) |
+| `schritte` | `3-koepfe` (oder `4-transformer`, `5-chance`); mehrere mit Leerzeichen, z. B. `3-koepfe 5-chance` |
 | `koepfe` | z. B. `combat-skill-head` (mehrere mit Leerzeichen) |
 | `vorstand` | `latest` oder ein Paket wie `18-1fc8d90c6f8e` |
 | `frisch` | an: die Gewichte dieser Köpfe vorher löschen, von Null anfangen; aus: auf dem geladenen Stand weitertrainieren |
 | `kontor` | an: das Ergebnis hochladen. Weil alle übrigen Stores aus dem Ausgangsstand kommen, ist das Paket vollständig und wird `latest`, wenn das Gate grün ist. Für Versuche aus lassen. |
 
 `vorstand` und `vorlauf` (Run-ID eines GitHub-Laufs) schließen sich aus.
+
+**Mehrere Schritte in einem Lauf** (seit 26.11.2026): `schritte` ist ein
+Freitext, die Teile werden mit Leerzeichen getrennt und laufen in der
+Reihenfolge der Kette, egal in welcher Reihenfolge sie dastehen. Bis dahin war
+es eine Auswahl mit genau einem Schritt oder `alles`; Köpfe und Chance-Kopf
+brauchten zwei Läufe hintereinander (#33, #34). Beispiel für den vollen
+kontor-Stand ohne Atlas, Embedding und Transformer: `schritte` =
+`3-koepfe 5-chance`, `koepfe` = `item-head combat-skill-head`, `frisch`,
+`emb_mit`, `cs_encoder`, `cs_epochen` = 20, `vorstand` = `latest`.
+
+**Stores verdichten.** Jedes `tensor.save` hängt an das WAL des Stores an,
+überschriebene Gewichte bleiben darin liegen. Seit die Köpfe den besten Stand
+jeder Epoche sichern (und mit `emb_mit` auch die Einbettung), wuchs das Paket
+in Lauf #33 über die Grenze von kontor (`413 Payload Too Large`). Deshalb ruft
+jeder Kopf-Trainer am Ende `db.checkpoint` auf, das nur die lebenden Einträge
+behält. Der Schritt „Modelle nach kontor“ zeigt vor dem Hochladen die belegte
+Größe jedes Stores (`ls -ls`) und die Paketgröße.
 
 `emb_mit` (Versuch, 26.11.2026; bis 0be971c hieß die Eingabe
 `kampf_emb_mit` und galt nur für den Kampfskill-Kopf): Item- und

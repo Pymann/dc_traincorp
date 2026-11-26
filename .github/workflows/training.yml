@@ -6,17 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       schritte:
-        description: "Welcher Teil der Kette"
-        type: choice
+        description: "Welche Teile der Kette, mit Leerzeichen getrennt: nur-pruefen, 1-atlas, 2-embedding, 3-koepfe, 4-transformer, 5-chance oder alles (z.B. \"3-koepfe 5-chance\")"
         default: nur-pruefen
-        options:
-          - nur-pruefen
-          - 1-atlas
-          - 2-embedding
-          - 3-koepfe
-          - 4-transformer
-          - 5-chance
-          - alles
       epochen:
         description: "DC_EPOCHEN fuer Embedding, Koepfe, Transformer (leer = Vorgabe jeder App; 2-3 fuer eine Rauchprobe)"
         default: ""
@@ -281,21 +272,21 @@ jobs:
 
       # ── Die Kette ────────────────────────────────────────────────────────
       - name: 1 Atlas und Wortschatz
-        if: contains(fromJSON('["1-atlas","alles"]'), inputs.schritte)
+        if: contains(format(' {0} ', inputs.schritte), ' 1-atlas ') || contains(format(' {0} ', inputs.schritte), ' alles ')
         run: |
           set -eu
           exodus build -c exodus-prophecy.json 2>&1 | tee berichte/build_atlas.log
           ./prophecy_build 2>&1 | tee berichte/1_atlas.log
 
       - name: 2 Embedding
-        if: contains(fromJSON('["2-embedding","alles"]'), inputs.schritte)
+        if: contains(format(' {0} ', inputs.schritte), ' 2-embedding ') || contains(format(' {0} ', inputs.schritte), ' alles ')
         run: |
           set -eu
           exodus build -c exodus-prophecy-pretrain.json 2>&1 | tee berichte/build_pretrain.log
           ./prophecy_pretrain 2>&1 | tee berichte/2_embedding.log
 
       - name: 3 Koepfe
-        if: contains(fromJSON('["3-koepfe","alles"]'), inputs.schritte)
+        if: contains(format(' {0} ', inputs.schritte), ' 3-koepfe ') || contains(format(' {0} ', inputs.schritte), ' alles ')
         env:
           # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
           # Variable dann auf "", die App sieht sie als vorhanden und parst
@@ -332,7 +323,7 @@ jobs:
           done
 
       - name: 4 Transformer
-        if: contains(fromJSON('["4-transformer","alles"]'), inputs.schritte)
+        if: contains(format(' {0} ', inputs.schritte), ' 4-transformer ') || contains(format(' {0} ', inputs.schritte), ' alles ')
         env:
           # Nicht direkt als DC_LR/DC_STAPEL: ein leeres Eingabefeld setzt die
           # Variable dann auf "", die App sieht sie als vorhanden und parst
@@ -347,7 +338,7 @@ jobs:
           ./prophecy_train_transformer 2>&1 | tee berichte/4_transformer.log
 
       - name: 5 Chance-Kopf
-        if: contains(fromJSON('["5-chance","alles"]'), inputs.schritte)
+        if: contains(format(' {0} ', inputs.schritte), ' 5-chance ') || contains(format(' {0} ', inputs.schritte), ' alles ')
         env:
           IN_CS_ENCODER: ${{ inputs.cs_encoder }}
         run: |
@@ -440,6 +431,9 @@ jobs:
           tar --sparse -czf models.tar.gz -C aiondb $stores -C "$GITHUB_WORKSPACE" $texte
           summe=$(sha256sum models.tar.gz | cut -d' ' -f1)
           groesse=$(stat -c%s models.tar.gz)
+          # Belegt (erste Spalte) statt Scheingroesse: die Stores sind sparse.
+          ls -ls aiondb
+          echo "Paket: $((groesse / 1048576)) MB"
 
           # Herkunft neben das Paket, damit man sie ohne Download lesen kann.
           # `grep -c` gibt bei null Treffern "0" aus UND Exitcode 1 -- ein

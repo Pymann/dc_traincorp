@@ -788,8 +788,14 @@
                   - call: [<.trainiere_encoder]
                   - call: [<.bewerten_encoder, 0, "Training"]
                   - call: [<.bewerten_encoder, 1, "Abnahme (nicht trainiert)"]
+                  - call: [db.checkpoint]
+                  - call: [log.info, "Stores verdichtet (db.checkpoint)"]
                   - return: 0
             - call: [<.merkmale_pruefen]
             - call: [<.trainiere]
             - call: [<.bewerten, 0, "Training"]
             - call: [<.bewerten, 1, "Abnahme (nicht trainiert)"]
+            # Jedes Sichern haengt an das WAL an; ohne Verdichten waechst ein
+            # Store mit jeder besten Epoche (Lauf #33: Paket zu gross, 413).
+            - call: [db.checkpoint]
+            - call: [log.info, "Stores verdichtet (db.checkpoint)"]
