@@ -640,8 +640,22 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Das ist der nächste Ansatzpunkt (mitlernendes Embedding wie `emb_mit` im
   Item-Kopf). Warum #22 je Epoche 15 s statt 4 s brauchte, ist nicht
   geklärt; der Code war derselbe.
+
+  **Lauf #23** (26.11.2026, 7527daa): Item-, Skill- und Kampfskill-Kopf
+  frisch und gemischt auf dem Stand `latest` (#18), kontor an, 36 min.
+  Abnahme (nicht trainierte Zeilen):
+
+  | Kopf | Lernzeilen | Abnahme | Grundlinie | #18 (ungemischt) |
+  |---|---|---|---|---|
+  | item_head | 59,9 % | 369 / 829 (**44,5 %**), 243 von 259 Klassen vorhergesagt | 77,8 % | 24,0 % |
+  | skill_head | 90,0 % | 1195 / 1411 (**84,7 %**) | 88,2 % | 10,1 % |
+  | combat_skill_head | 28,3 % | 109 / 1008 (**10,8 %**) | 28,1 % | 5,8 % |
+
+  Gate 296/298/298/293 angenommen. Paket `23-7527daa58d92` (180 MB) ist
+  `latest`. Der Skill-Kopf liegt jetzt fast auf seiner Grundlinie. Item-Kopf
+  (8,5 min) und Kampfskill-Kopf bleiben deutlich darunter.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
-  `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
+  `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
