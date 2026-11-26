@@ -19,6 +19,9 @@
 
 # Die Domaenen-Reihenfolge des Korpus gehoert zu den Gewichten.
 - decl: [combat_skill_priority_name, string, "prophecy_combat_skill_head_priority"]
+# Eigene Einbettung des Kampfskill-Kopfs (nur mit CSK_EMB_MIT=1 geschrieben;
+# inference.aiml nimmt sie, wenn es sie gibt).
+- decl: [kampf_emb_name, string, "prophecy_combat_skill_embedding"]
 
 - class:
     name: CombatSkillHeadTrainer
@@ -36,6 +39,12 @@
       - [beste_verlust,   f32, 0.0]
       - [hat_beste,       i32, 0]
       - [hidden_dim,       i32, 64]
+      # CSK_EMB_MIT=1: die Einbettung lernt mit.  Mit der eingefrorenen
+      # gemeinsamen Einbettung blieb die Abnahme bei 10,8 % gegen 28 % der
+      # Grundlinie (Lauf #23).  Die mitgelernte Tabelle liegt in einem
+      # EIGENEN Store (kampf_emb_name) -- die gemeinsame bleibt unberuehrt,
+      # die anderen Koepfe rechnen weiter auf ihr.
+      - [emb_mit,          i32, 0]
       - [atlas_kv,         Kv<string:TagAtlasEntry>]
       - [embedder,         ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
       - [backbone,         BagBackbone]
@@ -207,6 +216,8 @@
             - decl: [v_sw, tensor, { call: [tensor.zeros, <.hidden_dim, n_skills] }]
             - decl: [m_sb, tensor, { call: [tensor.zeros, n_skills] }]
             - decl: [v_sb, tensor, { call: [tensor.zeros, n_skills] }]
+            - decl: [m_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
+            - decl: [v_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
             - decl: [global_step, i32, 0]
             # Reihenfolge je Epoche MISCHEN.  Der Korpus steht nach Klassen
             # sortiert (60 Zeilen cleave, dann 60 sunder_strike ...); Adam auf
@@ -273,6 +284,10 @@
                               - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
                               - call: [tensor.adam_step, <.combat_head.weight, m_sw, v_sw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
                               - call: [tensor.adam_step, <.combat_head.bias,   m_sb, v_sb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - if:
+                                  condition: { eq: [<.emb_mit, 1] }
+                                  then:
+                                    - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
                               - call: [<.backbone.weight_1.zero_grad]
                               - call: [<.backbone.bias_1.zero_grad]
                               - call: [<.combat_head.weight.zero_grad]
@@ -302,6 +317,9 @@
                         - set: [<.hat_beste, 1]
                         - call: [<.backbone.save_weights]
                         - call: [<.combat_head.save_params]
+                        - if:
+                            condition: { eq: [<.emb_mit, 1] }
+                            then: [{ call: [<.embedder.save_weights] }]
                   - set: [epoch, { "+": [epoch, 1] }]
 
       - def:
@@ -403,6 +421,11 @@
                 then:
                   - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
                   - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "CSK_EMB_MIT"] }, 1] }
+                then:
+                  - set: [<.emb_mit, 1]
+                  - call: [log.info, "Einbettung wird MITtrainiert (CSK_EMB_MIT) -> '${kampf_emb_name}'"]
             - call: [log.info, "CombatSkillHead training starting…"]
             # Move-only-Model: ein Wert-Member traegt die Tensoren nicht mit
             # (foundation.emb war NULL).  Eigentuemer anlegen, Backbone leiht.
@@ -413,7 +436,21 @@
                 then:
                   - call: [log.error, "vocab load failed — run prophecy_build + pretrain first"]
                   - return: 0
+            # Mitlernen: weiter auf der eigenen Tabelle, wenn es sie schon
+            # gibt, sonst Start auf der gemeinsamen.  Gesichert wird in jedem
+            # Fall nur unter kampf_emb_name.
+            - if:
+                condition: { eq: [<.emb_mit, 1] }
+                then:
+                  - decl: [eigen, tensor, { call: [tensor.load, kampf_emb_name, "emb"] }]
+                  - if: { condition: { neq: [eigen, null] }, then: [{ set: [<.embedder.weights_name, kampf_emb_name] }] }
             - call: [<.embedder.init_model]
+            - set: [<.embedder.trainer_name, "train_combat_skill_head"]
+            - if:
+                condition: { eq: [<.emb_mit, 1] }
+                then:
+                  - call: [log.info, "Einbettung geladen aus '${<.embedder.weights_name}'"]
+                  - set: [<.embedder.weights_name, kampf_emb_name]
             # Gegen eine zufaellige oder fremde Tabelle zu trainieren ist
             # verlorene Zeit (gemessen 19./20.11.: zwei Stunden).  Darum hier
             # Schluss, nicht erst in der Abnahme.

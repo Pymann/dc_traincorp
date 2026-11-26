@@ -95,6 +95,14 @@ Paket aus kontor:
 
 `vorstand` und `vorlauf` (Run-ID eines GitHub-Laufs) schließen sich aus.
 
+`kampf_emb_mit` (Versuch, 26.11.2026): der Kampfskill-Kopf lernt die
+Einbettung mit und legt sie in einem eigenen Store
+`prophecy_combat_skill_embedding` ab; die gemeinsame Einbettung bleibt
+unberührt. Läuft der Kampfskill-Kopf ohne diese Eingabe, löscht der Workflow
+eine solche eigene Einbettung, weil sie dann nicht mehr zu ihm passt.
+**Die Inferenz des Spiels liest diesen Store noch nicht**: ein Paket damit
+nicht als `latest` veröffentlichen, bevor sie es tut.
+
 ## Veröffentlichen nach kontor
 
 Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die
