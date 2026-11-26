@@ -406,6 +406,19 @@ jobs:
           stores=$(cd aiondb && ls prophecy_*.kvwal 2>/dev/null || true)
           [ -n "$stores" ] || { echo "keine prophecy-Stores in aiondb -- nichts hochzuladen."; exit 1; }
 
+          # Vollstaendig heisst: jeder Store aus prophecy/required_stores.txt
+          # liegt in aiondb.  Ein halber Lauf (z. B. nur 3-koepfe ohne
+          # Vorlauf, oder ein Kopf, der abgebrochen ist) laedt trotzdem in
+          # seinen eigenen Ordner hoch, wird aber nicht `latest`.
+          rc=0
+          missing=$(tools/package_complete.sh aiondb prophecy/required_stores.txt) || rc=$?
+          case "$rc" in
+            0) complete=true ;;
+            1) complete=false
+               echo "Paket unvollstaendig, es fehlen:"; printf '  %s\n' $missing ;;
+            *) echo "Vollstaendigkeitspruefung kaputt (Exit $rc)"; exit 1 ;;
+          esac
+
           # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
           tar --sparse -C aiondb -czf models.tar.gz $stores
           summe=$(sha256sum models.tar.gz | cut -d' ' -f1)
@@ -419,9 +432,10 @@ jobs:
             gate_zeile=$(grep -c 'ohne Token' berichte/gate_korpus.log || true)
             [ -n "$gate_zeile" ] || gate_zeile=0
           fi
-          python3 - "$summe" "$groesse" "$gate_zeile" <<'EOP' > models.json
+          python3 - "$summe" "$groesse" "$gate_zeile" "$complete" $missing <<'EOP' > models.json
           import json, os, sys
           summe, groesse, gate = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+          complete, missing = sys.argv[4] == "true", sorted(sys.argv[5:])
           print(json.dumps({
             "produced_by": "dc_traincorp/.github/workflows/training.yml",
             "run_id": os.environ.get("GITHUB_RUN_ID"),
@@ -435,6 +449,8 @@ jobs:
             "package_sha256": summe,
             "package_bytes": groesse,
             "gate_words_without_token": gate,
+            "complete": complete,
+            "missing_stores": missing,
           }, indent=1, ensure_ascii=False))
           EOP
 
@@ -443,19 +459,20 @@ jobs:
           hoch -X PUT -T models.tar.gz -H "X-Checksum-Sha256: $summe" "$KONTOR_URL/$ziel/models.tar.gz"
           hoch -X PUT -T models.json "$KONTOR_URL/$ziel/models.json"
 
-          # `latest` nur, wenn das Gate kein Wort ohne Token gefunden hat.
+          # `latest` nur, wenn das Paket vollstaendig ist (siehe oben) und das
+          # Gate kein Wort ohne Token gefunden hat.
           # Kaputte Gewichte als "latest" zu veroeffentlichen waere schlimmer
           # als sie gar nicht zu veroeffentlichen.
           # Und nur, wenn das Gate selbst gruen war: ein Gate, das abstuerzt
           # oder Trainingsfolgen ablehnt, schreibt kein "ohne Token" -- die
           # Zeilenzaehlung allein liesse es durch.
-          if [ "$gate_zeile" = "0" ] && [ "$GATE_ERGEBNIS" = "success" ]; then
+          if [ "$complete" = "true" ] && [ "$gate_zeile" = "0" ] && [ "$GATE_ERGEBNIS" = "success" ]; then
             hoch -X PUT -T models.tar.gz -H "X-Checksum-Sha256: $summe" \
                   "$KONTOR_URL/generic/datacreatures/prophecy/latest/models.tar.gz"
             hoch -X PUT -T models.json "$KONTOR_URL/generic/datacreatures/prophecy/latest/models.json"
             echo "also published as latest"
           else
-            echo "NOT published as latest: Gate ${GATE_ERGEBNIS}, Zeilen ohne Token: ${gate_zeile}"
+            echo "NOT published as latest: complete=${complete}, Gate ${GATE_ERGEBNIS}, Zeilen ohne Token: ${gate_zeile}"
           fi
 
       - name: Ergebnis sichern

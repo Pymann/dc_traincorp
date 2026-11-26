@@ -106,10 +106,24 @@ Laufnummer, Korpus-Commit, aiml-Commit, Schritte, Epochen, die Liste der
 Stores, Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
 Atlas-Token gefunden hat.
 
-**`latest` wird nur überschrieben, wenn das Gate grün war und kein Wort
-ohne Token meldet.** Kaputte Gewichte als „latest" zu veröffentlichen wäre schlimmer,
+**`latest` wird nur überschrieben, wenn das Paket vollständig ist, das Gate
+grün war und kein Wort ohne Token meldet.** Vollständig heißt: jeder Store aus
+[`prophecy/required_stores.txt`](prophecy/required_stores.txt) liegt als
+`<name>.kvwal` in `aiondb` — Atlas, Wortschatz, Embedding, alle fünf Köpfe,
+Transformer und Chance-Kopf. Geprüft wird das von `tools/package_complete.sh`;
+fehlende Stores stehen im Log und in `models.json` (`complete`,
+`missing_stores`). Ein halber Lauf, etwa `3-koepfe` ohne `vorlauf`, landet so
+nur in seinem eigenen Ordner. Wer die Kette über mehrere Läufe verteilt, setzt
+im letzten `vorlauf`, dann trägt dessen `aiondb` den Rest bei.
+Kaputte Gewichte als „latest" zu veröffentlichen wäre schlimmer,
 als sie gar nicht zu veröffentlichen; der lauf-eigene Pfad bekommt sie
 trotzdem, damit man hineinsehen kann.
+
+Geprüft wird nur, dass die Stores da sind, nicht was in ihnen steht; das ist
+Sache des Gates. `tools/test_package_complete.sh` (Workflow `Checks`, bei jedem
+Push) testet die Prüfung und dass jeder Name der Liste noch unter
+`prophecy/sources` vorkommt: wer dort einen Store umbenennt, muss die Liste
+nachziehen.
 
 Gepackt wird mit `tar --sparse`: ein `kvwal` ist 16 bis 128 MB groß und
 besteht überwiegend aus Nullen. Gemessen an einem Lauf mit Atlas, Wortschatz

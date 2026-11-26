@@ -1,0 +1,56 @@
+# The stores a prophecy package must contain before it may become `latest`.
+# One store name per line, without `.kvwal`.  `#` starts a comment.
+#
+# Read by tools/package_complete.sh (training.yml, step "Modelle nach kontor").
+# tools/test_package_complete.sh checks that every name here is still written
+# somewhere under prophecy/sources -- rename a store there, rename it here.
+#
+# Not listed on purpose: prophecy_kampf_transformer -- only written with
+# CS_ENCODER=1 (prophecy/sources/chance_kopf.aiml).
+
+# 1 Atlas und Wortschatz
+prophecy_atlas
+prophecy_vocab
+
+# 2 Embedding
+prophecy_embedding_weights
+
+# 3 Koepfe -- item-head
+prophecy_head_body
+prophecy_head_outputs
+prophecy_item_head_vocab
+prophecy_item_head_priority
+
+# 3 Koepfe -- skill-head
+prophecy_skill_head_body
+prophecy_skill_head_outputs
+prophecy_skill_head_vocab
+prophecy_skill_head_priority
+
+# 3 Koepfe -- combat-skill-head
+prophecy_combat_skill_head_body
+prophecy_combat_skill_head_outputs
+prophecy_combat_skill_vocab
+prophecy_combat_skill_head_priority
+
+# 3 Koepfe -- world-entity-head
+prophecy_world_entity_body
+prophecy_world_entity_et_body
+prophecy_world_entity_outputs
+prophecy_world_entity_head_vocab
+prophecy_world_entity_priority
+
+# 3 Koepfe -- combat-score-head
+prophecy_combat_score_weights
+prophecy_combat_score_body
+prophecy_combat_score_vocab
+prophecy_combat_score_priority
+
+# Herkunftssaetze aller Koepfe (prophecy/sources/manifest.aiml)
+prophecy_manifest
+
+# 4 Transformer
+prophecy_transformer_weights
+
+# 5 Chance-Kopf
+prophecy_chance_head
