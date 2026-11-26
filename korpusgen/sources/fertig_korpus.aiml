@@ -149,25 +149,18 @@
             # nicht liegen; vorher standen hier 1-3 davon in JEDER Zeile, und der
             # Kopf lernte, die Antwort an Woertern abzulesen, die er im Spiel
             # nie sieht (Grundlinie 49 % mit, 28 % ohne sie).  Unterscheiden
-            # muessen Waffe, Element, Gegner und schon gelernte Fertigkeiten.
+            # muessen Waffe, Gegner und schon gelernte Fertigkeiten.
             - decl: [stuecke, list<string>, { call: [satz_liste, satz, "item_name_required"] }]
             - call: [<.dazu, beutel, stuecke, 0.85, 1]
-            - decl: [elemente, list<string>, { call: [satz_liste, satz, "element_tags"] }]
-            - call: [<.dazu, beutel, elemente, 0.7, 2]
+            # KEIN Element der Fertigkeit und kein Aspekt daraus (Nikolai,
+            # 26.11.2026): das Element soll nicht entscheiden, WELCHE Fertigkeit
+            # ein Kampf lehrt -- es wirkt erst im Kampf auf die gelernte.
             # ── Der Gegner, an dem man das lernt ──
             - decl: [kategorie, string, { call: [satz_feld, satz, "category"] }]
             - decl: [arten, list<string>, { call: [arten_fuer_kategorie, kategorie] }]
             - if:
                 condition: { eq: [{ call: [<.zie.muenze, 0.8] }, 1] }
                 then: [{ call: [beutel.push, { call: [<.zie.eines, arten] }] }]
-            # Hat die Fertigkeit ein Element, kommt der passende Aspekt dazu:
-            # an einem Feuerwesen lernt man Feuerzauber.
-            - if:
-                condition: { "&&": [{ gt: [elemente.len, 0] }, { eq: [{ call: [<.zie.muenze, 0.6] }, 1] }] }
-                then:
-                  - decl: [erst_elem, string, { at: [elemente, 0] }]
-                  - decl: [aspekt, string, { call: [aspekt_marke, erst_elem] }]
-                  - if: { condition: { gt: [aspekt.len, 0] }, then: [{ call: [beutel.push, aspekt] }] }
             - call: [<.dazu, beutel, <.gegner_marken, 0.75, 2]
             - call: [<.geschwister_dazu, beutel, gruppe, satz.kennung, 0.35]
             - decl: [sauber, list<string>, { call: [nur_einmal, beutel] }]

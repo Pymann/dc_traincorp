@@ -426,7 +426,7 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   |---|---|---|---|---|
   | item_head | 259 | 829 (vorher 526) | **80,7 %** | 20,3 % (Lauf #7) |
   | skill_head | 253 | 1.411 | **88,2 %** | 1 / 1411 (Lauf #12) |
-  | combat_skill_head | 166 | 996 | **39,5 %** ohne Tags (vorher 49,0 % mit) | 11,1 % (Lauf #12) |
+  | combat_skill_head | 166 | 1.008 | **28,1 %**, unter den ersten fünf 65 % (vorher 49,0 % mit Tags) | 11,1 % (Lauf #12) |
 
   *Skill-Kopf:* der Korpus ist gut lernbar. Alle 253 Fertigkeiten haben 60
   Beispiele, keine zwei haben gleiche Metadaten. Dass der Kopf unter Zufall
@@ -441,31 +441,33 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   kamen aus denselben Wörtern, kein Modell konnte sie trennen. Mehr
   Beispiele helfen wenig (halber Lernteil 45,9 %, ganzer 49,0 %).
 
-  **Geändert 26.11.2026, zwei Dinge:**
+  **Geändert 26.11.2026:**
 
-  1. *Keine eigenen Tags mehr im Kampfbeutel.* Der Erzeuger legte in jede
+  1. *Keine eigenen Tags im Kampfbeutel.* Der Erzeuger legte in jede
      Zeile 1–3 `skill_tags` der Fertigkeit, die der Kampf lehren soll. Die
      zieht das Spiel aber erst beim Lernen (drei zufällige je Fertigkeit,
      später aus der Kampferfahrung mit einem eigenen Modell); vor dem
      Lernen können sie nicht im Beutel liegen. Der Kopf lernte also, die
      Antwort an Wörtern abzulesen, die er im Spiel nie sieht: Grundlinie
-     49,0 % mit, 27,6 % ohne sie. Jetzt unterscheiden Fundament, Waffe,
-     Element, Gegner und schon gelernte Fertigkeiten. Die `skill_tags`
-     bleiben in den Metadaten als Vorrat, aus dem das Spiel zieht.
-  2. *Eigene Waffen und Elemente für die 47.* Mit Nikolai abgestimmt:
-     je Fertigkeit nur `item_name_required` und `element_tags`, nach dem
-     Namen gewählt (z. B. `forge_impact` mit `fire`, `iron_pulse` mit
-     `earth`, `hook_strike` mit sword/broadsword/sabre, `finishing_blow`
-     mit longsword/greatsword/claymore). Kategorie, Fundament, Tags und
-     Schalter unverändert, kein neues Wort. Die Spiel-Kopie der Datei muss
+     49,0 % mit, 27,6 % ohne sie. Die `skill_tags` bleiben in den
+     Metadaten als Vorrat, aus dem das Spiel zieht.
+  2. *Kein Element im Kampfbeutel* (Nikolai): das Element soll nicht
+     entscheiden, welche Fertigkeit ein Kampf lehrt, es wirkt erst im
+     Kampf auf die gelernte. Weder `element_tags` noch der daraus
+     abgeleitete Gegner-Aspekt kommen mehr in den Beutel. Die
+     `element_tags` aller Fertigkeiten sind unverändert.
+  3. *Eigene Waffen für die 47.* Mit Nikolai abgestimmt: je Fertigkeit nur
+     `item_name_required`, nach dem Namen gewählt (z. B. `hook_strike` mit
+     sword/broadsword/sabre, `finishing_blow` mit
+     longsword/greatsword/claymore). Die Spiel-Kopie der Datei muss
      dieselben Werte bekommen.
 
-  Grundlinie danach **39,5 %** (ehrlich, ohne Tags; mit den alten
-  Metadaten ohne Tags 27,6 %). Ohne Tags fallen nun **11 andere Gruppen
-  mit 31 Fertigkeiten** zusammen, die sich bisher nur in den Tags
-  unterschieden, z. B. `quick_shot` = `piercing_shot` = `volley` =
-  `tracer_bolt` = `predator_mark` = `harrier_shot`. Das Skript listet sie;
-  sie brauchen dieselbe Behandlung.
+  Was jetzt entscheidet: Fundament, eine Waffe (je Zeile höchstens eine),
+  Gegnerart, Gegnermarken, schon gelernte Fertigkeiten. Grundlinie
+  **28,1 %** als oberster Vorschlag, **65 % unter den ersten fünf**, 83 %
+  unter den ersten zehn. 17 Gruppen mit 49 Fertigkeiten haben dieselbe
+  Waffe, Kategorie und dasselbe Fundament (das Skript listet sie); für sie
+  ist der Kopf ein Kandidatenvorschlag, kein eindeutiges Urteil.
 
   *Item-Kopf:* zwei Lücken, beide behoben:
 
