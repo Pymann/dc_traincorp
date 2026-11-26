@@ -412,17 +412,28 @@ jobs:
             *) echo "Vollstaendigkeitspruefung kaputt (Exit $rc)"; exit 1 ;;
           esac
 
-          # Alle Textdateien des Repos gehoeren mit ins Paket, damit der
+          # Alle Datendateien des Repos gehoeren mit ins Paket, damit der
           # Server sie aus derselben Quelle bekommt wie die Gewichte (ein
           # Stand, eine Quelle): Korpora, Namens-, Tag- und Markenlisten.
           # Genommen wird der Stand im Arbeitsverzeichnis, also auch ein in
           # diesem Lauf neu gebauter Korpus (korpus_neu).  Die Inferenz liest
           # zur Laufzeit selbst itemgen/data/items_augmented.txt.
-          texte=$(git ls-files '*.txt')
+          #
+          # Ausgewaehlt wird ueber die DATENWURZELN, nicht ueber die Endung:
+          # `git ls-files '*.txt'` liess drei Dateien liegen, die der Server
+          # beim Start braucht -- combat_skill_metadata.yml (das
+          # Ausruestungs-Tor in sources/server/kampf_fertigkeit.aiml),
+          # discover_skill_metadata.yml (sources/server/discovery.aiml) und
+          # assets/realms/realm_example.json (starte_transformer_quelle).
+          # Ein Muster auf '*.yml' waere falsch: das fasst auch diesen
+          # Workflow.  required_stores.txt liegt ausserhalb und kommt
+          # ausdruecklich dazu, damit die Spielseite dagegen pruefen kann.
+          texte=$(git ls-files data itemgen/data discovergen/data \
+                               prophecy/data assets prophecy/required_stores.txt)
           for t in $texte; do
-            test -f "$t" || { echo "Textdatei $t fehlt."; exit 1; }
+            test -f "$t" || { echo "Datendatei $t fehlt."; exit 1; }
           done
-          echo "$(echo "$texte" | wc -l) Textdateien kommen mit ins Paket."
+          echo "$(echo "$texte" | wc -l) Datendateien kommen mit ins Paket."
 
           # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
           # Die Textdateien liegen im Paket unter demselben Pfad wie im Repo.
