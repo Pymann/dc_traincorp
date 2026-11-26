@@ -238,7 +238,8 @@ jobs:
                  -o ".werkzeug/vorstand-$datei" "$basis/$datei" \
               || { echo "generic/datacreatures/prophecy/${VORSTAND}/$datei liegt nicht in kontor."; exit 1; }
           done
-          tar --sparse -xzf .werkzeug/vorstand-models.tar.gz -C aiondb
+          # Nur die Stores; die mitgepackten Textdateien kommen aus dem Repo.
+          tar --sparse -xzf .werkzeug/vorstand-models.tar.gz -C aiondb --wildcards 'prophecy_*'
           rm -f .werkzeug/vorstand-models.tar.gz
           cat .werkzeug/vorstand-models.json
           ls -l aiondb
@@ -411,8 +412,20 @@ jobs:
             *) echo "Vollstaendigkeitspruefung kaputt (Exit $rc)"; exit 1 ;;
           esac
 
+          # Textdateien, die die Inferenz zur Laufzeit liest, gehoeren mit ins
+          # Paket, damit der Server sie aus derselben Quelle bekommt wie die
+          # Gewichte (ein Stand, eine Quelle).  Heute nur die Rezeptzeilen:
+          # prophecy/sources/inference.aiml, load_recipe_metadata.  Die
+          # Namenslisten unter prophecy/data/ liegen schon im Store
+          # prophecy_atlas und brauchen keine eigene Datei.
+          texte="itemgen/data/items_augmented.txt"
+          for t in $texte; do
+            test -s "$t" || { echo "Laufzeit-Textdatei $t fehlt."; exit 1; }
+          done
+
           # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
-          tar --sparse -C aiondb -czf models.tar.gz $stores
+          # Die Textdateien liegen im Paket unter demselben Pfad wie im Repo.
+          tar --sparse -czf models.tar.gz -C aiondb $stores -C "$GITHUB_WORKSPACE" $texte
           summe=$(sha256sum models.tar.gz | cut -d' ' -f1)
           groesse=$(stat -c%s models.tar.gz)
 
@@ -424,8 +437,8 @@ jobs:
             gate_zeile=$(grep -c 'ohne Token' berichte/gate_korpus.log || true)
             [ -n "$gate_zeile" ] || gate_zeile=0
           fi
-          python3 - "$summe" "$groesse" "$gate_zeile" "$complete" $missing <<'EOP' > models.json
-          import json, os, sys
+          TEXTE="$texte" python3 - "$summe" "$groesse" "$gate_zeile" "$complete" $missing <<'EOP' > models.json
+          import hashlib, json, os, sys
           summe, groesse, gate = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
           complete, missing = sys.argv[4] == "true", sorted(sys.argv[5:])
           print(json.dumps({
@@ -439,6 +452,8 @@ jobs:
             "epochs": os.environ.get("DC_EPOCHEN", "default"),
             "cs_epochs": os.environ.get("CS_EPOCHEN", "default"),
             "stores": sorted(f for f in os.listdir("aiondb") if f.startswith("prophecy_")),
+            "text_files": {t: hashlib.sha256(open(t, "rb").read()).hexdigest()
+                           for t in os.environ["TEXTE"].split()},
             "package_sha256": summe,
             "package_bytes": groesse,
             "gate_words_without_token": gate,

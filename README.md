@@ -120,7 +120,8 @@ Beispiel geleert. Seit diesem Stand sammelt sie über den Stapel wie die
 ## Veröffentlichen nach kontor
 
 Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die
-`prophecy_*`-Stores und legt sie in die **generische** Ablage von kontor
+`prophecy_*`-Stores und die Textdateien, die die Inferenz zur Laufzeit liest,
+und legt sie in die **generische** Ablage von kontor
 (`PUT /generic/<pfad>`, `Authorization: Bearer`, mit
 `X-Checksum-Sha256`-Prüfung):
 
@@ -131,12 +132,23 @@ generic/datacreatures/prophecy/latest/models.tar.gz
 generic/datacreatures/prophecy/latest/models.json
 ```
 
+**Textdateien im Paket.** Der Server soll alles aus einer Quelle bekommen,
+deshalb liegen die Textdateien, die `prophecy/sources/inference.aiml` liest,
+mit in `models.tar.gz`, unter demselben Pfad wie im Repo. Heute ist das nur
+`itemgen/data/items_augmented.txt` (Rezeptzeilen, `load_recipe_metadata`).
+Die Namens- und Markenlisten unter `prophecy/data/` stecken schon im Store
+`prophecy_atlas` und brauchen keine eigene Datei. Pakete bis einschließlich
+#23 enthalten die Textdatei noch nicht. Liest die Inferenz künftig eine
+weitere Datei, gehört sie in die Liste `texte` im Schritt „Modelle nach
+kontor“. Beim Laden eines Ausgangsstands (`vorstand`) werden nur die Stores
+ausgepackt; die Textdateien kommen dann aus dem Repo.
+
 Alles, was in kontor landet — Pfade, Dateinamen, JSON-Schlüssel — ist
 englisch; die Ablage teilen sich mehrere Projekte.
 
 `models.json` liegt daneben, damit die Herkunft ohne Download lesbar ist:
 Laufnummer, Korpus-Commit, aiml-Commit, Schritte, Epochen, die Liste der
-Stores, Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
+Stores, die Textdateien mit ihren SHA-256 (`text_files`), Paketgröße und -Prüfsumme, und wie viele Korpuswörter das Gate ohne
 Atlas-Token gefunden hat.
 
 **`latest` wird nur überschrieben, wenn das Paket vollständig ist, das Gate
