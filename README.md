@@ -698,6 +698,20 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Moment, in dem der Prüfteil einen besseren Stand meldet, und lädt nichts
   zurück. Ohne Verbesserung über 25 Epochen hört er auf.
 
+* **Chance-Kopf mit mittrainiertem Transformer, Lauf #29** (b0e2619,
+  `5-chance`, `cs_encoder`, `cs_epochen` 50, ohne kontor; nach Epoche 15
+  abgebrochen, um die Zeiten zu lesen): **4 min 7 s je Epoche** (35.542
+  Lernzeilen). Erklärte Streuung in der Abnahme (5.920 Zeilen):
+
+  | Epoche | 1 | 2 | 5 | 9 | 11 | 15 |
+  |---|---|---|---|---|---|---|
+  | erklärte Streuung | 0,685 | 0,770 | 0,791 | 0,861 | 0,872 | **0,875** |
+  | RMSE | 0,122 | 0,104 | 0,099 | 0,081 | 0,078 | 0,077 |
+
+  Vorher 0,12 mit dem eingefrorenen Transformer (#17, #18). Ab Epoche 11
+  kaum noch Gewinn; 15–20 Epochen (gut eine Stunde) reichen. Der Encoder
+  liegt in `prophecy_kampf_transformer`, den `chance_kopf.aiml` lädt.
+
   **Lauf #26** (0ab7049, Item-Kopf frisch, `emb_mit`, ohne kontor, 12 min):
   Lernzeilen 92,2 %, **Abnahme 666 / 829 (80,3 %)**, 247 von 259 Klassen
   vorhergesagt. Vorher 44,5 % (#23) bei einer Grundlinie von 77,8 %; der
