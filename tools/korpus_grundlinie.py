@@ -10,9 +10,11 @@ und auf dem Testteil gemessen.  Das ist die Grundlinie:
 * liegt schon die Grundlinie niedrig, liegt es am Korpus -- Klassen, die man
   aus der Eingabe nicht unterscheiden kann.
 
-Dazu: Kampffertigkeiten, deren Metadaten (Fundament, Marken, Gegenstaende,
-Element, Kategorie) GLEICH sind.  Deren Beispiele werden aus denselben
-Woertern gezogen; kein Modell kann sie trennen.
+Dazu: Kampffertigkeiten, deren Metadaten GLEICH sind, soweit sie in den
+Kampfbeutel kommen (Fundament, Gegenstaende, Element, Kategorie -- seit
+26.11.2026 nicht mehr die `skill_tags`, die das Spiel erst beim Lernen
+zieht).  Deren Beispiele werden aus denselben Woertern gezogen; kein Modell
+kann sie trennen.
 
     python3 -m pip install scikit-learn pyyaml
     python3 tools/korpus_grundlinie.py
@@ -80,7 +82,7 @@ def grundlinie(name, xs, ys, teile, gruppe_von=None):
 
 
 def gleiche_kampf_metadaten():
-    felder = ["foundation", "skill_tags", "item_name_required", "element_tags", "category"]
+    felder = ["foundation", "item_name_required", "element_tags", "category"]
     daten = yaml.safe_load((WURZEL / "prophecy/data/skills/combat_skill_metadata.yml").open())["skills"]
 
     def abdruck(s):

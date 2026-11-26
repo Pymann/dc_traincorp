@@ -99,7 +99,7 @@ skills:
     category:            melee_strike
     foundation:          weapon_mastery
     element_tags:        []
-    item_name_required:  [sword, longsword, broadsword, greatsword]
+    item_name_required:  [sword, broadsword, sabre]
     skill_tags:          [aggressive, melee_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -110,7 +110,7 @@ skills:
     category:            melee_strike
     foundation:          weapon_mastery
     element_tags:        []
-    item_name_required:  [sword, longsword, broadsword, greatsword]
+    item_name_required:  [longsword, greatsword, claymore]
     skill_tags:          [aggressive, melee_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -235,7 +235,7 @@ skills:
     category:            melee_heavy
     foundation:          impact_mastery
     element_tags:        []
-    item_name_required:  [hammer, warhammer, maul, greataxe]
+    item_name_required:  [maul, warhammer]
     skill_tags:          [aggressive, melee_focused, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -278,8 +278,8 @@ skills:
   - id:                  iron_pulse
     category:            melee_heavy
     foundation:          impact_mastery
-    element_tags:        []
-    item_name_required:  [hammer, warhammer, maul, greataxe]
+    element_tags:        [earth]
+    item_name_required:  [hammer, mace]
     skill_tags:          [aggressive, melee_focused, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -312,7 +312,7 @@ skills:
     category:            melee_heavy
     foundation:          impact_mastery
     element_tags:        []
-    item_name_required:  [hammer, warhammer, maul, greataxe]
+    item_name_required:  [club, maul]
     skill_tags:          [aggressive, melee_focused, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -322,8 +322,8 @@ skills:
   - id:                  forge_impact
     category:            melee_heavy
     foundation:          impact_mastery
-    element_tags:        []
-    item_name_required:  [hammer, warhammer, maul, greataxe]
+    element_tags:        [fire]
+    item_name_required:  [hammer, warhammer]
     skill_tags:          [aggressive, melee_focused, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -424,7 +424,7 @@ skills:
     category:            ranged
     foundation:          ranged_focus
     element_tags:        []
-    item_name_required:  [bow, longbow, shortbow, crossbow]
+    item_name_required:  [longbow, crossbow]
     skill_tags:          [range_focused, balanced, short_cooldown]
     is_ranged:           1
     is_aoe:              0
@@ -446,7 +446,7 @@ skills:
     category:            ranged
     foundation:          ranged_focus
     element_tags:        []
-    item_name_required:  [bow, longbow, shortbow, crossbow]
+    item_name_required:  [javelin, shortbow, bow]
     skill_tags:          [range_focused, balanced, short_cooldown]
     is_ranged:           1
     is_aoe:              0
@@ -514,7 +514,7 @@ skills:
     category:            mobility
     foundation:          shadow_arts
     element_tags:        []
-    item_name_required:  [dagger, shortsword, claw_blade]
+    item_name_required:  [shortsword, rapier]
     skill_tags:          [hit_and_run, balanced, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -536,7 +536,7 @@ skills:
     category:            mobility
     foundation:          shadow_arts
     element_tags:        []
-    item_name_required:  [dagger, shortsword, claw_blade]
+    item_name_required:  [stiletto, dagger]
     skill_tags:          [hit_and_run, balanced, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -582,7 +582,7 @@ skills:
     category:            defense
     foundation:          guard_mastery
     element_tags:        []
-    item_name_required:  [shield, longsword, warhammer]
+    item_name_required:  [shield, longsword]
     skill_tags:          [defensive, tank, on_defend, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -604,7 +604,7 @@ skills:
     category:            defense
     foundation:          guard_mastery
     element_tags:        []
-    item_name_required:  [shield, buckler, tower_shield, kite_shield]
+    item_name_required:  [tower_shield, halberd]
     skill_tags:          [defensive, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -625,8 +625,8 @@ skills:
   - id:                  reflect_guard
     category:            defense
     foundation:          guard_mastery
-    element_tags:        []
-    item_name_required:  [shield, longsword, warhammer]
+    element_tags:        [aether]
+    item_name_required:  [shield, kite_shield]
     skill_tags:          [defensive, tank, on_defend, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -647,8 +647,8 @@ skills:
   - id:                  impact_soak
     category:            defense
     foundation:          guard_mastery
-    element_tags:        []
-    item_name_required:  [shield, buckler, tower_shield, kite_shield]
+    element_tags:        [earth]
+    item_name_required:  [kite_shield, shield]
     skill_tags:          [defensive, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -659,7 +659,7 @@ skills:
     category:            defense
     foundation:          guard_mastery
     element_tags:        []
-    item_name_required:  [shield, longsword, warhammer]
+    item_name_required:  [longsword, warhammer]
     skill_tags:          [defensive, tank, on_defend, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -669,8 +669,8 @@ skills:
   - id:                  shell_stance
     category:            defense
     foundation:          guard_mastery
-    element_tags:        []
-    item_name_required:  [shield, buckler, tower_shield, kite_shield]
+    element_tags:        [water]
+    item_name_required:  [buckler, tower_shield]
     skill_tags:          [defensive, tank, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -805,8 +805,8 @@ skills:
   - id:                  meteor
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        [fire]
-    item_name_required:  [staff, scepter]
+    element_tags:        [fire, earth]
+    item_name_required:  [staff]
     skill_tags:          [damage_multiplier, fire_aspect, long_cooldown, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -817,7 +817,7 @@ skills:
     category:            cataclysm
     foundation:          magic_aptitude
     element_tags:        [fire]
-    item_name_required:  [staff, scepter]
+    item_name_required:  [scepter, staff]
     skill_tags:          [damage_multiplier, fire_aspect, long_cooldown, range_focused]
     is_ranged:           1
     is_aoe:              0
@@ -828,7 +828,7 @@ skills:
     category:            cataclysm
     foundation:          magic_aptitude
     element_tags:        [air]
-    item_name_required:  [staff, tome, orb, wand]
+    item_name_required:  [wand, scepter]
     skill_tags:          [shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -850,7 +850,7 @@ skills:
     category:            cataclysm
     foundation:          magic_aptitude
     element_tags:        [air]
-    item_name_required:  [staff, tome, orb, wand]
+    item_name_required:  [staff, orb]
     skill_tags:          [shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -883,7 +883,7 @@ skills:
     category:            cataclysm
     foundation:          magic_aptitude
     element_tags:        [water, air]
-    item_name_required:  [staff, wand, orb, tome]
+    item_name_required:  [wand, orb]
     skill_tags:          [ice_aspect, shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -916,7 +916,7 @@ skills:
     category:            cataclysm
     foundation:          magic_aptitude
     element_tags:        [air]
-    item_name_required:  [staff, tome, orb, wand]
+    item_name_required:  [tome, staff]
     skill_tags:          [shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -926,8 +926,8 @@ skills:
   - id:                  sandstorm
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        [air]
-    item_name_required:  [staff, tome, orb, wand]
+    element_tags:        [air, earth]
+    item_name_required:  [orb, tome]
     skill_tags:          [shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -937,8 +937,8 @@ skills:
   - id:                  shockwave
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        [water, air]
-    item_name_required:  [staff, tome, orb, wand]
+    element_tags:        [air]
+    item_name_required:  [wand, tome]
     skill_tags:          [ice_aspect, shock_aspect, damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -959,8 +959,8 @@ skills:
   - id:                  cataclysm
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [staff, tome, orb, wand]
+    element_tags:        [earth]
+    item_name_required:  [staff, tome]
     skill_tags:          [damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -1003,8 +1003,8 @@ skills:
   - id:                  sunflare
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [staff, tome, orb, wand]
+    element_tags:        [fire]
+    item_name_required:  [staff, wand]
     skill_tags:          [damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -1025,8 +1025,8 @@ skills:
   - id:                  moonfall
     category:            cataclysm
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [staff, tome, orb, wand]
+    element_tags:        [aether]
+    item_name_required:  [orb, wand]
     skill_tags:          [damage_multiplier, range_focused, long_cooldown]
     is_ranged:           1
     is_aoe:              1
@@ -1039,7 +1039,7 @@ skills:
     category:            arcane
     foundation:          magic_aptitude
     element_tags:        [aether]
-    item_name_required:  [staff, tome, wand]
+    item_name_required:  [wand, staff]
     skill_tags:          [damage_multiplier, psychic_aspect, range_focused, balanced, short_cooldown]
     is_ranged:           1
     is_aoe:              0
@@ -1050,7 +1050,7 @@ skills:
     category:            arcane
     foundation:          magic_aptitude
     element_tags:        [aether]
-    item_name_required:  [staff, tome, wand]
+    item_name_required:  [tome, orb]
     skill_tags:          [damage_multiplier, short_cooldown, psychic_aspect, range_focused, balanced]
     is_ranged:           1
     is_aoe:              1
@@ -1060,8 +1060,8 @@ skills:
   - id:                  magic_lance
     category:            arcane
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [staff, wand, tome, rune_stylus]
+    element_tags:        [aether]
+    item_name_required:  [staff, scepter]
     skill_tags:          [range_focused, balanced, short_cooldown]
     is_ranged:           1
     is_aoe:              0
@@ -1226,7 +1226,7 @@ skills:
     category:            arcane
     foundation:          magic_aptitude
     element_tags:        []
-    item_name_required:  [staff, wand, tome, rune_stylus]
+    item_name_required:  [tome, rune_stylus]
     skill_tags:          [range_focused, balanced, short_cooldown]
     is_ranged:           1
     is_aoe:              0
@@ -1349,7 +1349,7 @@ skills:
     category:            nature
     foundation:          nature_attunement
     element_tags:        []
-    item_name_required:  [vine_staff, herbalist_kit, staff, branch]
+    item_name_required:  [totem, branch]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1382,7 +1382,7 @@ skills:
     category:            nature
     foundation:          nature_attunement
     element_tags:        []
-    item_name_required:  [vine_staff, herbalist_kit, staff, branch]
+    item_name_required:  [totem, herbalist_kit]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1392,8 +1392,8 @@ skills:
   - id:                  fern_spike
     category:            nature
     foundation:          nature_attunement
-    element_tags:        []
-    item_name_required:  [vine_staff, herbalist_kit, staff, branch]
+    element_tags:        [earth]
+    item_name_required:  [vine_staff, branch]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1425,8 +1425,8 @@ skills:
   - id:                  bog_breath
     category:            nature
     foundation:          nature_attunement
-    element_tags:        []
-    item_name_required:  [vine_staff, herbalist_kit, staff, branch]
+    element_tags:        [water]
+    item_name_required:  [staff, herbalist_kit]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1460,8 +1460,8 @@ skills:
   - id:                  resonance_pulse
     category:            tech
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [debugger_rod, calibrator, soldering_iron, scanner]
+    element_tags:        [air]
+    item_name_required:  [calibrator, scanner]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1538,7 +1538,7 @@ skills:
     category:            tech
     foundation:          magic_aptitude
     element_tags:        []
-    item_name_required:  [debugger_rod, calibrator, soldering_iron, scanner]
+    item_name_required:  [debugger_rod, soldering_iron]
     skill_tags:          [balanced, range_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1584,7 +1584,7 @@ skills:
     category:            realmbreaker
     foundation:          magic_aptitude
     element_tags:        [air]
-    item_name_required:  [staff, wand, tome]
+    item_name_required:  [staff, wand]
     skill_tags:          [shock_aspect, damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1594,8 +1594,8 @@ skills:
   - id:                  vault_breach
     category:            realmbreaker
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [relic, core]
+    element_tags:        [aether]
+    item_name_required:  [relic]
     skill_tags:          [damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1639,7 +1639,7 @@ skills:
     category:            realmbreaker
     foundation:          magic_aptitude
     element_tags:        []
-    item_name_required:  [orb, scepter, amulet]
+    item_name_required:  [orb, wand]
     skill_tags:          [damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1671,8 +1671,8 @@ skills:
   - id:                  moon_shatter
     category:            realmbreaker
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [orb, amulet, scepter]
+    element_tags:        [water]
+    item_name_required:  [scepter, amulet]
     skill_tags:          [damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1705,7 +1705,7 @@ skills:
     category:            realmbreaker
     foundation:          magic_aptitude
     element_tags:        [air]
-    item_name_required:  [staff, wand, tome]
+    item_name_required:  [tome, core]
     skill_tags:          [shock_aspect, damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1726,7 +1726,7 @@ skills:
   - id:                  relic_eruption
     category:            realmbreaker
     foundation:          magic_aptitude
-    element_tags:        []
+    element_tags:        [fire]
     item_name_required:  [relic, core]
     skill_tags:          [damage_multiplier, long_cooldown, finisher, range_focused]
     is_ranged:           1
@@ -1737,8 +1737,8 @@ skills:
   - id:                  world_pulse
     category:            realmbreaker
     foundation:          magic_aptitude
-    element_tags:        []
-    item_name_required:  [relic, core]
+    element_tags:        [earth]
+    item_name_required:  [ancient_orb, staff]
     skill_tags:          [damage_multiplier, finisher, long_cooldown, range_focused]
     is_ranged:           1
     is_aoe:              1
@@ -1806,7 +1806,7 @@ skills:
     category:            beast
     foundation:          beast_attunement
     element_tags:        []
-    item_name_required:  [claw_blade, totem, fang_blade]
+    item_name_required:  [claw_blade, club]
     skill_tags:          [aggressive, melee_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1828,7 +1828,7 @@ skills:
     category:            beast
     foundation:          beast_attunement
     element_tags:        []
-    item_name_required:  [claw_blade, totem, fang_blade]
+    item_name_required:  [fang_blade]
     skill_tags:          [aggressive, melee_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
@@ -1850,7 +1850,7 @@ skills:
     category:            beast
     foundation:          beast_attunement
     element_tags:        []
-    item_name_required:  [claw_blade, totem, fang_blade]
+    item_name_required:  [fang_blade, totem]
     skill_tags:          [aggressive, melee_focused, short_cooldown]
     is_ranged:           0
     is_aoe:              0
