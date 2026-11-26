@@ -38,6 +38,13 @@
       - [save_every,       i32, 50]
       - [beste_verlust,   f32, 0.0]
       - [hat_beste,       i32, 0]
+      # Gesichert wird der Stand mit der besten Quote auf dem PRUEF-Teil
+      # (aufteilung.aiml, Teil 1), nicht der mit dem kleinsten Lernverlust:
+      # mit mitlernender Einbettung lag der Kopf in Lauf #25 bei 63 % auf den
+      # Lernzeilen und 21 % in der Abnahme -- er lernt sie auswendig.
+      - [pruef_alle,      i32, 5]
+      - [beste_pruef,     f32, -1.0]
+      - [beste_epoche,    i32, -1]
       - [hidden_dim,       i32, 64]
       # CSK_EMB_MIT=1: die Einbettung lernt mit.  Mit der eingefrorenen
       # gemeinsamen Einbettung blieb die Abnahme bei 10,8 % gegen 28 % der
@@ -308,8 +315,19 @@
                   # Item-Kopf schrieb das einen toten Stand (relu 0 von 64 wach,
                   # Abnahme 2,6 %) ueber einen guten (13,7 %), gemessen 21.11.2026.
                   - decl: [besser, i32, 0]
-                  - if: { condition: { eq: [<.hat_beste, 0] }, then: [{ set: [besser, 1] }] }
-                  - if: { condition: { lt: [avg, <.beste_verlust] }, then: [{ set: [besser, 1] }] }
+                  - decl: [letzte, i32, 0]
+                  - if: { condition: { eq: [{ "+": [epoch, 1] }, <.n_epochs] }, then: [{ set: [letzte, 1] }] }
+                  - if:
+                      condition: { "||": [{ eq: [{ "%": [epoch, <.pruef_alle] }, 0] }, { eq: [letzte, 1] }] }
+                      then:
+                        - decl: [pt_name, string, "  Pruefteil, Epoche ${epoch}"]
+                        - decl: [pq, f32, { call: [<.bewerten, 1, pt_name] }]
+                        - if:
+                            condition: { gt: [pq, <.beste_pruef] }
+                            then:
+                              - set: [<.beste_pruef, pq]
+                              - set: [<.beste_epoche, epoch]
+                              - set: [besser, 1]
                   - if:
                       condition: { eq: [besser, 1] }
                       then:
@@ -349,10 +367,13 @@
           name: bewerten
           access: public
           args: [[teil_soll, i32], [was, string]]
+          return: f32
           body:
             - decl: [n_smp,     i32, <.train_input_ids.len]
             - decl: [n_aus,     i32, <.skill_vocab.len]
             - decl: [getroffen, i32, 0]
+            # Unter den ersten fuenf (die Grundlinie nennt beides: 28 % / 65 %).
+            - decl: [in_fuenf,  i32, 0]
             - decl: [gezaehlt,  i32, 0]
             - decl: [soll_summe, i32, 0]
             - decl: [s_idx,     i32, 0]
@@ -383,13 +404,25 @@
                                     - set: [bester, a_idx]
                               - set: [a_idx, { "+": [a_idx, 1] }]
                         - decl: [drin, i32, 0]
+                        - decl: [rang_min, i32, n_aus]
                         - decl: [k_idx, i32, 0]
                         - while:
                             condition: { lt: [k_idx, sk_ids.len] }
                             body:
                               - decl: [soll_id, i32, { at: [sk_ids, k_idx] }]
                               - if: { condition: { eq: [soll_id, bester] }, then: [{ set: [drin, 1] }] }
+                              # Rang = wie viele Ausgaben hoeher liegen.
+                              - decl: [soll_wert, f32, { call: [logits.get, soll_id] }]
+                              - decl: [rang, i32, 0]
+                              - decl: [r_idx, i32, 0]
+                              - while:
+                                  condition: { lt: [r_idx, n_aus] }
+                                  body:
+                                    - if: { condition: { gt: [{ call: [logits.get, r_idx] }, soll_wert] }, then: [{ set: [rang, { "+": [rang, 1] }] }] }
+                                    - set: [r_idx, { "+": [r_idx, 1] }]
+                              - if: { condition: { lt: [rang, rang_min] }, then: [{ set: [rang_min, rang] }] }
                               - set: [k_idx, { "+": [k_idx, 1] }]
+                        - if: { condition: { lt: [rang_min, 5] }, then: [{ set: [in_fuenf, { "+": [in_fuenf, 1] }] }] }
                         - set: [soll_summe, { "+": [soll_summe, sk_ids.len] }]
                         - if: { condition: { eq: [drin, 1] }, then: [{ set: [getroffen, { "+": [getroffen, 1] }] }] }
                         - set: [gezaehlt, { "+": [gezaehlt, 1] }]
@@ -397,14 +430,17 @@
                 condition: { lt: [gezaehlt, 1] }
                 then:
                   - call: [log.warn, "${was}: keine Zeilen"]
-                  - return: 0
+                  - return: 0.0
             - decl: [tr_f, f32, getroffen]
             - decl: [ge_f, f32, gezaehlt]
             - decl: [quote, f32, { "/": [tr_f, ge_f] }]
             - decl: [so_f, f32, soll_summe]
             - decl: [au_f, f32, n_aus]
             - decl: [zufall, f32, { "/": [{ "/": [so_f, ge_f] }, au_f] }]
-            - call: [log.info, "${was}: oberster Vorschlag ${getroffen} von ${gezaehlt} richtig (${quote}) -- Zufall waere ${zufall}"]
+            - decl: [f5_f, f32, in_fuenf]
+            - decl: [quote5, f32, { "/": [f5_f, ge_f] }]
+            - call: [log.info, "${was}: oberster Vorschlag ${getroffen} von ${gezaehlt} richtig (${quote}), unter den ersten fuenf ${in_fuenf} (${quote5}) -- Zufall waere ${zufall}"]
+            - return: quote
 
       - def:
           name: run
@@ -490,6 +526,14 @@
             - call: [<.combat_head.requires_grad_on]
             - call: [<.train]
             # KEIN Sichern hier: `train` sichert den besten Stand, nicht den letzten.
+            # Fuer die Abnahme genau diesen Stand zurueckholen.
+            - call: [log.info, "bester Pruefteil ${<.beste_pruef} in Epoche ${<.beste_epoche} -- dieser Stand wird bewertet"]
+            - call: [<.backbone.init_model]
+            - call: [<.combat_head.init_params, <.hidden_dim]
+            - if:
+                condition: { eq: [<.emb_mit, 1] }
+                then:
+                  - set: [<.embedder.emb, { call: [tensor.load, kampf_emb_name, "emb"] }]
             # Wozu diese Gewichte gehoeren (Spec modell_manifest_2026-11-20.md):
             # `grundlage` ist der Abdruck der Einbettung, mit der hier gerechnet
             # wurde -- ohne ihn sieht man einem Kopf nicht an, ob er zu ihr passt.
@@ -503,7 +547,8 @@
             - set: [satz.trainer,    "train_combat_skill_head"]
             - call: [manifest_ablegen, "prophecy_combat_skill_head_outputs", satz]
             - call: [<.save_combat_skill_vocab]
-            - call: [<.bewerten, 0, "Training"]
-            - call: [<.bewerten, 2, "Abnahme (nicht trainiert)"]
+            - decl: [q_lern, f32, { call: [<.bewerten, 0, "Training"] }]
+            - decl: [q_pruef, f32, { call: [<.bewerten, 1, "Pruefteil (nicht trainiert, waehlt den Stand)"] }]
+            - decl: [q_ab, f32, { call: [<.bewerten, 2, "Abnahme (nicht trainiert)"] }]
             - call: [log.info, "CombatSkillHead training done."]
 

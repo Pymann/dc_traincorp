@@ -682,6 +682,14 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   gesichert in `prophecy_combat_skill_embedding`). Verlust nach 150 Epochen
   1,70 statt 2,7; **Lernzeilen 49,1 %, Abnahme 211 / 1008 (20,9 %)** statt
   10,8 %, Grundlinie 28,1 %. 17 s je Epoche, 44 min.
+
+  **Lauf #25** (0be971c, wie #24, aber `lernrate` 0.002): Lernzeilen
+  62,6 %, Abnahme wieder 211 / 1008 (20,9 %). Der Kopf lernt die Lernzeilen
+  auswendig, die Abnahme bewegt sich nicht. Darum sichert der
+  Kampfskill-Trainer seit diesem Stand nicht mehr den Stand mit dem kleinsten
+  Lernverlust, sondern den mit der besten Quote auf dem Prüfteil (Teil 1 der
+  Aufteilung, alle 5 Epochen gemessen), holt ihn vor der Abnahme zurück und
+  meldet neben dem obersten Vorschlag auch „unter den ersten fünf".
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
   `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
