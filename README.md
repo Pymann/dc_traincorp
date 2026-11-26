@@ -698,6 +698,13 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Moment, in dem der Prüfteil einen besseren Stand meldet, und lädt nichts
   zurück. Ohne Verbesserung über 25 Epochen hört er auf.
 
+  **Lauf #30** (4f4e030, wie #25 mit Auswahl nach Prüfteil): bester
+  Prüfteil schon in Epoche 5 (24,0 %), Abnahme dort **22,2 %, unter den
+  ersten fünf 55,4 %** (Grundlinie 28,1 % / 65 %); nach Epoche 30 Schluss,
+  10 min. Danach steigt nur noch die Quote auf den Lernzeilen (46 %).
+  Nächster Versuch: Gradienten über Stapel von 32 sammeln wie beim
+  Item-Kopf (`stapel`, `DC_STAPEL`), statt je Beispiel zu schreiten.
+
 * **Chance-Kopf mit mittrainiertem Transformer, Lauf #29** (b0e2619,
   `5-chance`, `cs_encoder`, `cs_epochen` 50, ohne kontor; nach Epoche 15
   abgebrochen, um die Zeiten zu lesen): **4 min 7 s je Epoche** (35.542

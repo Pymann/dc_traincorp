@@ -55,6 +55,10 @@
       # EIGENEN Store (kampf_emb_name) -- die gemeinsame bleibt unberuehrt,
       # die anderen Koepfe rechnen weiter auf ihr.
       - [emb_mit,          i32, 0]
+      # Gradienten ueber so viele Beispiele sammeln, dann EIN Adam-Schritt
+      # (DC_STAPEL).  Der Item-Kopf rechnet so (32) und kam mit mitlernender
+      # Einbettung auf 80 %; dieser Kopf schritt bis 26.11.2026 je Beispiel.
+      - [stapel,           i32, 32]
       - [atlas_kv,         Kv<string:TagAtlasEntry>]
       - [embedder,         ptr<TagEmbedding>, null]   # Eigentuemer; BagBackbone leiht sich ihn als ref
       - [backbone,         BagBackbone]
@@ -229,6 +233,7 @@
             - decl: [m_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
             - decl: [v_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
             - decl: [global_step, i32, 0]
+            - decl: [im_stapel, i32, 0]
             # Reihenfolge je Epoche MISCHEN.  Der Korpus steht nach Klassen
             # sortiert (60 Zeilen cleave, dann 60 sunder_strike ...); Adam auf
             # Einzelbeispielen in dieser Reihenfolge lernt jeweils die zuletzt
@@ -289,24 +294,48 @@
                               - decl: [logits, tensor, { call: [<.combat_head.forward_logits, hidden] }]
                               - decl: [loss,   tensor, { call: [<.combat_head.compute_loss, logits, target] }]
                               - call: [tensor.backward, loss]
-                              - set: [global_step, { "+": [global_step, 1] }]
-                              - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.combat_head.weight, m_sw, v_sw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [tensor.adam_step, <.combat_head.bias,   m_sb, v_sb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                              - set: [im_stapel, { "+": [im_stapel, 1] }]
                               - if:
-                                  condition: { eq: [<.emb_mit, 1] }
+                                  condition: { gte: [im_stapel, <.stapel] }
                                   then:
-                                    - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
-                              - call: [<.backbone.weight_1.zero_grad]
-                              - call: [<.backbone.bias_1.zero_grad]
-                              - call: [<.combat_head.weight.zero_grad]
-                              - call: [<.combat_head.bias.zero_grad]
-                              - call: [<.embedder.emb.zero_grad]
+                                    - set: [global_step, { "+": [global_step, 1] }]
+                                    - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.combat_head.weight, m_sw, v_sw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [tensor.adam_step, <.combat_head.bias,   m_sb, v_sb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - if:
+                                        condition: { eq: [<.emb_mit, 1] }
+                                        then:
+                                          - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                                    - call: [<.backbone.weight_1.zero_grad]
+                                    - call: [<.backbone.bias_1.zero_grad]
+                                    - call: [<.combat_head.weight.zero_grad]
+                                    - call: [<.combat_head.bias.zero_grad]
+                                    - call: [<.embedder.emb.zero_grad]
+                                    - set: [im_stapel, 0]
                               - decl: [lv_var, f32, { call: [loss.get, 0] }]
                               - set: [total_loss, { "+": [total_loss, lv_var] }]
                               - set: [n_trained, { "+": [n_trained, 1] }]
                         - set: [pos_i, { "+": [pos_i, 1] }]
+                  # Rest des letzten, unvollstaendigen Stapels.
+                  - if:
+                      condition: { gt: [im_stapel, 0] }
+                      then:
+                        - set: [global_step, { "+": [global_step, 1] }]
+                        - call: [tensor.adam_step, <.backbone.weight_1, m_w1, v_w1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.backbone.bias_1,   m_b1, v_b1, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.combat_head.weight, m_sw, v_sw, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [tensor.adam_step, <.combat_head.bias,   m_sb, v_sb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - if:
+                            condition: { eq: [<.emb_mit, 1] }
+                            then:
+                              - call: [tensor.adam_step, <.embedder.emb, m_emb, v_emb, lr_e, <.adam_b1, <.adam_b2, <.adam_eps, global_step]
+                        - call: [<.backbone.weight_1.zero_grad]
+                        - call: [<.backbone.bias_1.zero_grad]
+                        - call: [<.combat_head.weight.zero_grad]
+                        - call: [<.combat_head.bias.zero_grad]
+                        - call: [<.embedder.emb.zero_grad]
+                        - set: [im_stapel, 0]
                   - decl: [n_tf, f32, n_trained]
                   - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
                   - if:
@@ -470,6 +499,11 @@
                 then:
                   - decl: [l_txt, string, { call: [umg.get, "DC_LR"] }]
                   - set: [<.learn_rate, { call: [l_txt.parse_f32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "DC_STAPEL"] }, 1] }
+                then:
+                  - decl: [st_txt, string, { call: [umg.get, "DC_STAPEL"] }]
+                  - set: [<.stapel, { call: [st_txt.parse_i32] }]
             - if:
                 condition: { eq: [{ call: [umg.contains, "CSK_EMB_MIT"] }, 1] }
                 then:
