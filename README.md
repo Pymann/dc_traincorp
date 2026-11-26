@@ -616,6 +616,30 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   `latest`. Der Skill-Kopf profitiert davon, dass er von Null anfängt statt
   auf einem halbtoten Vorlauf; alle Köpfe liegen weiter weit unter ihrer
   Grundlinie.
+* **Korpus nach Klassen sortiert, Köpfe lernten ihn in dieser Reihenfolge**
+  (gefunden 26.11.2026, behoben in 7527daa). Die Korpora stehen Klasse für
+  Klasse (60 Zeilen je Kampffertigkeit am Stück), und Item-, Skill- und
+  Kampfskill-Kopf lernten Beispiel für Beispiel genau so. Am Ende jeder
+  Epoche kannte der Kopf nur die zuletzt gesehenen Klassen. Lauf #20
+  (Kampfskill, lr 0,002, ungemischt): Verlust 2,23, aber **1,6 %** Treffer
+  auf den eigenen Lernzeilen. Jetzt mischen die drei Trainer die Reihenfolge
+  je Epoche (Fisher-Yates, `Zufall` mit Saat = Epoche + 1, also
+  wiederholbar). Kampfskill-Kopf, nur dieser Kopf frisch auf `latest`
+  (`vorstand=latest`, `frisch=true`, ohne kontor):
+
+  | Lauf | lr | gemischt | Lernzeilen | Abnahme | Dauer |
+  |---|---|---|---|---|---|
+  | #18 | 0,0005 | nein | 11,2 % | 58 / 1008 (5,8 %) | — |
+  | #21 | 0,0005 | ja | 28,3 % | 109 / 1008 (10,8 %) | 10 min |
+  | #22 | 0,002 | ja | 23,5 % | 110 / 1008 (10,9 %) | 37 min |
+
+  Die höhere Lernrate bringt nichts, die Voreinstellung 0,0005 bleibt. Die
+  Abnahme bleibt bei rund 11 % gegen 28 % der Grundlinie. Der Kopf sieht die
+  Wörter nur durch das eingefrorene 32-dimensionale Embedding (Mittelwert
+  über den Beutel); die Grundlinie hat für jedes Wort ein eigenes Gewicht.
+  Das ist der nächste Ansatzpunkt (mitlernendes Embedding wie `emb_mit` im
+  Item-Kopf). Warum #22 je Epoche 15 s statt 4 s brauchte, ist nicht
+  geklärt; der Code war derselbe.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
   `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
