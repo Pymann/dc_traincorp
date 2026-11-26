@@ -232,6 +232,20 @@
             - decl: [v_sb, tensor, { call: [tensor.zeros, n_skills] }]
             - decl: [m_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
             - decl: [v_emb, tensor, { call: [tensor.zeros, <.embedder.n_tokens, <.embedder.d_embed] }]
+            # Wie im Item-Kopf: die Adam-Momente aus dem Aufraeumen von
+            # begin_graph heraushalten.  Mit Stapeln liegen zwischen zwei
+            # Schritten 32 Graphen; ohne `keep` stuerzte Lauf #31 in
+            # aiml_tensor_free ab (Signal 11).
+            - call: [m_w1.keep]
+            - call: [v_w1.keep]
+            - call: [m_b1.keep]
+            - call: [v_b1.keep]
+            - call: [m_sw.keep]
+            - call: [v_sw.keep]
+            - call: [m_sb.keep]
+            - call: [v_sb.keep]
+            - call: [m_emb.keep]
+            - call: [v_emb.keep]
             - decl: [global_step, i32, 0]
             - decl: [im_stapel, i32, 0]
             # Reihenfolge je Epoche MISCHEN.  Der Korpus steht nach Klassen
