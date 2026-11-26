@@ -253,6 +253,12 @@ gepinnten Bibliotheken (libyaml-cpp, openblas, libLLVM …) mit RUNPATH
 sonst mit den Namen ab — so stirbt nicht erst der erste Build mit `cannot
 open shared object file` (Lauf #8).
 
+**Rauchprobe Lauf #19** (26.11.2026, `alles`, 2 Epochen, `cs_epochen=50`,
+ohne Upload): alle fünf Stufen und das Gate grün, in 8½ Minuten. Geladen
+wurde `latest` (v1.0.2.7) in 10 s, `ldd` fand keine fehlende Bibliothek, und
+kein Build vermisste ein apt-Paket. Die drei Systempakete (`g++ dpkg-dev
+patchelf`) liegen auf `ubuntu-24.04` schon vor.
+
 Warum nicht mehr selbst bauen: Bis Lauf #18 baute der Workflow aiml, wenn
 der Commit noch nicht in kontor lag, und legte ihn danach selbst ab. Da
 aiml master oft neue Commits hat, war das jeden zweiten bis dritten Lauf
@@ -575,8 +581,27 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   im Trainer nennt für den alten Kopf 0,78; dahin führt vermutlich erst der
   `CS_ENCODER`-Weg (Transformer lernt mit), der im Workflow noch nicht
   angeboten wird.
+* **Neutraining Lauf #18** (26.11.2026, `alles`, Korpus 1fc8d90: erweiterte
+  Rezepte, Kampfkorpus ohne Ziel-Tags und ohne Element im Kampfbeutel), alles
+  von Null, 2 h 37 min (davon 30 min aiml-Bau, den es seit b84df59 nicht
+  mehr gibt). Abnahme (nicht trainierte Zeilen):
+
+  | Kopf | Abnahme | Zufall / Grundlinie | vorher |
+  |---|---|---|---|
+  | item_head | 199 / 829 (24,0 %) | 0,4 % / 77,8 % | 23,6 % (#15) |
+  | skill_head | 143 / 1411 (**10,1 %**) | 0,4 % / 88,2 % | 1,1 % (#15) |
+  | combat_skill_head | 58 / 1008 (5,8 %) | 0,6 % / 28,1 % | 11,1 % (#12, alter Korpus) |
+  | world_entity_head | Fundart 79,8 % | häufigste 30 % | 81 % (#6) |
+  | combat_score_head | erklärte Streuung 0,84, Wucht 0,81 | — | 0,85 / 0,82 |
+  | Chance-Kopf | erklärte Streuung 0,11 | — | 0,12 (#17) |
+
+  Transformer 60 Epochen, Verlust 7,14 → 0,94, 56 s je Epoche (57 min).
+  Gate 296/298/298/293 angenommen. Paket `18-1fc8d90c6f8e` (164 MB) ist
+  `latest`. Der Skill-Kopf profitiert davon, dass er von Null anfängt statt
+  auf einem halbtoten Vorlauf; alle Köpfe liegen weiter weit unter ihrer
+  Grundlinie.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
-  `17-02f5fc077460` 242 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
+  `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den

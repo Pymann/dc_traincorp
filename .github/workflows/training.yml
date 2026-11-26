@@ -88,9 +88,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Dieselben Systempakete wie die aiml-CI (ohne die Display-Pakete, die
-      # nur deren Testkorpus braucht).  patchelf und dpkg-dev braucht
-      # `exodus pkg install` fuer die gepinnten .debs.
+      # g++ linkt die Apps (exodus build).  Alle drei liegen auf
+      # ubuntu-24.04 schon vor (Lauf #19: "already the newest version");
+      # der Schritt steht da, damit ein anderes Image es klar sagt statt
+      # mitten im Build zu sterben.  Mehr braucht es nicht -- das aiml-Paket
+      # buendelt seine Bibliotheken selbst.
       - name: Systempakete
         run: |
           sudo apt-get update -qq
@@ -161,7 +163,6 @@ jobs:
           fehlt="$(ldd .werkzeug/venv/bin/aiml .werkzeug/venv/lib/libaiml.so | grep 'not found' || true)"
           [ -z "$fehlt" ] || { echo "aiml-Paket unvollstaendig:"; echo "$fehlt"; exit 1; }
           echo "geladen: generic/aiml/${AIML_VERSION}/"
-          .werkzeug/venv/bin/aiml --version || true
 
       - name: Pfade setzen
         run: |
