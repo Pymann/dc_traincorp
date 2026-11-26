@@ -23,6 +23,9 @@
     members:
       - [is_ready,        i32, 0]
       - [embedder,        ptr<TagEmbedding>, null]
+      # Eigene, mitgelernte Einbettung des Kampfskill-Kopfs
+      # (prophecy_combat_skill_embedding, nur wenn mit CSK_EMB_MIT trainiert).
+      - [kampf_embedder,  ptr<TagEmbedding>, null]
       - [atlas_kv,        Kv<string:TagAtlasEntry>]
       - [hidden_dim,      i32, 64]
       # Item-head module
@@ -1122,7 +1125,20 @@
             # physical-Pfad ist Magic-biased (foundation-imbalance 78 vs 9).
             # Server filtert über skill-ownership (already-learned skip), kein
             # foundation-gate filter da Inferenz-Genauigkeit nicht perfekt ist.
-            - set: [<.combat_skill_body.foundation, <.embedder]
+            # Mit CSK_EMB_MIT trainiert, rechnet der Kopf auf SEINER Einbettung;
+            # die gemeinsame passt dann nicht zu seinen Gewichten.
+            - decl: [kampf_emb_t, tensor, { call: [tensor.load, "prophecy_combat_skill_embedding", "emb"] }]
+            - if:
+                condition: { neq: [kampf_emb_t, null] }
+                then:
+                  - set: [<.kampf_embedder, { new: TagEmbedding }]
+                  - set: [<.kampf_embedder.weights_name, "prophecy_combat_skill_embedding"]
+                  - decl: [ok_kampf, i32, { call: [<.kampf_embedder.load_vocab] }]
+                  - call: [<.kampf_embedder.init_model]
+                  - set: [<.combat_skill_body.foundation, <.kampf_embedder]
+                  - call: [log.info, "[prophecy] combat_skill_head: eigene Einbettung 'prophecy_combat_skill_embedding'"]
+                else:
+                  - set: [<.combat_skill_body.foundation, <.embedder]
             - set: [<.combat_skill_body.hidden_dim, <.hidden_dim]
             - set: [<.combat_skill_body.weights_name, "prophecy_combat_skill_head_body"]
             - call: [<.combat_skill_body.init_model]

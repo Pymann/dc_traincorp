@@ -100,8 +100,10 @@ Einbettung mit und legt sie in einem eigenen Store
 `prophecy_combat_skill_embedding` ab; die gemeinsame Einbettung bleibt
 unberührt. Läuft der Kampfskill-Kopf ohne diese Eingabe, löscht der Workflow
 eine solche eigene Einbettung, weil sie dann nicht mehr zu ihm passt.
-**Die Inferenz des Spiels liest diesen Store noch nicht**: ein Paket damit
-nicht als `latest` veröffentlichen, bevor sie es tut.
+`prophecy/sources/inference.aiml` hier nimmt die eigene Einbettung, wenn der
+Store da ist. **Die Inferenz im Spiel-Repo muss das nachziehen**, bevor ein
+Paket damit `latest` wird; sonst rechnet der Kampfskill-Kopf dort auf der
+gemeinsamen Einbettung, zu der seine Gewichte nicht passen.
 
 ## Veröffentlichen nach kontor
 
@@ -662,6 +664,12 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Gate 296/298/298/293 angenommen. Paket `23-7527daa58d92` (180 MB) ist
   `latest`. Der Skill-Kopf liegt jetzt fast auf seiner Grundlinie. Item-Kopf
   (8,5 min) und Kampfskill-Kopf bleiben deutlich darunter.
+
+  **Lauf #24** (26.11.2026, 6867d30, `kampf_emb_mit`, ohne kontor):
+  Kampfskill-Kopf frisch, Einbettung lernt mit (Start auf der gemeinsamen,
+  gesichert in `prophecy_combat_skill_embedding`). Verlust nach 150 Epochen
+  1,70 statt 2,7; **Lernzeilen 49,1 %, Abnahme 211 / 1008 (20,9 %)** statt
+  10,8 %, Grundlinie 28,1 %. 17 s je Epoche, 44 min.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
   `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
