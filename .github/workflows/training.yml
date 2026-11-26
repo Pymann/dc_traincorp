@@ -49,6 +49,10 @@ on:
       koepfe:
         description: "Nur diese Koepfe in Schritt 3, z.B. world-entity-head (leer = alle fuenf)"
         default: ""
+      cs_encoder:
+        description: "Chance-Kopf: Transformer mittrainieren (CS_ENCODER), eigener Store prophecy_kampf_transformer"
+        type: boolean
+        default: false
       emb_mit:
         description: "Item- und Kampfskill-Kopf: Einbettung mitlernen, je ein eigener Store (prophecy_item_embedding, prophecy_combat_skill_embedding)"
         type: boolean
@@ -343,8 +347,11 @@ jobs:
 
       - name: 5 Chance-Kopf
         if: contains(fromJSON('["5-chance","alles"]'), inputs.schritte)
+        env:
+          IN_CS_ENCODER: ${{ inputs.cs_encoder }}
         run: |
           set -eu
+          if [ "$IN_CS_ENCODER" = "true" ]; then export CS_ENCODER=1; fi
           exodus build -c exodus-prophecy-chance-kopf.json 2>&1 | tee berichte/build_chance.log
           ./prophecy_train_chance_kopf 2>&1 | tee berichte/5_chance.log
 

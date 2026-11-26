@@ -106,6 +106,12 @@ eigene Einbettung, wenn der Store da ist. **Die Inferenz im Spiel-Repo muss
 das nachziehen**, bevor ein Paket damit `latest` wird; sonst rechnen die
 Köpfe dort auf der gemeinsamen Einbettung, zu der ihre Gewichte nicht passen.
 
+`cs_encoder` (Schritt `5-chance`): der Chance-Kopf trainiert seinen
+Transformer mit (`CS_ENCODER=1`) und sichert ihn in
+`prophecy_kampf_transformer`; `chance_kopf.aiml` lädt ihn von dort. Ohne
+das rechnet der Kopf auf dem eingefrorenen Transformer (erklärte Streuung
+0,12–0,15, Läufe #17/#18).
+
 Beim Item-Kopf sah der Adam-Schritt der Einbettung mit `DC_EMB_MIT` bisher
 nur das letzte Beispiel jedes 32er-Stapels: ihr Gradient wurde nach jedem
 Beispiel geleert. Seit diesem Stand sammelt sie über den Stapel wie die
