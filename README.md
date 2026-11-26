@@ -558,8 +558,18 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
      `free: trainer` gab sie zweimal frei. Jetzt hält sie nur noch ein Feld.
   Dazu schreibt der Kopf ohne Encoder-Training jetzt auch seinen
   Herkunftssatz (Manifest); vorher tat das nur der `CS_ENCODER`-Weg.
-* **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB
-  (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
+
+  Lauf #17 (26.11.2026, 02f5fc0): Probefolge 12 Token, 114 Zusatz- und 42
+  Umfeldmarken, Abstand Zeile 0 zu 3 jetzt 22,2. 1500 Epochen in 93 s,
+  Verlust 0,0458 → 0,0411 und noch fallend, **31 von 64 Einheiten wach**.
+  Erklärte Streuung **0,15 im Training, 0,12 in der Abnahme** (RMSE 0,204);
+  kein Absturz am Ende, Manifest geschrieben, Paket `17-02f5fc077460`
+  (242 MB) ist `latest`. Das ist der eingefrorene Transformer. Der Kommentar
+  im Trainer nennt für den alten Kopf 0,78; dahin führt vermutlich erst der
+  `CS_ENCODER`-Weg (Transformer lernt mit), der im Workflow noch nicht
+  angeboten wird.
+* **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
+  `17-02f5fc077460` 242 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
