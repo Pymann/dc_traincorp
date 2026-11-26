@@ -690,6 +690,12 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   Lernverlust, sondern den mit der besten Quote auf dem Prüfteil (Teil 1 der
   Aufteilung, alle 5 Epochen gemessen), holt ihn vor der Abnahme zurück und
   meldet neben dem obersten Vorschlag auch „unter den ersten fünf".
+
+  **Lauf #26** (0ab7049, Item-Kopf frisch, `emb_mit`, ohne kontor, 12 min):
+  Lernzeilen 92,2 %, **Abnahme 666 / 829 (80,3 %)**, 247 von 259 Klassen
+  vorhergesagt. Vorher 44,5 % (#23) bei einer Grundlinie von 77,8 %; der
+  Item-Kopf liegt damit erstmals über ihr. Die Einbettung liegt in
+  `prophecy_item_embedding`.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
   `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
