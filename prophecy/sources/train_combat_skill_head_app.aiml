@@ -321,11 +321,11 @@
                       condition: { "||": [{ eq: [{ "%": [epoch, <.pruef_alle] }, 0] }, { eq: [letzte, 1] }] }
                       then:
                         - decl: [pt_name, string, "  Pruefteil, Epoche ${epoch}"]
-                        - decl: [pq, f32, { call: [<.bewerten, 1, pt_name] }]
+                        - decl: [pruef_q, f32, { call: [<.bewerten, 1, pt_name] }]
                         - if:
-                            condition: { gt: [pq, <.beste_pruef] }
+                            condition: { gt: [pruef_q, <.beste_pruef] }
                             then:
-                              - set: [<.beste_pruef, pq]
+                              - set: [<.beste_pruef, pruef_q]
                               - set: [<.beste_epoche, epoch]
                               - set: [besser, 1]
                   - if:
