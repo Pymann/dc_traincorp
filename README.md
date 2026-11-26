@@ -63,26 +63,21 @@ seine Run-ID entgegen; so lässt sich die Kette über mehrere Läufe verteilen.
 
 ### Voraussetzungen
 
-1. **Ubuntu 24.04.** aiml bindet LLVM 18 ein und zieht rund 30 versions- und
-   digest-gepinnte apt-Pakete in einen eigenen Cache (ohne root). Die
-   gepinnten Versionen sind Noble-Versionen; auf einem anderen Runner-Image
-   schlägt `apt-get download` fehl.
-2. **Drei Geheimnisse für kontor** — nur wenn hochgeladen werden soll (siehe
-   unten). Ohne sie bricht der Upload-Schritt mit einer klaren Meldung ab; das
-   Training selbst läuft trotzdem.
+1. **Ubuntu 24.04.** Das aiml-Paket aus kontor ist auf Noble gebaut; seine
+   Systembibliotheken (libc, libstdc++, GL/X11) kommen vom Runner.
+2. **Drei Geheimnisse für kontor** (siehe unten). Ohne sie gibt es keinen
+   Übersetzer, der Lauf bricht im Schritt „kontor-Zugang“ mit einer klaren
+   Meldung ab.
 
-`Pymann/aiml` und `Pymann/exodus` sind öffentlich, der Workflow braucht für
-sie kein Token.
+`Pymann/exodus` ist öffentlich, der Workflow braucht dafür kein Token.
+`Pymann/aiml` wird nicht mehr ausgecheckt.
 
 exodus wird normal installiert. Bis zum 23.11.2026 fehlten im exodus-Paket
 die Unterpakete (`ModuleNotFoundError: No module named 'exodus.core'`); seit
 exodus `fd39730` packt `pyproject.toml` alle `exodus*`-Pakete.
 
-aiml wird wie in der aiml-CI gebaut: Systempakete (`g++ dpkg-dev patchelf`),
-die gepinnten .debs über `tools/ci/fetch_pinned_debs.py`, `exodus pkg install`,
-dann gezielt `exodus.json` (Übersetzer) und `exodus2.json` (Laufzeit). Nicht
-`exodus build --all` — das baute jede `exodus*.json` im aiml-Repo, auch asan
-und wasm.
+aiml wird **nicht gebaut**, sondern aus kontor geladen (siehe „Der
+Übersetzer kommt aus kontor“).
 
 ## Veröffentlichen nach kontor
 
@@ -235,68 +230,44 @@ curl --cacert tls/ca.crt -H "Authorization: Bearer <token>" \
 
 ### Der Übersetzer kommt aus kontor
 
-`out/aiml/aiml` und `libaiml.so` sind je rund 90 MB und binden LLVM 18 ein.
-Gemessen in Lauf #2 (25.11.2026): der Bau dauert auf dem Runner **7 Minuten**.
-Darum liegt der fertige Übersetzer in kontor, **geschlüsselt auf den
-aiml-Commit**:
+Seit 26.11.2026 baut dieser Workflow aiml nicht mehr selbst. Das fertige
+Paket legt die **aiml-CI** nach kontor (aiml `.github/workflows/ci.yml`,
+Schritt „Put the bundle into kontor“), und zwar erst, nachdem Testkorpus,
+valgrind und Leak-Gate grün sind:
 
 ```
-generic/aiml/<commit-sha>/aiml-x86_64-linux.tar.gz     gebündelt, 131 MB gepackt
+generic/aiml/<commit-sha>/aiml-x86_64-linux.tar.gz   jeder grüne master-Commit
+generic/aiml/<tag>/aiml-x86_64-linux.tar.gz          jedes v*-Release, z. B. v1.0.2.7
+generic/aiml/latest/aiml-x86_64-linux.tar.gz         das letzte Release
 ```
 
-Der Lauf versucht zu laden; liegt der Stand dort nicht, wird gebaut und das
-Ergebnis **für den nächsten Lauf abgelegt**. Einmal bauen je aiml-Commit.
+Welcher Stand geladen wird, sagt die Eingabe **`aiml_version`**: Vorgabe
+`latest`, sonst ein Tag oder ein Commit. Liegt der Stand nicht in kontor,
+bricht der Lauf ab; gebaut wird nicht mehr. `models.json` hält fest, was
+geladen wurde (`aiml_version`, `aiml_package_sha256`).
 
-| `aiml_quelle` | |
-|---|---|
-| `auto` (Vorgabe) | laden; liegt nichts da, bauen und ablegen |
-| `kontor` | nur laden; liegt nichts da, abbrechen |
-| `bauen` | bauen, auch wenn etwas daliegt, und ablegen |
+Der Tarball ist ein Venv (`bin/ lib/ env`) aus aiml's
+`tools/ci/package_release.sh`: neben `bin/aiml` und `lib/libaiml.so` die
+gepinnten Bibliotheken (libyaml-cpp, openblas, libLLVM …) mit RUNPATH
+`$ORIGIN`. Der Ladeschritt prüft mit `ldd`, dass keine fehlt, und bricht
+sonst mit den Namen ab — so stirbt nicht erst der erste Build mit `cannot
+open shared object file` (Lauf #8).
 
-Das ersetzt den GHA-Cache, es tritt nicht daneben: zwei Speicher für dieselbe
-Sache wären zwei Wahrheiten. kontor ist der haltbarere — Caches verfallen nach
-sieben Tagen ohne Zugriff und gelten nur je Repo, während derselbe Übersetzer
-auch für 9rooms und datacreatures taugt. Und er ist schlanker: 56 MB statt
-rund 670 MB, weil nur Binary und Laufzeit abgelegt werden, nicht der ganze
-Baubaum samt apt-Beiwerk.
+Warum nicht mehr selbst bauen: Bis Lauf #18 baute der Workflow aiml, wenn
+der Commit noch nicht in kontor lag, und legte ihn danach selbst ab. Da
+aiml master oft neue Commits hat, war das jeden zweiten bis dritten Lauf
+der Fall und kostete 5 bis **30 Minuten** (Lauf #18). Und es legte
+ungetestete Stände nach `generic/aiml/`, an denselben Ort, den die aiml-CI
+mit getesteten füllt.
 
 Warum die **generische** Ablage und nicht `/exodus/<name>/<version>/package`:
 dort müssen Name und Version mit dem Manifest übereinstimmen, und aiml trägt
-eine Version über alle Commits — jeder neue Stand würde den alten
-überschreiben. Hier ist der Commit der Schlüssel.
-
-**Was im Tarball liegt.** Gepackt wird mit aiml's eigenem
-`tools/ci/package_release.sh` (der Schritt „Package“ der aiml-CI), nicht mit
-einem eigenen Skript und nicht mit `aiml venv publish` — das packt die von git
-verfolgten Quellen eines Werkzeugs nach `/exodus/<name>/<version>/`, nicht
-einen gebauten Übersetzer. `package_release.sh` legt neben `bin/aiml` und
-`lib/libaiml.so` die **gepinnten Bibliotheken** aus `__exodus_cache`
-(libyaml-cpp, openblas, …) nach `lib/`, setzt bei allen RUNPATH `$ORIGIN` und
-startet das Bündel einmal außerhalb des Checkouts. Systembibliotheken (libc,
-libstdc++, GL/X11, …) bleiben draußen.
-
-Bis Lauf #9 wurden nur die zwei Dateien gepackt. Lauf #8 lud so einen Stand
-und brach beim ersten Übersetzen ab (`libyaml-cpp.so.0.8: cannot open shared
-object file`), weil beim Laden kein `exodus pkg install` läuft. Darum prüft
-der Ladeschritt jetzt mit `ldd`: fehlt eine Bibliothek, gilt der Stand als
-nicht vorhanden, wird neu gebaut und überschreibt den alten (die generische
-Ablage nimmt ein zweites `PUT` an, gesehen in Lauf #9).
-
-Gemessen in Lauf #10 (25.11.2026): der alte Stand wurde am `ldd` erkannt
-(libyaml-cpp, libglfw, libGLEW, libopenblas fehlten), neu gebaut, das
-Bündel trägt **48 Bibliotheken** (darunter libLLVM) und ist gepackt
-**131 MB** statt 56 MB; Rauchtest außerhalb des Checkouts grün. Lauf #11 lud
-es in 10 s und übersetzte damit.
-
-Ohne die `KONTOR_*`-Geheimnisse läuft der Workflow trotzdem: dann wird gebaut
-und nichts abgelegt.
+eine Version über alle Commits. Hier ist der Commit oder Tag der Schlüssel.
 
 **Was jeder Lauf neu holt** (Lauf #7–#9): apt (g++, dpkg-dev, patchelf)
 11–18 s, `pip install` exodus rund 15 s, Checkouts und Vorlauf-Artefakt rund
 15 s. Ein GHA-Cache dafür spart höchstens eine halbe Minute und lohnt nicht.
-Die gepinnten .debs (`fetch_pinned_debs.py`, `exodus pkg install`) werden nur
-beim Bauen geholt; der Bau samt ihnen kostet 4–5 Minuten, das Laden aus
-kontor rund 6 s.
+Das aiml-Paket aus kontor zu laden dauert rund 6 s.
 
 ### Laufzeiten, gemessen
 
