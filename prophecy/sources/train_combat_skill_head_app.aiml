@@ -13,6 +13,7 @@
 - import: "prophecy/sources/heads.aiml"
 - import: "prophecy/sources/corpus_loader.aiml"
 - import: "prophecy/sources/aufteilung.aiml"
+- import: "prophecy/sources/zufall.aiml"
 
 - decl: [csh_vocab_name, string, "prophecy_combat_skill_vocab"]
 
@@ -207,6 +208,21 @@
             - decl: [m_sb, tensor, { call: [tensor.zeros, n_skills] }]
             - decl: [v_sb, tensor, { call: [tensor.zeros, n_skills] }]
             - decl: [global_step, i32, 0]
+            # Reihenfolge je Epoche MISCHEN.  Der Korpus steht nach Klassen
+            # sortiert (60 Zeilen cleave, dann 60 sunder_strike ...); Adam auf
+            # Einzelbeispielen in dieser Reihenfolge lernt jeweils die zuletzt
+            # gesehene Klasse und vergisst die davor.  Gemessen 26.11.2026,
+            # Kampfskill-Kopf: Trainingsverlust 2,23, aber nur 1,6 % Treffer auf
+            # den eigenen Trainingszeilen (Lauf #20).  Feste Saat je Epoche,
+            # damit ein Lauf wiederholbar bleibt.
+            - decl: [wrf, ptr<Zufall>, { new: Zufall }]
+            - decl: [reihe, list<i32>]
+            - decl: [rdx, i32, 0]
+            - while:
+                condition: { lt: [rdx, <.train_input_ids.len] }
+                body:
+                  - call: [reihe.push, rdx]
+                  - set: [rdx, { "+": [rdx, 1] }]
             - decl: [epoch, i32, 0]
             - while:
                 condition: { lt: [epoch, <.n_epochs] }
@@ -216,10 +232,22 @@
                   - decl: [lr_teiler,  f32, { call: [math.sqrt, { "+": [1.0, ep_f] }] }]
                   - decl: [lr_e,       f32, { "/": [<.learn_rate, lr_teiler] }]
                   - decl: [n_trained, i32, 0]
-                  - decl: [s_idx, i32, 0]
+                  - call: [wrf.setze, { cast: [{ "+": [epoch, 1] }, i64] }]
+                  - decl: [mdx, i32, { "-": [reihe.len, 1] }]
                   - while:
-                      condition: { lt: [s_idx, n_samples] }
+                      condition: { gt: [mdx, 0] }
                       body:
+                        - decl: [jdx, i32, { call: [wrf.ganzzahl, { "+": [mdx, 1] }] }]
+                        - decl: [a_wert, i32, { at: [reihe, mdx] }]
+                        - decl: [b_wert, i32, { at: [reihe, jdx] }]
+                        - idx: [reihe, mdx, b_wert]
+                        - idx: [reihe, jdx, a_wert]
+                        - set: [mdx, { "-": [mdx, 1] }]
+                  - decl: [pos_i, i32, 0]
+                  - while:
+                      condition: { lt: [pos_i, n_samples] }
+                      body:
+                        - decl: [s_idx, i32, { at: [reihe, pos_i] }]
                         - decl: [ids, list<i32>, { at: [<.train_input_ids, s_idx] }]
                         - decl: [n_in, i32, ids.len]
                         - if:
@@ -253,7 +281,7 @@
                               - decl: [lv_var, f32, { call: [loss.get, 0] }]
                               - set: [total_loss, { "+": [total_loss, lv_var] }]
                               - set: [n_trained, { "+": [n_trained, 1] }]
-                        - set: [s_idx, { "+": [s_idx, 1] }]
+                        - set: [pos_i, { "+": [pos_i, 1] }]
                   - decl: [n_tf, f32, n_trained]
                   - decl: [avg,  f32, { "/": [total_loss, n_tf] }]
                   - if:
