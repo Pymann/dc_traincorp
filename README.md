@@ -538,6 +538,26 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   **196 / 829 (23,6 %)** statt 20,3 %, 209 von 259 Klassen vorhergesagt;
   18 Minuten. Die Grundlinie (logistische Regression) liegt bei 77,8 % — der
   Kopf ist auch hier weit unter dem, was der Korpus hergibt.
+* **Chance-Kopf, Lauf #16 (26.11.2026, eingefrorener Transformer aus #14):**
+  drei Fehler auf einmal.
+  1. *Tote Schicht.* Mit `lr=0.05` im vollen Stapel stand der Verlust ab
+     Epoche 500 auf 0,0509835 = Streuung der Ziele; erklärte Streuung
+     −0,0001 in Training und Abnahme. Der Kopf sagte nur den Mittelwert.
+     Jetzt `lr=0.005`, mit `CS_LR` überschreibbar, und nach dem Training
+     zählt `wache_zaehlen` die feuernden Einheiten (0 → Fehler im Log).
+  2. *Falsche Pfade.* Garderobe und Umfeld wurden aus `resources/tags/…`
+     gelesen, die Marken liegen in `prophecy/data/tags/…`: „Zusatzmarken: 0,
+     Umfeldmarken: 0". Damit war die Garderoben-Variante gleich dem Original
+     und die Wetter-Variante auch („Abstand Zeile 0 zu Zeile 3: 0"); die
+     Witterungsregel kam gar nicht ins Training. Die Probefolge nannte drei
+     Marken, die es nicht gibt (`mud-caked`, `shock-aspect`,
+     `minimal-threat`), darum 9 statt 12 Token; ersetzt.
+  3. *Absturz am Ende* (`double free or corruption` in `aiml_tensor_free`,
+     Exit 134, darum kein Upload nach kontor). Die gelernten Gewichte standen
+     in zwei Feldern zugleich (`letzte_gew` im Trainer und `kopf_w` im Kopf),
+     `free: trainer` gab sie zweimal frei. Jetzt hält sie nur noch ein Feld.
+  Dazu schreibt der Kopf ohne Encoder-Training jetzt auch seinen
+  Herkunftssatz (Manifest); vorher tat das nur der `CS_ENCODER`-Weg.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB
   (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,

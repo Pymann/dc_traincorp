@@ -20,7 +20,10 @@
       - [kopf,       ChanceKopf]
       - [wrf,        Zufall]
       - [n_epochs,   i32, 1500]
-      - [learn_rate, f32, 0.05]
+      # 0.005 statt 0.05: mit 0.05 starben im vollen Stapel alle verborgenen
+      # Einheiten, und der Kopf sagte nur noch den Mittelwert (Lauf #16,
+      # 26.11.2026: Verlust 0.0509835 ab Epoche 500, erklaerte Streuung 0).
+      - [learn_rate, f32, 0.005]
       - [adam_b1,    f32, 0.9]
       - [adam_b2,    f32, 0.999]
       - [adam_eps,   f32, 0.00000001]
@@ -56,10 +59,10 @@
           access: public
           args: []
           body:
-            - call: [<.lies_pool, "resources/tags/items/armor_tags.txt"]
-            - call: [<.lies_pool, "resources/tags/items/boots_tags.txt"]
-            - call: [<.lies_pool, "resources/tags/items/ring_tags.txt"]
-            - call: [<.lies_pool, "resources/tags/items/amulet_tags.txt"]
+            - call: [<.lies_pool, "prophecy/data/tags/items/armor_tags.txt"]
+            - call: [<.lies_pool, "prophecy/data/tags/items/boots_tags.txt"]
+            - call: [<.lies_pool, "prophecy/data/tags/items/ring_tags.txt"]
+            - call: [<.lies_pool, "prophecy/data/tags/items/amulet_tags.txt"]
             - call: [log.info, "Zusatzmarken: ${<.zusatz.len}"]
 
       - def:
@@ -167,8 +170,8 @@
           access: public
           args: []
           body:
-            - call: [<.lies_umfeld, "resources/tags/terrain/terrain_only_tags.txt"]
-            - call: [<.lies_umfeld, "resources/tags/weather/weather_only_tags.txt"]
+            - call: [<.lies_umfeld, "prophecy/data/tags/terrain/terrain_only_tags.txt"]
+            - call: [<.lies_umfeld, "prophecy/data/tags/weather/weather_only_tags.txt"]
             - call: [<.elem_setzen, "water",  "clammy boggy slippery yielding muffled"]
             - call: [<.elem_setzen, "fire",   "dry glaring flickering crackling crusted"]
             - call: [<.elem_setzen, "air",    "stormy windless pulling open biting"]
@@ -475,12 +478,53 @@
                         # der keiner war (20.11.2026).
                         - decl: [je_zeile, f32, lv_wert]
                         - call: [log.info, "  Epoche ${epoche}/${<.n_epochs} Verlust je Zeile ${je_zeile}"]
+            # NUR hier ablegen, nicht zusaetzlich per `kopf_setzen` im Kopf:
+            # zwei Felder auf demselben Tensor gibt das Programmende beide
+            # frei -- `double free or corruption` in aiml_tensor_free (Lauf
+            # #16, nachdem der Kopf schon gesichert war).
             - set: [<.letzte_gew, gew]
             - set: [<.letzte_gew2, gew2]
-            - call: [<.kopf.kopf_setzen, gew, gew2]
+            - call: [<.wache_zaehlen, gew]
             - call: [tensor.save, gew, chance_kopf_speicher, "kopf_w"]
             - call: [tensor.save, gew2, chance_kopf_speicher, "kopf_w2"]
+            # Herkunftssatz -- ohne ihn meldet jedes Laden "Herkunft nicht
+            # nachgewiesen" (Spec modell_manifest_2026-11-20.md).
+            - decl: [satz, ManifestSatz]
+            - set: [satz.wortschatz, { call: [<.kopf.fge.wortschatz_fp] }]
+            - set: [satz.n_marken,   <.kopf.n_wort]
+            - set: [satz.d_wert,     <.kopf.mdl.d_modell]
+            - set: [satz.grundlage,  { call: [<.kopf.fge.wortschatz_fp] }]
+            - set: [satz.korpus,     { call: [manifest_fp_datei, "data/combat.txt"] }]
+            - set: [satz.zeit,       { call: [time.now] }]
+            - set: [satz.trainer,    "train_chance_kopf"]
+            - call: [manifest_ablegen, chance_kopf_speicher, satz]
             - call: [log.info, "Kopf gesichert → '${chance_kopf_speicher}'"]
+
+      # Wie viele verborgene Einheiten feuern auf mindestens einer
+      # Trainingszeile?  0 heisst: der Kopf sagt nur den Mittelwert.
+      # Spaltensumme als matmul (1 x n) · (n x h) -- tensor.sum stuerzt.
+      - def:
+          name: wache_zaehlen
+          access: public
+          args: [[gew, tensor]]
+          body:
+            - decl: [n_tr, i32, { call: [<.wie_viele, 0] }]
+            - call: [tensor.begin_graph]
+            - decl: [merk, tensor, { call: [<.stapel, 0] }]
+            - decl: [vor, tensor, { call: [tensor.matmul, merk, gew] }]
+            - decl: [aktiv, tensor, { call: [tensor.relu, vor] }]
+            - decl: [einsen, tensor, { call: [tensor.ones, 1, n_tr] }]
+            - decl: [spalten, tensor, { call: [tensor.matmul, einsen, aktiv] }]
+            - decl: [h_dim, i32, <.kopf.verborgen_dim]
+            - decl: [wach, i32, 0]
+            - decl: [idx, i32, 0]
+            - while:
+                condition: { lt: [idx, h_dim] }
+                body:
+                  - if: { condition: { gt: [{ call: [spalten.get, idx] }, 0.0] }, then: [{ set: [wach, { "+": [wach, 1] }] }] }
+                  - set: [idx, { "+": [idx, 1] }]
+            - call: [log.info, "Kopf: ${wach} von ${h_dim} Einheiten wach"]
+            - if: { condition: { eq: [wach, 0] }, then: [{ call: [log.error, "Kopf ist tot -- er sagt nur den Mittelwert (Lernrate senken, CS_LR)"] }] }
 
       # Abnahme auf dem Teil, der NICHT trainiert wurde.
       - def:
@@ -653,8 +697,8 @@
                   # wird darum jede Epoche gemessen: nur so ist zu sehen, ob der Lauf
                   # noch besser wird oder nur noch den Trainingsteil auswendig lernt.
                   - call: [<.bewerten_encoder, 1, "  Abnahme nach Epoche ${epoche}"]
-            - set: [<.letzte_gew, gew]
-            - set: [<.letzte_gew2, gew2]
+            # Kein `letzte_gew = gew` hier: der Kopf haelt gew/gew2 schon
+            # (kopf_setzen oben), ein zweites Feld waere ein double free.
 
       # Abnahme im Encoder-Modus: je Folge einmal vorwaerts, ohne Gradient.
       - def:
@@ -715,13 +759,18 @@
                 then:
                   - decl: [e_txt, string, { call: [umg.get, "CS_EPOCHEN"] }]
                   - set: [<.n_epochs, { call: [e_txt.parse_i32] }]
+            - if:
+                condition: { eq: [{ call: [umg.contains, "CS_LR"] }, 1] }
+                then:
+                  - decl: [lr_txt, string, { call: [umg.get, "CS_LR"] }]
+                  - set: [<.learn_rate, { call: [lr_txt.parse_f32] }]
             - decl: [ok_k, i32, { call: [<.kopf.init] }]
             - if: { condition: { neq: [ok_k, 1] }, then: [{ call: [log.error, "ChanceKopf nicht bereit"] }, { return: 0 }] }
             - set: [<.d_dim, { call: [<.kopf.breite] }]
             - call: [log.info, "ChanceKopf: d=${<.d_dim}, Wortschatz ${<.kopf.n_wort}"]
             # Loesen die Marken ueberhaupt auf?  Ohne das steht in jeder
             # Folge nur die Aufgabenmarke, und alle Merkmale sind gleich.
-            - decl: [probe_ids, list<i32>, { call: [<.kopf.ids_von, "edged mud-caked terrifying massive silk stone aether", "shock-aspect minimal-threat guarding"] }]
+            - decl: [probe_ids, list<i32>, { call: [<.kopf.ids_von, "heavy hard hardened blunt pure enduring grippy", "light elastic shielding"] }]
             - call: [log.info, "Probefolge: ${probe_ids.len} Token (erwartet 12: 7 + Trenner + 3 + Aufgabe)"]
             - call: [<.zusatz_laden]
             - call: [<.umfeld_laden]
