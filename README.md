@@ -79,6 +79,22 @@ exodus `fd39730` packt `pyproject.toml` alle `exodus*`-Pakete.
 aiml wird **nicht gebaut**, sondern aus kontor geladen (siehe „Der
 Übersetzer kommt aus kontor“).
 
+### Einzelne Köpfe neu trainieren
+
+Ein Kopf lässt sich allein neu trainieren, ohne Atlas, Embedding und die
+übrigen Köpfe noch einmal zu rechnen. Ausgangsstand ist ein veröffentlichtes
+Paket aus kontor:
+
+| Eingabe | Wert |
+|---|---|
+| `schritte` | `3-koepfe` (oder `4-transformer`, `5-chance`) |
+| `koepfe` | z. B. `combat-skill-head` (mehrere mit Leerzeichen) |
+| `vorstand` | `latest` oder ein Paket wie `18-1fc8d90c6f8e` |
+| `frisch` | an: die Gewichte dieser Köpfe vorher löschen, von Null anfangen; aus: auf dem geladenen Stand weitertrainieren |
+| `kontor` | an: das Ergebnis hochladen. Weil alle übrigen Stores aus dem Ausgangsstand kommen, ist das Paket vollständig und wird `latest`, wenn das Gate grün ist. Für Versuche aus lassen. |
+
+`vorstand` und `vorlauf` (Run-ID eines GitHub-Laufs) schließen sich aus.
+
 ## Veröffentlichen nach kontor
 
 Nach einem Lauf, der Gewichte erzeugt hat, packt der Workflow die

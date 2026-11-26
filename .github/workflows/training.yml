@@ -32,6 +32,13 @@ on:
       vorlauf:
         description: "Run-ID eines frueheren Laufes, dessen aiondb fortgesetzt wird (leer = leer anfangen)"
         default: ""
+      vorstand:
+        description: "Ausgangsstand aus kontor (generic/datacreatures/prophecy/<das>/): latest oder z.B. 18-1fc8d90c6f8e (leer = keiner)"
+        default: ""
+      frisch:
+        description: "Die Koepfe aus `koepfe` von Null anfangen statt auf dem geladenen Stand weiterzutrainieren"
+        type: boolean
+        default: false
       aiml_version:
         description: "aiml aus kontor: generic/aiml/<das>/ -- latest (letztes Release), ein Tag wie v1.0.2.7 oder ein Commit"
         default: latest
@@ -199,6 +206,56 @@ jobs:
 
       - name: Datenbankordner
         run: mkdir -p aiondb berichte
+
+      # Ein einzelner Kopf (oder Transformer, Chance-Kopf) laesst sich so neu
+      # trainieren, ohne Atlas, Embedding und die anderen Koepfe noch einmal
+      # zu rechnen: das veroeffentlichte Paket aus kontor ist der Ausgangsstand.
+      # Ersetzt nicht `vorlauf`, steht daneben -- beide zugleich waere zweierlei
+      # Wahrheit, darum dann Abbruch.
+      - name: Ausgangsstand aus kontor
+        if: inputs.vorstand != ''
+        env:
+          KONTOR_URL: ${{ secrets.KONTOR_URL }}
+          KONTOR_TOKEN: ${{ secrets.KONTOR_TOKEN }}
+          VORSTAND: ${{ inputs.vorstand }}
+          VORLAUF: ${{ inputs.vorlauf }}
+        run: |
+          set -eu
+          [ -z "$VORLAUF" ] || { echo "vorstand und vorlauf zugleich -- bitte nur eins."; exit 1; }
+          basis="$KONTOR_URL/generic/datacreatures/prophecy/${VORSTAND}"
+          for datei in models.tar.gz models.json; do
+            curl --silent --show-error --fail-with-body --max-time 900 \
+                 --cacert .werkzeug/kontor-ca.crt \
+                 -H "Authorization: Bearer $KONTOR_TOKEN" \
+                 -o ".werkzeug/vorstand-$datei" "$basis/$datei" \
+              || { echo "generic/datacreatures/prophecy/${VORSTAND}/$datei liegt nicht in kontor."; exit 1; }
+          done
+          tar --sparse -xzf .werkzeug/vorstand-models.tar.gz -C aiondb
+          rm -f .werkzeug/vorstand-models.tar.gz
+          cat .werkzeug/vorstand-models.json
+          ls -l aiondb
+
+      # Ohne `frisch` laedt jeder Kopf seine abgelegten Gewichte und trainiert
+      # darauf weiter.  Mit `frisch` werden die Gewichte der genannten Koepfe
+      # vorher geloescht; Wortschatz und Prioritaeten schreibt der Kopf ohnehin
+      # neu.
+      - name: Koepfe frisch
+        if: inputs.frisch && inputs.koepfe != ''
+        env:
+          IN_KOEPFE: ${{ inputs.koepfe }}
+        run: |
+          set -eu
+          for teil in $IN_KOEPFE; do
+            case "$teil" in
+              item-head)         weg="prophecy_head_body prophecy_head_outputs" ;;
+              skill-head)        weg="prophecy_skill_head_body prophecy_skill_head_outputs" ;;
+              combat-skill-head) weg="prophecy_combat_skill_head_body prophecy_combat_skill_head_outputs" ;;
+              world-entity-head) weg="prophecy_world_entity_body prophecy_world_entity_et_body prophecy_world_entity_outputs" ;;
+              combat-score-head) weg="prophecy_combat_score_weights prophecy_combat_score_body" ;;
+              *) echo "unbekannter Kopf: $teil"; exit 1 ;;
+            esac
+            for store in $weg; do rm -fv "aiondb/$store.kvwal"; done
+          done
 
       # ── Korpora ──────────────────────────────────────────────────────────
       - name: Korpora neu erzeugen
