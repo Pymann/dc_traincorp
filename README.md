@@ -524,12 +524,22 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   weiter unter Zufall. Darum gilt seitdem: weniger als ein Viertel wach → neu
   ziehen.
 
-  Lauf #13 (nur Skill-Kopf, neu gezogen): Verlust fällt jetzt (12,0 → 10,17
-  bis Epoche 80), aber **45 s je Epoche** statt 3 s — die 3 s waren das Tempo
-  der toten Schicht. Lauf #5 hatte schon 36 s je Epoche gemessen; die
-  Hochrechnung von ≈ 2 h für 200 Epochen stimmt also für einen lebenden
-  Kopf. Abgebrochen nach Epoche 80 (1 h), damit der Transformer vorgeht. Der
-  Skill-Kopf braucht einen eigenen Lauf von rund 2,5 h.
+  Lauf #13 (nur Skill-Kopf, neu gezogen) lief mit **45 s je Epoche** und
+  wurde nach Epoche 80 abgebrochen. Lauf #15 rechnete **dieselben Verluste
+  bis auf die vierte Stelle** (12,00 → 11,01 → 10,63 …) mit **5 s je Epoche**,
+  200 Epochen in 18 Minuten. Die Langsamkeit in #13 lag also am Runner, nicht
+  an der lebenden Schicht. Ergebnis #15: Verlust 12,0 → 9,61, Abnahme
+  **15 / 1411 (1,1 %)**, Zufall 0,4 % — lernt, aber stark unteranpassend
+  (Trainingstreffer 1,5 %; die logistische Grundlinie des Korpus liegt bei
+  88 %). Die Lernrate fällt mit 1/sqrt(1+Epoche) auf 3,7·10⁻⁵ und ist damit
+  vermutlich zu klein; offen.
+* **Item-Kopf auf dem erweiterten Korpus (07ae0a9, 8.288 Eingaben)**,
+  Lauf #15: 55 von 64 Einheiten wach, Verlust 5,08 → 3,59, Abnahme
+  **196 / 829 (23,6 %)** statt 20,3 %, 209 von 259 Klassen vorhergesagt;
+  18 Minuten. Die Grundlinie (logistische Regression) liegt bei 77,8 % — der
+  Kopf ist auch hier weit unter dem, was der Korpus hergibt.
+* **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB
+  (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
