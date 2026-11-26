@@ -412,16 +412,17 @@ jobs:
             *) echo "Vollstaendigkeitspruefung kaputt (Exit $rc)"; exit 1 ;;
           esac
 
-          # Textdateien, die die Inferenz zur Laufzeit liest, gehoeren mit ins
-          # Paket, damit der Server sie aus derselben Quelle bekommt wie die
-          # Gewichte (ein Stand, eine Quelle).  Heute nur die Rezeptzeilen:
-          # prophecy/sources/inference.aiml, load_recipe_metadata.  Die
-          # Namenslisten unter prophecy/data/ liegen schon im Store
-          # prophecy_atlas und brauchen keine eigene Datei.
-          texte="itemgen/data/items_augmented.txt"
+          # Alle Textdateien des Repos gehoeren mit ins Paket, damit der
+          # Server sie aus derselben Quelle bekommt wie die Gewichte (ein
+          # Stand, eine Quelle): Korpora, Namens-, Tag- und Markenlisten.
+          # Genommen wird der Stand im Arbeitsverzeichnis, also auch ein in
+          # diesem Lauf neu gebauter Korpus (korpus_neu).  Die Inferenz liest
+          # zur Laufzeit selbst itemgen/data/items_augmented.txt.
+          texte=$(git ls-files '*.txt')
           for t in $texte; do
-            test -s "$t" || { echo "Laufzeit-Textdatei $t fehlt."; exit 1; }
+            test -f "$t" || { echo "Textdatei $t fehlt."; exit 1; }
           done
+          echo "$(echo "$texte" | wc -l) Textdateien kommen mit ins Paket."
 
           # --sparse, weil ein kvwal zu 16 MB ueberwiegend aus Nullen besteht.
           # Die Textdateien liegen im Paket unter demselben Pfad wie im Repo.

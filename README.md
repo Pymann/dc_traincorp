@@ -133,14 +133,17 @@ generic/datacreatures/prophecy/latest/models.json
 ```
 
 **Textdateien im Paket.** Der Server soll alles aus einer Quelle bekommen,
-deshalb liegen die Textdateien, die `prophecy/sources/inference.aiml` liest,
-mit in `models.tar.gz`, unter demselben Pfad wie im Repo. Heute ist das nur
-`itemgen/data/items_augmented.txt` (Rezeptzeilen, `load_recipe_metadata`).
-Die Namens- und Markenlisten unter `prophecy/data/` stecken schon im Store
-`prophecy_atlas` und brauchen keine eigene Datei. Pakete bis einschließlich
-#23 enthalten die Textdatei noch nicht. Liest die Inferenz künftig eine
-weitere Datei, gehört sie in die Liste `texte` im Schritt „Modelle nach
-kontor“. Beim Laden eines Ausgangsstands (`vorstand`) werden nur die Stores
+deshalb liegen alle Textdateien des Repos (`git ls-files '*.txt'`, heute 138,
+etwa 9 MB) mit in `models.tar.gz`, jeweils unter demselben Pfad wie im Repo:
+die Korpora unter `data/`, `itemgen/data/` und `discovergen/data/`, die Namens-,
+Tag-, Regel- und Markenlisten unter `prophecy/data/` und
+`prophecy/required_stores.txt`. Gepackt wird der Stand im Arbeitsverzeichnis,
+also auch ein im selben Lauf mit `korpus_neu` neu gebauter Korpus. Zur Laufzeit
+liest die Inferenz davon selbst nur `itemgen/data/items_augmented.txt`
+(`load_recipe_metadata`); die Listen unter `prophecy/data/` stecken zusätzlich
+im Store `prophecy_atlas`. Jede Datei steht mit ihrer SHA-256 in `models.json`
+unter `text_files`. Pakete bis einschließlich #23 enthalten noch keine
+Textdateien. Beim Laden eines Ausgangsstands (`vorstand`) werden nur die Stores
 ausgepackt; die Textdateien kommen dann aus dem Repo.
 
 Alles, was in kontor landet — Pfade, Dateinamen, JSON-Schlüssel — ist
