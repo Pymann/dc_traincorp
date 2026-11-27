@@ -229,6 +229,30 @@ jobs:
                  -o ".werkzeug/vorstand-$datei" "$basis/$datei" \
               || { echo "generic/datacreatures/prophecy/${VORSTAND}/$datei liegt nicht in kontor."; exit 1; }
           done
+          # Pruefen, was in kontor liegt: Pruefsumme des Pakets gegen
+          # models.json, jede Textdatei gegen ihre SHA-256 in models.json, und
+          # ob die in models.json genannten Stores im Paket stecken.
+          python3 - .werkzeug/vorstand-models.tar.gz .werkzeug/vorstand-models.json <<'EOP'
+          import hashlib, json, sys, tarfile
+          paket, meta = sys.argv[1], json.load(open(sys.argv[2]))
+          h = hashlib.sha256(open(paket, "rb").read()).hexdigest()
+          print(f"Lauf {meta.get('run_number')}, Paket sha256 {h}")
+          fehler = []
+          if h != meta.get("package_sha256"):
+              fehler.append(f"Paket-Pruefsumme {h} != models.json {meta.get('package_sha256')}")
+          with tarfile.open(paket) as tf:
+              namen = {m.name: m for m in tf.getmembers()}
+              for st in meta.get("stores", []):
+                  if st not in namen: fehler.append(f"Store fehlt im Paket: {st}")
+              texte = meta.get("text_files", {})
+              for pfad, soll in texte.items():
+                  if pfad not in namen: fehler.append(f"Textdatei fehlt: {pfad}"); continue
+                  ist = hashlib.sha256(tf.extractfile(namen[pfad]).read()).hexdigest()
+                  if ist != soll: fehler.append(f"Pruefsumme falsch: {pfad}")
+          print(f"{len(meta.get('stores', []))} Stores, {len(texte)} Textdateien geprueft, complete={meta.get('complete')}")
+          for f in fehler: print("FEHLER:", f)
+          sys.exit(1 if fehler else 0)
+          EOP
           # Nur die Stores; die mitgepackten Textdateien kommen aus dem Repo.
           tar --sparse -xzf .werkzeug/vorstand-models.tar.gz -C aiondb --wildcards 'prophecy_*'
           rm -f .werkzeug/vorstand-models.tar.gz

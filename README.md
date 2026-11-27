@@ -161,7 +161,7 @@ liest die Inferenz davon selbst nur `itemgen/data/items_augmented.txt`
 im Store `prophecy_atlas`. Jede Datei steht mit ihrer SHA-256 in `models.json`
 unter `text_files`. Pakete bis einschließlich #23 enthalten noch keine
 Textdateien. Beim Laden eines Ausgangsstands (`vorstand`) werden nur die Stores
-ausgepackt; die Textdateien kommen dann aus dem Repo.
+ausgepackt; die Textdateien kommen dann aus dem Repo. Vorher prüft der Schritt das Paket gegen sein `models.json`: Paket-Prüfsumme, jede Textdatei gegen ihre SHA-256 und ob jeder genannte Store im Paket steckt. Ein Lauf mit `schritte` = `nur-pruefen`, `vorstand` = `latest` und `kontor` aus prüft so, was in kontor liegt, ohne etwas zu ändern.
 
 Alles, was in kontor landet — Pfade, Dateinamen, JSON-Schlüssel — ist
 englisch; die Ablage teilen sich mehrere Projekte.
