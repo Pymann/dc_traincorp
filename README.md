@@ -763,8 +763,30 @@ Start ab. Bei einem Werkzeugwechsel `rm -rf out`.
   vorhergesagt. Vorher 44,5 % (#23) bei einer Grundlinie von 77,8 %; der
   Item-Kopf liegt damit erstmals über ihr. Die Einbettung liegt in
   `prophecy_item_embedding`.
+  **Lauf #33** (143857f, `3-koepfe`, Item- und Kampfskill-Kopf frisch mit
+  `emb_mit`, `vorstand` latest, kontor): Item 80,3 %, Kampfskill 20,5 %
+  (Top-5 50 %, bester Prüfteil erst in Epoche 145 von 150). Das Hochladen
+  scheiterte mit `413 Payload Too Large`: die Stores trugen jede überschriebene
+  Sicherung im WAL mit. Der Folgelauf #34 (`5-chance`) wurde abgebrochen.
+
+  **Lauf #35** (27.11.2026, 90ed625, `schritte` = `3-koepfe 5-chance`,
+  Item- und Kampfskill-Kopf frisch mit `emb_mit`, Chance-Kopf mit
+  `cs_encoder`, `cs_epochen` 20, `vorstand` latest, kontor), 1 h 40 min:
+
+  | Kopf | Abnahme | Grundlinie | vorher (#23) |
+  |---|---|---|---|
+  | Item | **80,3 %** (666 / 829) | 77,8 % | 44,5 % |
+  | Kampfskill | **20,5 %**, Top-5 50 % (Epoche 145) | 28,1 % | 10,8 % |
+  | Chance | erklärte Streuung **0,902** (bestes Zwischenergebnis 0,907 in Epoche 17), RMSE 0,068 | — | 0,12 |
+
+  Skill-, World-Entity- und Kampfwert-Kopf stammen unverändert aus #23. Gate
+  296/298/298/293 angenommen, 141 Textdateien im Paket. Nach `db.checkpoint`
+  ist das Paket **54 MB** statt 180 MB und liegt als
+  `35-90ed6253846b` und `latest` in kontor. Die Spiel-Inferenz muss
+  `prophecy_item_embedding` und `prophecy_combat_skill_embedding` laden
+  (siehe `emb_mit`), sonst rechnen Item- und Kampfskill-Kopf dort falsch.
 * **Paketgröße in kontor:** `14-…` 146 MB, `15-07ae0a94304c` 242 MB,
-  `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB (`latest`). Das `--sparse` hilft bei den vollen Stores kaum.
+  `17-02f5fc077460` 242 MB, `18-1fc8d90c6f8e` 164 MB, `23-7527daa58d92` 180 MB, `35-90ed6253846b` **54 MB** (`latest`, Stores mit `db.checkpoint` verdichtet). Das `--sparse` hilft bei den vollen Stores kaum.
 * **45 der 259 Rezepte** tragen eine Prozessmarke (`iron_craft`,
   `fiber_craft`, `bone_craft` …) als Voraussetzung. Früher vermutete Ursache
   der Gate-Ablehnung; in Lauf #2 nannte das Gate stattdessen den
